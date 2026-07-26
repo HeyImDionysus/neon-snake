@@ -77,7 +77,7 @@ async function main() {
     assert.equal(result.payload.slot, 0);
     assert.equal(calls.length, 1);
     assert.equal(calls[0][0], "EVAL");
-    assert.equal(calls[0][2], "4");
+    assert.equal(calls[0][2], "5");
     assert.ok(calls[0].some((value) => String(value).includes("{ABC234}")));
     assert.ok(calls[0].some((value) => String(value).startsWith("neon-snake:rate:")));
     assert.ok(!JSON.stringify(calls[0]).includes("203.0.113.9"));
@@ -92,11 +92,14 @@ async function main() {
         from: "spoofed-player",
         room: "WRONG1",
         sentAt: 1,
+        round: 1_725_000_000_050,
+        sequence: 1_725_000_000_001,
         direction: { x: 0, y: -1 },
         ignored: "value",
       },
       {
         type: "countdown",
+        round: 1_725_000_000_050,
         startsAt: 1_725_000_003_000,
       },
     ], {
@@ -108,6 +111,8 @@ async function main() {
     assert.deepEqual(sanitized, [
       {
         type: "input",
+        round: 1_725_000_000_050,
+        sequence: 1_725_000_000_001,
         direction: { x: 0, y: -1 },
         from: "client-two",
         room: "ABC234",
@@ -115,6 +120,7 @@ async function main() {
       },
       {
         type: "countdown",
+        round: 1_725_000_000_050,
         startsAt: 1_725_000_003_000,
         from: "client-two",
         room: "ABC234",
@@ -122,7 +128,7 @@ async function main() {
       },
     ]);
     assert.throws(
-      () => core.sanitizeMessages([{ type: "input", direction: { x: 1, y: 1 } }], {
+      () => core.sanitizeMessages([{ type: "input", sequence: 7, direction: { x: 1, y: 1 } }], {
         room: "ABC234",
         clientId: "client-two",
         now: 1_725_000_000_000,
@@ -130,7 +136,19 @@ async function main() {
       /direction/i,
     );
     assert.throws(
-      () => core.sanitizeMessages(new Array(17).fill({ type: "input", direction: { x: 1, y: 0 } }), {
+      () => core.sanitizeMessages([{ type: "input", sequence: 7, direction: { x: 1, y: 0 } }], {
+        room: "ABC234",
+        clientId: "client-two",
+        now: 1_725_000_000_000,
+      }),
+      /round/i,
+    );
+    assert.throws(
+      () => core.sanitizeMessages(new Array(17).fill({
+        type: "input",
+        sequence: 7,
+        direction: { x: 1, y: 0 },
+      }), {
         room: "ABC234",
         clientId: "client-two",
         now: 1_725_000_000_000,
@@ -138,6 +156,30 @@ async function main() {
       /too many/i,
     );
     process.stdout.write("PASS client envelopes are rebuilt and invalid gameplay payloads fail closed\n");
+  }
+
+  {
+    const state = core.sanitizeState({
+      playerSnake: [{ x: 4, y: 4 }, { x: 3, y: 4 }],
+      opponentSnake: [{ x: 20, y: 20 }, { x: 21, y: 20 }],
+      playerDirection: { x: 1, y: 0 },
+      opponentDirection: { x: -1, y: 0 },
+      playerScore: 10,
+      opponentScore: 20,
+      food: { x: 12, y: 12 },
+      signalCursor: 42,
+      round: 1_725_000_000_050,
+      guestInputAck: 1_725_000_000_100,
+      crashes: { player: null, opponent: null },
+      over: false,
+      winner: null,
+    });
+    assert.equal(state.guestInputAck, 1_725_000_000_100);
+    assert.throws(() => core.sanitizeState({
+      ...state,
+      guestInputAck: Number.MAX_SAFE_INTEGER + 1,
+    }), /acknowledgement/i);
+    process.stdout.write("PASS snapshots carry a safe monotonic guest-input acknowledgement\n");
   }
 
   {
@@ -162,11 +204,18 @@ async function main() {
       clientId: "client-two",
       session: "session-two",
       ready: true,
-      messages: [{ type: "input", direction: { x: -1, y: 0 } }],
+      messages: [{
+        type: "input",
+        round: 1_725_000_000_050,
+        sequence: 1_725_000_000_100,
+        direction: { x: -1, y: 0 },
+      }],
     });
     assert.equal(result.statusCode, 200);
     const messages = JSON.parse(calls[0].at(-1));
     assert.equal(messages[0].type, "input");
+    assert.equal(messages[0].round, 1_725_000_000_050);
+    assert.equal(messages[0].sequence, 1_725_000_000_100);
     assert.equal(messages[0].from, "client-two");
     assert.doesNotMatch(JSON.stringify(calls[0]), /STORAGE_|rediss:|Bearer /);
     process.stdout.write("PASS sync accepts only sanitized room messages\n");
@@ -225,6 +274,9 @@ async function main() {
     assert.match(script, /ZREMRANGEBYSCORE/);
     assert.match(script, /slot == 0 and \(eventType == "state" or eventType == "countdown"\)/);
     assert.match(script, /slot == 1 and eventType == "input"/);
+    assert.match(script, /ZADD", inputKey/);
+    assert.match(script, /ZREMRANGEBYSCORE", inputKey/);
+    assert.match(script, /ZRANGE", inputKey/);
     assert.match(script, /role = "spectator"/);
     assert.match(script, /ZSCORE/);
     assert.match(script, /EXPIRE/);
@@ -245,7 +297,7 @@ async function main() {
     process.stdout.write("PASS Vercel Storage environment names are resolved server-side\n");
   }
 
-  process.stdout.write("\n7 deterministic room API tests passed.\n");
+  process.stdout.write("\n8 deterministic room API tests passed.\n");
 }
 
 main().catch((error) => {

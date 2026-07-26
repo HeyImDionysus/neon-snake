@@ -59,7 +59,12 @@ let playerDirection = { ...DIRECTIONS.right };
 let playerQueuedDirection = { ...DIRECTIONS.right };
 let opponentDirection = { ...DIRECTIONS.left };
 let opponentQueuedDirection = { ...DIRECTIONS.left };
-let directionLocked = false;
+let playerInputBuffer = [];
+let opponentInputBuffer = [];
+let opponentInputSequences = [];
+let localInputSequence = Date.now();
+let lastGuestInputSequence = 0;
+let guestInputAck = 0;
 let playerScore = 0;
 let opponentScore = 0;
 let food = null;
@@ -82,6 +87,7 @@ let roomPlayers = [];
 let roomPeers = new Map();
 let liveCountdownTimer = null;
 let liveCountdownActive = false;
+let liveRoundId = 0;
 let liveSequence = 0;
 let lastRemoteSequence = -1;
 
@@ -145,7 +151,11 @@ function resetDuel() {
   playerQueuedDirection = { ...playerDirection };
   opponentDirection = { ...spawns.opponent.direction };
   opponentQueuedDirection = { ...opponentDirection };
-  directionLocked = false;
+  playerInputBuffer = [];
+  opponentInputBuffer = [];
+  opponentInputSequences = [];
+  lastGuestInputSequence = 0;
+  guestInputAck = 0;
   playerScore = 0;
   opponentScore = 0;
   signalCursor = Rules.signalState(roomCode);
@@ -346,7 +356,6 @@ function applyDuelResult(result, now) {
   opponentDirection = { ...result.players.opponent.direction };
   playerScore = result.players.player.score;
   opponentScore = result.players.opponent.score;
-  directionLocked = false;
   lastMoveAt = now;
   if (result.foodEatenBy) placeFood();
   updateHud();
@@ -354,6 +363,9 @@ function applyDuelResult(result, now) {
 }
 
 function tickAi(now) {
+  const playerTurn = Rules.consumeDirectionBuffer(playerInputBuffer, playerDirection);
+  playerQueuedDirection = playerTurn.direction;
+  playerInputBuffer = playerTurn.queue;
   opponentQueuedDirection = { ...chooseAiDirection() };
   playerDirection = { ...playerQueuedDirection };
   opponentDirection = { ...opponentQueuedDirection };
@@ -370,6 +382,17 @@ function tickAi(now) {
 }
 
 function tickLiveHost(now) {
+  const playerTurn = Rules.consumeDirectionBuffer(playerInputBuffer, playerDirection);
+  const opponentTurn = Rules.consumeDirectionBuffer(opponentInputBuffer, opponentDirection);
+  const opponentTurnConsumed = opponentTurn.queue.length < opponentInputBuffer.length;
+  playerQueuedDirection = playerTurn.direction;
+  opponentQueuedDirection = opponentTurn.direction;
+  playerInputBuffer = playerTurn.queue;
+  opponentInputBuffer = opponentTurn.queue;
+  if (opponentTurnConsumed) {
+    const appliedSequence = opponentInputSequences.shift();
+    if (Number.isSafeInteger(appliedSequence)) guestInputAck = Math.max(guestInputAck, appliedSequence);
+  }
   playerDirection = { ...playerQueuedDirection };
   opponentDirection = { ...opponentQueuedDirection };
   const result = Rules.resolveDuelTick({
@@ -510,24 +533,30 @@ function updateHud() {
 }
 
 function requestDirection(next) {
-  if (runState !== "running" || directionLocked) return;
+  if (runState !== "running") return;
   if (duelType === "live") {
     const localIndex = roomPlayers.findIndex((player) => player.id === clientId);
     if (localIndex < 0) return;
-    const current = localIndex === 0 ? playerDirection : opponentDirection;
-    if (next.x === -current.x && next.y === -current.y) return;
     if (localIndex === 0) {
-      playerQueuedDirection = { ...next };
+      playerInputBuffer = Rules.bufferDirection(playerInputBuffer, playerDirection, next);
     } else {
-      postRoomMessage({ type: "input", direction: next });
+      const buffered = Rules.bufferDirection(opponentInputBuffer, opponentDirection, next);
+      if (buffered.length > opponentInputBuffer.length) {
+        localInputSequence = Math.max(localInputSequence + 1, Date.now());
+        opponentInputBuffer = buffered;
+        opponentInputSequences.push(localInputSequence);
+        postRoomMessage({
+          type: "input",
+          round: liveRoundId,
+          sequence: localInputSequence,
+          direction: next,
+        });
+      }
     }
-    directionLocked = true;
     return;
   }
 
-  if (next.x === -playerDirection.x && next.y === -playerDirection.y) return;
-  playerQueuedDirection = { ...next };
-  directionLocked = true;
+  playerInputBuffer = Rules.bufferDirection(playerInputBuffer, playerDirection, next);
 }
 
 function togglePause() {
@@ -701,8 +730,9 @@ function syncLiveRoom() {
       && roomPlayers[0]?.id === clientId
     ) {
       const startsAt = Date.now() + 3200;
-      postRoomMessage({ type: "countdown", startsAt });
-      beginLiveCountdown(startsAt);
+      const round = Date.now();
+      postRoomMessage({ type: "countdown", round, startsAt });
+      beginLiveCountdown(startsAt, round);
     }
   }
   if (roomConnectionState === "reconnecting") {
@@ -826,10 +856,17 @@ function toggleRoomReady() {
   syncLiveRoom();
 }
 
-function beginLiveCountdown(startsAt) {
-  if (liveCountdownActive) return;
+function beginLiveCountdown(startsAt, round) {
+  if (!Number.isSafeInteger(round) || round < 1) return;
+  if (round <= liveRoundId || runState === "running") return;
+  if (liveCountdownActive) {
+    clearInterval(liveCountdownTimer);
+    liveCountdownTimer = null;
+    liveCountdownActive = false;
+  }
   liveCountdownActive = true;
   resetDuel();
+  liveRoundId = round;
   setRunState("countdown", "LIVE DUEL COUNTDOWN");
   aiStartButton.hidden = true;
 
@@ -909,6 +946,8 @@ function broadcastSnapshot(result) {
       opponentScore,
       food,
       signalCursor,
+      round: liveRoundId,
+      guestInputAck,
       crashes: result.crashes,
       over: result.over,
       winner: result.winner,
@@ -919,7 +958,16 @@ function broadcastSnapshot(result) {
 function applyRemoteSnapshot(message) {
   if (message.sequence <= lastRemoteSequence || roomPlayers[0]?.id === clientId) return;
   const state = message.state;
+  if (state?.round !== liveRoundId) return;
   if (!state?.playerSnake?.length || !state?.opponentSnake?.length) return;
+  const localIndex = roomPlayers.findIndex((player) => player.id === clientId);
+  if (localIndex === 1) {
+    const acknowledged = Number(state.guestInputAck) || 0;
+    while (opponentInputSequences.length && opponentInputSequences[0] <= acknowledged) {
+      opponentInputSequences.shift();
+      opponentInputBuffer.shift();
+    }
+  }
   lastRemoteSequence = message.sequence;
   previousPlayerSnake = cloneSnake(playerSnake);
   previousOpponentSnake = cloneSnake(opponentSnake);
@@ -931,7 +979,6 @@ function applyRemoteSnapshot(message) {
   opponentScore = Number(state.opponentScore) || 0;
   food = state.food ? { ...state.food } : null;
   signalCursor = Number(state.signalCursor) >>> 0;
-  directionLocked = false;
   lastMoveAt = performance.now();
   updateHud();
   if (state.over && runState === "running") endDuel(state.winner, state.crashes);
@@ -957,14 +1004,27 @@ function handleRoomMessage(message) {
   }
   if (message.type === "countdown") {
     const startsAt = Number(message.startsAt);
-    if (Number.isFinite(startsAt)) beginLiveCountdown(startsAt);
+    const round = Number(message.round);
+    if (Number.isFinite(startsAt) && Number.isSafeInteger(round)) beginLiveCountdown(startsAt, round);
     return;
   }
   if (message.type === "input" && roomPlayers[0]?.id === clientId) {
     const next = message.direction;
-    if (!next || next.x === -opponentDirection.x && next.y === -opponentDirection.y) return;
+    const round = Number(message.round);
+    const sequence = Number(message.sequence);
+    if (
+      !next
+      || round !== liveRoundId
+      || !Number.isSafeInteger(sequence)
+      || sequence <= lastGuestInputSequence
+    ) return;
     if (CANDIDATES.some((candidate) => candidate.x === next.x && candidate.y === next.y)) {
-      opponentQueuedDirection = { x: next.x, y: next.y };
+      const buffered = Rules.bufferDirection(opponentInputBuffer, opponentDirection, next);
+      if (buffered.length > opponentInputBuffer.length) {
+        opponentInputBuffer = buffered;
+        opponentInputSequences.push(sequence);
+        lastGuestInputSequence = sequence;
+      }
     }
     return;
   }

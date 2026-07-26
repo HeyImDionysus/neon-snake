@@ -70,6 +70,7 @@ Signal Codes also name duel rooms. `PUBLIC LIVE ROOM` reserves exactly two serve
 - **Rush:** score as much as possible in 60 seconds.
 - **Canvas:** edges wrap, self-crossing is safe, and every move becomes a persistent brush stroke.
 - **Fluid presentation:** the board has no visible lattice; the snake, Echo, trails, AI markers, and exported artwork use rounded continuous forms while preserving exact tile rules underneath.
+- **Responsive controls:** keyboard, swipe, touch buttons, and gamepad input share a bounded two-turn buffer, so a rapid corner sequence is consumed one turn per logic step without allowing reversals.
 - **Combo:** quick consecutive pickups increase the multiplier up to five.
 - **Core:** every fifth pickup creates a timed, high-value target.
 - **Mutation:** a Core temporarily bends one run rule—Flow slows time or Amplify doubles points. Mode boundaries never change.

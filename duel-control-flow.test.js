@@ -49,6 +49,19 @@ const tests = [
     assert.match(body, /drawFluidSnake\(opponentSnake/);
     assert.match(functionBody("drawFluidSnake"), /Rules\.fluidMotionPath/);
   }],
+  ["AI and live duels preserve two rapid turns in order", () => {
+    const request = functionBody("requestDirection");
+    assert.match(request, /Rules\.bufferDirection\(playerInputBuffer, playerDirection, next\)/);
+    assert.match(request, /Rules\.bufferDirection\(opponentInputBuffer, opponentDirection, next\)/);
+    assert.match(functionBody("tickAi"), /Rules\.consumeDirectionBuffer\(playerInputBuffer, playerDirection\)/);
+    assert.match(functionBody("tickLiveHost"), /Rules\.consumeDirectionBuffer\(opponentInputBuffer, opponentDirection\)/);
+    assert.match(functionBody("requestDirection"), /sequence: localInputSequence/);
+    assert.match(functionBody("requestDirection"), /round: liveRoundId/);
+    assert.match(functionBody("broadcastSnapshot"), /guestInputAck/);
+    assert.match(functionBody("broadcastSnapshot"), /round: liveRoundId/);
+    assert.match(functionBody("applyRemoteSnapshot"), /opponentInputSequences\[0\] <= acknowledged/);
+    assert.match(functionBody("handleRoomMessage"), /round !== liveRoundId/);
+  }],
   ["live rooms remain waiting until two connected players are ready", () => {
     const body = functionBody("syncLiveRoom");
     assert.match(body, /Rules\.liveRoomPhase\(participants\)/);
@@ -56,6 +69,9 @@ const tests = [
     assert.match(body, /phase === "ready"/);
     assert.match(body, /phase === "countdown"/);
     assert.match(body, /beginLiveCountdown/);
+    const countdown = functionBody("beginLiveCountdown");
+    assert.match(countdown, /round <= liveRoundId/);
+    assert.match(countdown, /clearInterval\(liveCountdownTimer\)/);
   }],
   ["live-room transport is explicitly identified as public cross-device play", () => {
     assert.match(html, /PUBLIC LIVE ROOM/);

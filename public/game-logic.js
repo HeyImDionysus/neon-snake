@@ -130,6 +130,50 @@
     return mode === "portal" || mode === "canvas";
   }
 
+  function isCardinalDirection(direction) {
+    return Number.isInteger(direction?.x)
+      && Number.isInteger(direction?.y)
+      && Math.abs(direction.x) + Math.abs(direction.y) === 1;
+  }
+
+  function sameDirection(first, second) {
+    return first?.x === second?.x && first?.y === second?.y;
+  }
+
+  function bufferDirection(queue, currentDirection, nextDirection, limit = 2) {
+    const capacity = Math.max(1, Math.min(4, Math.floor(Number(limit) || 2)));
+    const pending = (Array.isArray(queue) ? queue : [])
+      .filter(isCardinalDirection)
+      .slice(0, capacity)
+      .map((direction) => ({ x: direction.x, y: direction.y }));
+    if (!isCardinalDirection(currentDirection)
+      || !isCardinalDirection(nextDirection)
+      || pending.length >= capacity) return pending;
+
+    const reference = pending.at(-1) || currentDirection;
+    const duplicate = sameDirection(nextDirection, reference);
+    const reversing = nextDirection.x === -reference.x && nextDirection.y === -reference.y;
+    if (duplicate || reversing) return pending;
+    return [...pending, { x: nextDirection.x, y: nextDirection.y }];
+  }
+
+  function consumeDirectionBuffer(queue, currentDirection) {
+    const current = isCardinalDirection(currentDirection)
+      ? { x: currentDirection.x, y: currentDirection.y }
+      : { x: 1, y: 0 };
+    const pending = (Array.isArray(queue) ? queue : [])
+      .filter(isCardinalDirection)
+      .map((direction) => ({ x: direction.x, y: direction.y }));
+
+    while (pending.length) {
+      const next = pending.shift();
+      const duplicate = sameDirection(next, current);
+      const reversing = next.x === -current.x && next.y === -current.y;
+      if (!duplicate && !reversing) return { direction: next, queue: pending };
+    }
+    return { direction: current, queue: [] };
+  }
+
   function nextHead(head, direction, mode, gridSize) {
     const next = { x: head.x + direction.x, y: head.y + direction.y };
     if (modeWraps(mode)) {
@@ -1312,9 +1356,11 @@
   }
 
   const api = {
+    bufferDirection,
     chooseBestMove,
     collisionType,
     compareDecision,
+    consumeDirectionBuffer,
     decisionInsight,
     decisionProfile,
     duelGridSize,

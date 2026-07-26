@@ -9,6 +9,27 @@ const tests = [
     assert.deepEqual(rules.nextHead({ x: 19, y: 4 }, { x: 1, y: 0 }, "portal", 20), { x: 0, y: 4 });
     assert.equal(rules.gridDistance({ x: 0, y: 0 }, { x: 4, y: 0 }, "portal", 5), 1);
   }],
+  ["rapid corner inputs buffer in order without allowing reversals", () => {
+    const right = { x: 1, y: 0 };
+    const up = { x: 0, y: -1 };
+    const left = { x: -1, y: 0 };
+    const down = { x: 0, y: 1 };
+    let queue = rules.bufferDirection([], right, up);
+    queue = rules.bufferDirection(queue, right, left);
+    assert.deepEqual(queue, [up, left]);
+    assert.deepEqual(rules.bufferDirection(queue, right, down), queue, "the two-turn buffer stays bounded");
+    assert.deepEqual(rules.bufferDirection([], right, left), [], "an immediate reversal is rejected");
+  }],
+  ["buffered turns are consumed one per logic step", () => {
+    const right = { x: 1, y: 0 };
+    const up = { x: 0, y: -1 };
+    const left = { x: -1, y: 0 };
+    const first = rules.consumeDirectionBuffer([up, left], right);
+    assert.deepEqual(first, { direction: up, queue: [left] });
+    const second = rules.consumeDirectionBuffer(first.queue, first.direction);
+    assert.deepEqual(second, { direction: left, queue: [] });
+    assert.deepEqual(rules.consumeDirectionBuffer([], left), { direction: left, queue: [] });
+  }],
   ["render motion advances linearly without per-tick braking", () => {
     assert.equal(rules.motionProgress(-10, 100), 0);
     assert.equal(rules.motionProgress(25, 100), .25);

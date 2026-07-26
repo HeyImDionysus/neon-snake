@@ -15,7 +15,8 @@ const ROOM_SCRIPT = String.raw`
 local playersKey = KEYS[1]
 local readyKey = KEYS[2]
 local dataKey = KEYS[3]
-local rateKey = KEYS[4]
+local inputKey = KEYS[4]
+local rateKey = KEYS[5]
 
 local now = tonumber(ARGV[1])
 local action = ARGV[2]
@@ -47,6 +48,7 @@ local active = redis.call("ZRANGEBYSCORE", playersKey, cutoff, "+inf")
 if #active == 0 then
   redis.call("DEL", readyKey)
   redis.call("DEL", dataKey)
+  redis.call("DEL", inputKey)
 end
 
 local member = nil
@@ -88,10 +90,20 @@ if action == "sync" and member ~= nil then
   for _, event in ipairs(events) do
     local eventType = event["type"]
     if slot == 0 and (eventType == "state" or eventType == "countdown") then
+      if eventType == "countdown" then
+        redis.call("DEL", inputKey)
+      elseif eventType == "state" then
+        local inputAck = tonumber(event["state"]["guestInputAck"] or "0")
+        if inputAck > 0 then redis.call("ZREMRANGEBYSCORE", inputKey, "-inf", inputAck) end
+      end
       redis.call("HSET", dataKey, eventType, cjson.encode(event))
       redis.call("HINCRBY", dataKey, eventType .. "Rev", 1)
     elseif slot == 1 and eventType == "input" then
-      redis.call("HSET", dataKey, eventType, cjson.encode(event))
+      local inputSequence = tonumber(event["sequence"])
+      redis.call("ZREMRANGEBYSCORE", inputKey, inputSequence, inputSequence)
+      redis.call("ZADD", inputKey, inputSequence, cjson.encode(event))
+      local inputCount = redis.call("ZCARD", inputKey)
+      if inputCount > 32 then redis.call("ZREMRANGEBYRANK", inputKey, 0, inputCount - 33) end
       redis.call("HINCRBY", dataKey, eventType .. "Rev", 1)
     end
   end
@@ -109,11 +121,13 @@ end
 if redis.call("ZCARD", playersKey) == 0 then
   redis.call("DEL", readyKey)
   redis.call("DEL", dataKey)
+  redis.call("DEL", inputKey)
 end
 
 redis.call("EXPIRE", playersKey, ${ROOM_TTL_SECONDS})
 redis.call("EXPIRE", readyKey, ${ROOM_TTL_SECONDS})
 redis.call("EXPIRE", dataKey, ${ROOM_TTL_SECONDS})
+redis.call("EXPIRE", inputKey, ${ROOM_TTL_SECONDS})
 
 local players = {}
 local current = redis.call("ZRANGEBYSCORE", playersKey, cutoff, "+inf")
@@ -138,6 +152,11 @@ local function payload(field)
   return cjson.null
 end
 
+local inputs = {}
+for _, value in ipairs(redis.call("ZRANGE", inputKey, 0, -1)) do
+  table.insert(inputs, cjson.decode(value))
+end
+
 return cjson.encode({
   role = role,
   slot = slot,
@@ -147,7 +166,7 @@ return cjson.encode({
   inputRev = revision("inputRev"),
   countdownRev = revision("countdownRev"),
   state = payload("state"),
-  input = payload("input"),
+  input = inputs,
   countdown = payload("countdown")
 })
 `;
@@ -211,6 +230,15 @@ function score(value, label) {
   return parsed;
 }
 
+function inputSequence(value, label, allowZero = false) {
+  const parsed = Number(value);
+  const minimum = allowZero ? 0 : 1;
+  if (!Number.isSafeInteger(parsed) || parsed < minimum) {
+    throw new TypeError(`${label} is invalid.`);
+  }
+  return parsed;
+}
+
 function crash(value, label) {
   if (value === null || value === undefined) return null;
   if (typeof value !== "string" || !/^[a-z-]{1,32}$/.test(value)) {
@@ -247,6 +275,8 @@ function sanitizeState(value) {
     opponentScore: score(value.opponentScore, "Opponent score"),
     food: value.food === null || value.food === undefined ? null : point(value.food, "Food"),
     signalCursor,
+    round: inputSequence(value.round, "Round"),
+    guestInputAck: inputSequence(value.guestInputAck ?? 0, "Guest input acknowledgement", true),
     crashes: {
       player: crash(value.crashes?.player, "Player crash"),
       opponent: crash(value.crashes?.opponent, "Opponent crash"),
@@ -269,13 +299,16 @@ function sanitizeMessages(messages, { room, clientId, now }) {
     if (message.type === "input") {
       const next = direction(message.direction);
       if (!next) throw new TypeError("Input direction is invalid.");
-      payload = { type: "input", direction: next };
+      const round = inputSequence(message.round, "Input round");
+      const sequence = inputSequence(message.sequence, "Input sequence");
+      payload = { type: "input", round, sequence, direction: next };
     } else if (message.type === "countdown") {
       const startsAt = Number(message.startsAt);
       if (!Number.isFinite(startsAt) || startsAt < now - 1_000 || startsAt > now + 10_000) {
         throw new TypeError("Countdown time is invalid.");
       }
-      payload = { type: "countdown", startsAt: Math.round(startsAt) };
+      const round = inputSequence(message.round, "Countdown round");
+      payload = { type: "countdown", round, startsAt: Math.round(startsAt) };
     } else if (message.type === "state") {
       const sequence = Number(message.sequence);
       if (!Number.isSafeInteger(sequence) || sequence < 0 || sequence > 1_000_000_000) {
@@ -357,6 +390,7 @@ function roomKeys(room, rateId) {
     `neon-snake:${tag}:players`,
     `neon-snake:${tag}:ready`,
     `neon-snake:${tag}:data`,
+    `neon-snake:${tag}:inputs`,
     `neon-snake:rate:${rateId}`,
   ];
 }
@@ -459,7 +493,7 @@ function createRoomHandler({
       const command = [
         "EVAL",
         ROOM_SCRIPT,
-        "4",
+        "5",
         ...roomKeys(input.room, requestRateId(request)),
         String(timestamp),
         input.action,

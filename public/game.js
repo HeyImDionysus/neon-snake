@@ -112,7 +112,7 @@ let previousSnake = [];
 let food = null;
 let direction = { ...DIRECTIONS.right };
 let queuedDirection = { ...direction };
-let directionLocked = false;
+let directionBuffer = [];
 let score = 0;
 let level = 1;
 let foodCount = 0;
@@ -286,7 +286,7 @@ function resetRun() {
   previousSnake = snake.map((segment) => ({ ...segment }));
   direction = { ...DIRECTIONS.right };
   queuedDirection = { ...direction };
-  directionLocked = false;
+  directionBuffer = [];
   score = 0;
   level = 1;
   foodCount = 0;
@@ -929,11 +929,16 @@ function addCanvasMark(from, to, now) {
 
 function tick(now = performance.now()) {
   previousSnake = snake.map((segment) => ({ ...segment }));
-  if (demoMode) queuedDirection = chooseDemoDirection();
+  if (demoMode) {
+    queuedDirection = chooseDemoDirection();
+  } else {
+    const buffered = Rules.consumeDirectionBuffer(directionBuffer, direction);
+    queuedDirection = buffered.direction;
+    directionBuffer = buffered.queue;
+  }
   const effectiveMode = Rules.effectiveMode(activeMode, mutation.type);
   if (!demoMode) recordDecision(effectiveMode);
   direction = { ...queuedDirection };
-  directionLocked = false;
   const head = Rules.nextHead(snake[0], direction, effectiveMode, GRID);
 
   const growing = food && head.x === food.x && head.y === food.y;
@@ -1246,6 +1251,7 @@ function prepareRun(initialDirection = DIRECTIONS.right) {
   ghostPath = activeMode === "canvas" ? [] : Rules.normalizeReplay(profile.replays?.[activeMode], GRID);
   direction = { ...initialDirection };
   queuedDirection = { ...initialDirection };
+  directionBuffer = [];
   runState = "ready";
   updateHud();
   setSetupDisabled(true);
@@ -1451,19 +1457,11 @@ function requestDirection(next) {
     return;
   }
   if (runState === "countdown") {
-    const reversing = next.x === -direction.x && next.y === -direction.y;
-    if (!reversing) {
-      direction = { ...next };
-      queuedDirection = { ...next };
-    }
+    directionBuffer = Rules.bufferDirection(directionBuffer, direction, next);
     return;
   }
-  if (runState !== "running" || directionLocked) return;
-  const reversing = next.x === -direction.x && next.y === -direction.y;
-  if (!reversing) {
-    queuedDirection = { ...next };
-    directionLocked = true;
-  }
+  if (runState !== "running") return;
+  directionBuffer = Rules.bufferDirection(directionBuffer, direction, next);
 }
 
 function activateOverdrive(now) {

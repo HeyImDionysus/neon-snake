@@ -159,13 +159,15 @@ const tests = [
             stateRev: 4,
             inputRev: 3,
             countdownRev: 1,
-            input: {
+            input: [{
               type: "input",
+              round: 100,
+              sequence: 101,
               direction: { x: 0, y: -1 },
               from: "client-two",
               room: "ABC234",
               sentAt: 123,
-            },
+            }],
           };
         },
       };
@@ -209,8 +211,52 @@ const tests = [
     assert.ok(received.some((message) => (
       message.type === "input"
       && message.from === "client-two"
+      && message.round === 100
+      && message.sequence === 101
       && message.direction.y === -1
     )));
+    transport.close();
+  }],
+  ["remote input batching preserves two rapid guest turns in order", async () => {
+    const requests = [];
+    const scheduled = [];
+    const transport = await transports.createRemoteRoomTransport({
+      code: "ABC234",
+      clientId: "client-two",
+      onMessage: () => {},
+      fetchImpl: async (_url, options) => {
+        const body = JSON.parse(options.body);
+        requests.push(body);
+        return {
+          ok: true,
+          async json() {
+            return {
+              role: "player",
+              slot: 1,
+              session: "session-two",
+              players: [{ id: "client-two", slot: 1, ready: true }],
+              stateRev: 0,
+              inputRev: body.action === "sync" ? 2 : 0,
+              countdownRev: 0,
+              input: [],
+            };
+          },
+        };
+      },
+      setTimeoutImpl: (callback) => {
+        scheduled.push(callback);
+        return scheduled.length;
+      },
+      clearTimeoutImpl: () => {},
+    });
+
+    transport.send({ type: "input", round: 100, sequence: 200, direction: { x: 0, y: -1 } });
+    transport.send({ type: "input", round: 100, sequence: 201, direction: { x: -1, y: 0 } });
+    await scheduled.shift()();
+    assert.deepEqual(requests[1].messages, [
+      { type: "input", round: 100, sequence: 200, direction: { x: 0, y: -1 } },
+      { type: "input", round: 100, sequence: 201, direction: { x: -1, y: 0 } },
+    ]);
     transport.close();
   }],
   ["remote close uses a keepalive leave without leaking the session into the URL", async () => {

@@ -95,6 +95,7 @@
     const normalizedCode = code.trim().toUpperCase();
     const sessionKey = `neon-snake-room-session:${normalizedCode}:${clientId}`;
     const pending = new Map();
+    let pendingInputs = [];
     const revisions = {
       state: 0,
       input: 0,
@@ -178,7 +179,10 @@
       emitRoster(data.players);
       ["state", "input", "countdown"].forEach((type) => {
         const revision = Number(data[`${type}Rev`]) || 0;
-        if (!baseline && revision > revisions[type] && data[type]) {
+        const shouldEmit = revision > revisions[type] && data[type] && (!baseline || type === "input");
+        if (shouldEmit && type === "input" && Array.isArray(data.input)) {
+          data.input.forEach((message) => onMessage(message));
+        } else if (shouldEmit) {
           onMessage(data[type]);
         }
         revisions[type] = Math.max(revisions[type], revision);
@@ -208,7 +212,8 @@
     async function sync() {
       if (closed || inFlight) return;
       inFlight = true;
-      const outgoing = [...pending.values()];
+      const outgoing = [...pendingInputs, ...pending.values()];
+      pendingInputs = [];
       pending.clear();
       try {
         const data = await request("sync", outgoing);
@@ -219,7 +224,12 @@
           applyResponse(data);
         }
       } catch (error) {
-        outgoing.forEach((message) => {
+        const existingInputSequences = new Set(pendingInputs.map((message) => message.sequence));
+        const retryInputs = outgoing.filter((message) => (
+          message.type === "input" && !existingInputSequences.has(message.sequence)
+        ));
+        pendingInputs = [...retryInputs, ...pendingInputs];
+        outgoing.filter((message) => message.type !== "input").forEach((message) => {
           if (!pending.has(message.type)) pending.set(message.type, message);
         });
         failures += 1;
@@ -247,6 +257,8 @@
         }
         if (message.type === "presence" || message.type === "ready") {
           ready = Boolean(message.ready);
+        } else if (message.type === "input") {
+          pendingInputs.push(message);
         } else if (message.type !== "leave") {
           pending.set(message.type, message);
         }

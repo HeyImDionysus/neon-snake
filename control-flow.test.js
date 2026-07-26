@@ -33,6 +33,11 @@ const tests = [
     assert.match(body, /runState === "ready" \|\| runState === "over"/);
     assert.match(body, /if \(demoMode\)/);
   }],
+  ["rapid turns use the bounded deterministic input buffer", () => {
+    const request = functionBody("requestDirection");
+    assert.equal((request.match(/Rules\.bufferDirection\(directionBuffer, direction, next\)/g) || []).length, 2);
+    assert.match(functionBody("tick"), /Rules\.consumeDirectionBuffer\(directionBuffer, direction\)/);
+  }],
   ["AI play uses the currently selected mode", () => {
     const body = functionBody("prepareDemo");
     assert.match(body, /activeMode = selectedMode\(\)/);
