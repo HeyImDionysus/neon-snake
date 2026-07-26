@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#070b09" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="application-name" content="Neon Snake" />
+    <meta name="description" content="Play Neon Snake, a dependency-free browser AI lab where explainable AI play, rule mutations, replay memory, and a generative Canvas turn simple Snake into an evolving experiment." />
+    <meta name="robots" content="index,follow,max-image-preview:large" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Neon Snake" />
+    <meta property="og:title" content="Neon Snake — A Browser AI Lab" />
+    <meta property="og:description" content="A public browser arcade where simple Snake rules evolve through explainable AI play, mutations, Echo replays, and a generative Canvas." />
+    <meta property="og:image" content="/assets/neon-snake-social-fluid.png" />
+    <meta property="og:image:width" content="1734" />
+    <meta property="og:image:height" content="907" />
+    <meta property="og:image:alt" content="A fluid neon snake arcs through atmospheric green and violet light toward a golden Core and glowing portal." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Neon Snake — A Browser AI Lab" />
+    <meta name="twitter:description" content="Play a dependency-free browser arcade built as a transparent experiment in AI, game feel, generative art, and simple rules." />
+    <meta name="twitter:image" content="/assets/neon-snake-social-fluid.png" />
+    <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>Neon Snake — A Browser AI Lab</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-game-state="ready">
+    <div class="ambient ambient-one" aria-hidden="true"></div>
+    <div class="ambient ambient-two" aria-hidden="true"></div>
+
+    <header class="site-header">
+      <a class="brand" href="./" aria-label="Reset Neon Snake">
+        <span class="brand-glyph" aria-hidden="true">S</span>
+        <span>NEON SNAKE</span>
+      </a>
+      <div class="system-status" aria-live="polite">
+        <span class="status-light" aria-hidden="true"></span>
+        <span id="statusText">SYSTEM READY</span>
+      </div>
+      <button class="sound-toggle" id="soundButton" type="button" aria-pressed="true" aria-label="Mute sound">
+        <span class="sound-bars" aria-hidden="true"><i></i><i></i><i></i></span>
+      </button>
+    </header>
+
+    <main class="arcade-shell">
+      <section class="game-column" aria-label="Neon Snake game">
+        <div class="game-console">
+          <header class="console-hud">
+            <div class="hud-primary">
+              <span class="hud-label">SCORE</span>
+              <strong id="score">00000</strong>
+            </div>
+            <div class="hud-stat">
+              <span class="hud-label">LEVEL</span>
+              <strong id="level">01</strong>
+            </div>
+            <div class="hud-stat">
+              <span class="hud-label">COMBO</span>
+              <strong id="combo">×1</strong>
+            </div>
+            <div class="hud-stat mutation-stat" id="mutationStat" hidden>
+              <span class="hud-label">MUTATION</span>
+              <strong id="mutationName">FLOW</strong>
+            </div>
+            <div class="hud-stat echo-stat" id="echoStat" hidden>
+              <span class="hud-label">ECHO</span>
+              <strong id="echoState">SYNCED</strong>
+            </div>
+            <div class="hud-stat timer-stat" id="timerStat" hidden>
+              <span class="hud-label">TIME</span>
+              <strong id="rushTime">60.0</strong>
+            </div>
+            <div class="mode-chip" id="modeChip">CLASSIC</div>
+          </header>
+
+          <div class="board-wrap" id="boardWrap">
+            <canvas
+              id="gameCanvas"
+              width="720"
+              height="720"
+              role="img"
+              aria-label="Neon Snake game board"
+              aria-describedby="gameInstructions"
+            ></canvas>
+            <div class="screen-vignette" aria-hidden="true"></div>
+            <div class="pickup-toast" id="pickupToast" aria-hidden="true">
+              <span id="pickupName">CORE ACQUIRED</span>
+              <strong id="pickupPoints">+50</strong>
+            </div>
+            <div class="ai-lens" id="aiLens" aria-hidden="true" hidden>
+              <div class="ai-lens-label"><span id="aiLensLabel">AI HINT · YOU DRIVE</span><i></i></div>
+              <strong id="aiPlan">SCANNING BOARD</strong>
+              <small id="aiReason">SURVIVAL FIRST</small>
+            </div>
+            <div class="overlay" id="overlay">
+              <div class="overlay-content">
+                <div class="snake-mark" aria-hidden="true">
+                  <span></span><span></span><span></span><span></span>
+                </div>
+                <p class="overlay-kicker" id="overlayKicker">ARCADE SYSTEM 01</p>
+                <h1 id="overlayTitle">NEON<br /><em>SNAKE</em></h1>
+                <p id="overlayMessage">Eat the signal. Grow the chain. Don't break the line.</p>
+                <div class="run-rank" id="runRank" hidden>
+                  <span>RUN RANK</span>
+                  <strong id="rankValue">S</strong>
+                </div>
+                <section class="decision-report" id="decisionReport" aria-label="Decision DNA report" hidden>
+                  <div class="decision-heading">
+                    <span>DECISION DNA</span>
+                    <strong id="decisionStyle">TACTICIAN</strong>
+                  </div>
+                  <div class="decision-metrics">
+                    <div><strong id="decisionMatch">00%</strong><span>AI MATCH</span></div>
+                    <div><strong id="decisionSpace">00%</strong><span>SPACE KEPT</span></div>
+                    <div><strong id="decisionRisk">00</strong><span>RISK TURNS</span></div>
+                  </div>
+                  <p id="decisionSummary">Complete a run to reveal your decision pattern.</p>
+                </section>
+                <div class="start-actions">
+                  <button class="primary-button" id="startButton" type="button">
+                    <span id="startButtonLabel">Play Classic</span>
+                    <span aria-hidden="true">↗</span>
+                  </button>
+                  <button class="secondary-button demo-button" id="demoButton" type="button">
+                    <span id="demoButtonLabel">Watch AI play Classic</span>
+                    <span aria-hidden="true">◎</span>
+                  </button>
+                </div>
+                <p class="overlay-hint">THE RUN STARTS ONLY AFTER YOU CHOOSE</p>
+              </div>
+            </div>
+          </div>
+
+          <footer class="console-footer">
+            <div class="objective">
+              <div class="objective-copy">
+                <span id="objectiveLabel">NEXT CORE</span>
+                <strong id="objectiveText">5 signals remaining</strong>
+              </div>
+              <div class="progress-track" aria-hidden="true"><span id="objectiveProgress"></span></div>
+            </div>
+            <div class="combo-meter" id="comboMeter" aria-label="Combo time remaining">
+              <span></span>
+            </div>
+          </footer>
+        </div>
+
+        <div class="mobile-controls" aria-label="Touch movement controls">
+          <span></span>
+          <button class="direction-button" type="button" data-direction="up" aria-label="Move up">↑</button>
+          <span></span>
+          <button class="direction-button" type="button" data-direction="left" aria-label="Move left">←</button>
+          <button class="direction-button center-control" id="mobilePause" type="button" aria-label="Pause game">●</button>
+          <button class="direction-button" type="button" data-direction="right" aria-label="Move right">→</button>
+          <span></span>
+          <button class="direction-button" type="button" data-direction="down" aria-label="Move down">↓</button>
+          <span></span>
+        </div>
+      </section>
+
+      <aside class="control-deck">
+        <div class="deck-intro">
+          <p class="section-kicker">SELECT PROTOCOL</p>
+          <h2>Choose your run.</h2>
+          <p>Four protocols. One familiar gesture: choose what movement means.</p>
+          <a class="duel-launch" href="duel.html">
+            <span><strong>Enter Duel Lab</strong><small>VS AI · LIVE ROOM CANARY</small></span>
+            <span aria-hidden="true">⚔</span>
+          </a>
+        </div>
+
+        <fieldset class="mode-selector" id="modeSelector">
+          <legend class="sr-only">Game mode</legend>
+          <label class="mode-option">
+            <input type="radio" name="mode" value="classic" checked />
+            <span class="mode-number">01</span>
+            <span class="mode-copy"><strong>Classic</strong><small>Walls end the run</small></span>
+            <span class="radio-mark" aria-hidden="true"></span>
+          </label>
+          <label class="mode-option">
+            <input type="radio" name="mode" value="portal" />
+            <span class="mode-number">02</span>
+            <span class="mode-copy"><strong>Portal</strong><small>Edges loop the board</small></span>
+            <span class="radio-mark" aria-hidden="true"></span>
+          </label>
+          <label class="mode-option">
+            <input type="radio" name="mode" value="rush" />
+            <span class="mode-number">03</span>
+            <span class="mode-copy"><strong>Rush</strong><small>Score big in 60 seconds</small></span>
+            <span class="radio-mark" aria-hidden="true"></span>
+          </label>
+          <label class="mode-option">
+            <input type="radio" name="mode" value="canvas" />
+            <span class="mode-number">04</span>
+            <span class="mode-copy"><strong>Canvas</strong><small>Cross freely. Paint forever.</small></span>
+            <span class="radio-mark" aria-hidden="true"></span>
+          </label>
+        </fieldset>
+
+        <div class="pace-row">
+          <label for="difficulty">STARTING PACE</label>
+          <select id="difficulty">
+            <option value="steady">Steady</option>
+            <option value="arcade" selected>Arcade</option>
+            <option value="overdrive">Overdrive</option>
+          </select>
+        </div>
+
+        <div class="signal-row">
+          <div class="signal-copy">
+            <span>SIGNAL CODE</span>
+            <small>Same code, same challenge</small>
+          </div>
+          <button class="signal-button" id="signalButton" type="button" aria-label="Generate a new Signal Code">
+            <strong id="signalCode" aria-live="polite">------</strong>
+            <span>NEW ↻</span>
+          </button>
+        </div>
+
+        <div class="action-grid">
+          <button class="secondary-button" id="pauseButton" type="button" disabled>
+            <span id="pauseButtonLabel">Pause</span><span aria-hidden="true">Ⅱ</span>
+          </button>
+          <button class="text-button lens-button" id="lensButton" type="button" aria-pressed="false">
+            <span>AI Lens · hints only</span><span id="lensState">OFF ◎</span>
+          </button>
+          <button class="text-button" id="restartButton" type="button">Restart current run <span aria-hidden="true">↻</span></button>
+          <button class="text-button share-button" id="shareButton" type="button">Share this experiment <span aria-hidden="true">↗</span></button>
+          <button class="text-button export-button" id="exportButton" type="button" hidden>Save canvas artwork <span aria-hidden="true">⇩</span></button>
+        </div>
+
+        <section class="career-card" aria-labelledby="careerTitle">
+          <div class="career-heading">
+            <p class="section-kicker">CAREER DATA</p>
+            <span>LOCAL SAVE</span>
+          </div>
+          <h3 id="careerTitle" class="sr-only">Career statistics</h3>
+          <div class="career-stats">
+            <div><span>BEST</span><strong id="best">00000</strong></div>
+            <div><span>RUNS</span><strong id="totalRuns">000</strong></div>
+            <div><span>LONGEST</span><strong id="longest">003</strong></div>
+          </div>
+          <div class="run-history">
+            <div class="run-history-heading"><span>TOP RUNS</span><span>SCORE / MODE / RANK</span></div>
+            <ol id="topRuns"><li class="empty-run">Complete a run to enter the board.</li></ol>
+          </div>
+        </section>
+
+        <div class="instructions" id="gameInstructions">
+          <span><kbd>↑↓←→</kbd> or <kbd>WASD</kbd> move</span>
+          <span><kbd>SPACE</kbd> pause</span>
+          <span><kbd>L</kbd> AI lens</span>
+          <span><kbd>R</kbd> restart</span>
+          <span id="canvasInstruction" hidden><kbd>E</kbd> export art</span>
+          <span><kbd>GAMEPAD</kbd> supported</span>
+        </div>
+      </aside>
+    </main>
+
+    <section class="showcase" id="how-it-works" aria-labelledby="showcaseTitle">
+      <div class="showcase-heading">
+        <p class="section-kicker">BUILT IN THE OPEN</p>
+        <h2 id="showcaseTitle">Simple rules.<br />Visible intelligence.</h2>
+        <p>Neon Snake is both a public game and a readable AI experiment. Nothing important happens behind a server or an opaque dependency.</p>
+      </div>
+      <div class="showcase-grid">
+        <article>
+          <span class="showcase-number">01</span>
+          <h3>One rule at a time</h3>
+          <p>Every mechanic fits in one sentence. Flow slows time. Amplify doubles points. Canvas turns movement into permanent light.</p>
+        </article>
+        <article>
+          <span class="showcase-number">02</span>
+          <h3>Same mode, your choice</h3>
+          <p>AI play follows your selected protocol and looks six turns ahead. AI Lens never steers; Decision Insight compares the best two moves and tells you what made one safer.</p>
+        </article>
+        <article>
+          <span class="showcase-number">03</span>
+          <h3>Replay the challenge</h3>
+          <p>A six-character Signal Code deterministically recreates pickup positions and mutations. Share the URL and everyone faces the same hidden sequence.</p>
+        </article>
+        <article>
+          <span class="showcase-number">04</span>
+          <h3>Your data stays yours</h3>
+          <p>Scores, settings, and Echo paths remain in local browser storage. There are no accounts, trackers, or remote gameplay services.</p>
+        </article>
+      </div>
+      <div class="method-strip">
+        <span>RULE</span><i aria-hidden="true">→</i>
+        <span>FEEDBACK</span><i aria-hidden="true">→</i>
+        <span>COMBINATION</span><i aria-hidden="true">→</i>
+        <span>PROOF</span>
+      </div>
+    </section>
+
+    <footer class="site-footer">
+      <span>NS-01 / BROWSER ARCADE</span>
+      <span><a href="#how-it-works">HOW IT WORKS</a> · LOCAL SAVE · PLAY ANYWHERE</span>
+    </footer>
+
+    <p class="sr-only" id="gameAnnouncement" aria-live="assertive"></p>
+    <script src="game-logic.js"></script>
+    <script src="game.js"></script>
+  </body>
+</html>

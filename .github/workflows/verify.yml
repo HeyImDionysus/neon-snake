@@ -1,0 +1,35 @@
+name: Verify
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  deterministic-browser-rules:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify syntax
+        run: |
+          node --check public/game.js
+          node --check public/game-logic.js
+          node --check public/duel.js
+          node --check public/sw.js
+
+      - name: Verify deterministic behavior
+        run: |
+          node game-logic.test.js
+          node control-flow.test.js
+          node duel-control-flow.test.js
