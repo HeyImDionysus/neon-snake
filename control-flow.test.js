@@ -103,11 +103,15 @@ const tests = [
     assert.match(record, /evaluatePlannerState\(effectiveMode\)/);
     assert.match(choose, /planAiMove\(\)/);
   }],
-  ["delayed frames resolve Core expiry against each movement timestamp", () => {
+  ["delayed frames resolve Core and mutation expiry at each movement timestamp", () => {
     const render = functionBody("render");
     const advance = functionBody("advanceMovement");
     assert.ok(render.indexOf("advanceMovement(now)") < render.indexOf("expireCore(now)"));
+    assert.ok(render.indexOf("advanceMovement(now)") < render.indexOf("expireMutation(now)"));
     assert.ok(advance.indexOf("expireCore(stepAt)") < advance.indexOf("tick(stepAt)"));
+    assert.ok(advance.indexOf("expireMutation(stepAt)") < advance.indexOf("tick(stepAt)"));
+    assert.match(advance, /stepDuration = getTickDelay\(stepAt\)/);
+    assert.match(advance, /stepDuration = getTickDelay\(now\)/);
   }],
   ["Rush reaches its strict deadline before another movement can run", () => {
     const render = functionBody("render");
@@ -116,7 +120,10 @@ const tests = [
     assert.match(render, /const rushEnded = updateRushTimer\(now\);\s*if \(!rushEnded\) advanceMovement\(now\)/);
     assert.match(timer, /rushRemaining = Math\.max\(0, rushDeadline - now\)/);
     assert.match(timer, /if \(rushRemaining > 0\) return false;\s*endGame\("time"\);\s*return true/);
+    assert.ok(!functionBody("updateTimeSystems").includes("mutation.expiresAt"));
     assert.match(source, /const PACES = Rules\.paceProfiles\(\)/);
+    assert.match(source, /Rules\.soloTiming\(\)/);
+    assert.doesNotMatch(source, /const RUSH_DURATION = 60_000/);
   }],
   ["Canvas paint cost stays constant as permanent strokes accumulate", () => {
     const draw = functionBody("drawCanvasPaint");

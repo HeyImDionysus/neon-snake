@@ -82,7 +82,11 @@ const GRID = 20;
 let TILE = canvas.width / GRID;
 const COMBO_WINDOW = 3600;
 const OVERDRIVE_DURATION = 5200;
-const RUSH_DURATION = 60_000;
+const {
+  coreDuration: CORE_DURATION,
+  mutationDuration: MUTATION_DURATION,
+  rushDuration: RUSH_DURATION,
+} = Rules.soloTiming();
 const CANVAS_MARK_LIMIT = 1400;
 const CANVAS_BRUSH_LENGTH = 18;
 const SIGNAL_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
@@ -378,7 +382,7 @@ function placeFood(now) {
   food = {
     ...position,
     kind: isCore ? "core" : "signal",
-    expiresAt: isCore ? now + 6500 : 0,
+    expiresAt: isCore ? now + CORE_DURATION : 0,
   };
   if (demoMode && activeMode === "canvas") {
     canvasCompositionBudget = 14 + (signalRandomState % 12);
@@ -903,6 +907,7 @@ function render(now) {
   const rushEnded = updateRushTimer(now);
   if (!rushEnded) advanceMovement(now);
   expireCore(now);
+  expireMutation(now);
   updateTimeSystems(now);
   pollGamepad(now);
   const overdriveActive = now < overdriveUntil;
@@ -923,15 +928,16 @@ function updateRushTimer(now) {
   return true;
 }
 
-function updateTimeSystems(now) {
-  if (mutation.type && runState === "running" && now >= mutation.expiresAt) {
-    const endedMutation = mutation.type;
-    mutation = { type: null, expiresAt: 0 };
-    mutationStat.hidden = true;
-    announcement.textContent = `${endedMutation} mutation ended.`;
-    showPickup("MUTATION ENDED", endedMutation.toUpperCase());
-  }
+function expireMutation(now) {
+  if (!mutation.type || runState !== "running" || Rules.mutationTypeAt(mutation, now)) return;
+  const endedMutation = mutation.type;
+  mutation = { type: null, expiresAt: 0 };
+  mutationStat.hidden = true;
+  announcement.textContent = `${endedMutation} mutation ended.`;
+  showPickup("MUTATION ENDED", endedMutation.toUpperCase());
+}
 
+function updateTimeSystems(now) {
   if (runState === "running" && comboExpiresAt) {
     const overdriveRemaining = Math.max(0, overdriveUntil - now);
     const remaining = overdriveRemaining || Math.max(0, comboExpiresAt - now);
@@ -947,13 +953,16 @@ function updateTimeSystems(now) {
 
   if (food?.kind === "core") {
     const remaining = Math.max(0, food.expiresAt - now);
-    objectiveProgress.style.width = `${(remaining / 6500) * 100}%`;
+    objectiveProgress.style.width = `${(remaining / CORE_DURATION) * 100}%`;
   }
 }
 
-function getTickDelay() {
+function getTickDelay(now = performance.now()) {
   const pace = PACES[difficultySelect.value] || PACES.arcade;
-  return Rules.mutationDelay(Rules.tickDelay(pace, foodCount), mutation.type);
+  return Rules.mutationDelay(
+    Rules.tickDelay(pace, foodCount),
+    Rules.mutationTypeAt(mutation, now),
+  );
 }
 
 function scheduleMove() {
@@ -971,10 +980,11 @@ function advanceMovement(now) {
   while (runState === "running" && nextMoveAt && now >= nextMoveAt && catchUpSteps < 3) {
     const stepAt = nextMoveAt;
     nextMoveAt = 0;
+    expireMutation(stepAt);
     expireCore(stepAt);
     tick(stepAt);
     if (runState === "running" && !nextMoveAt) {
-      stepDuration = getTickDelay();
+      stepDuration = getTickDelay(stepAt);
       nextMoveAt = stepAt + stepDuration;
     }
     catchUpSteps += 1;
@@ -985,7 +995,7 @@ function advanceMovement(now) {
   if (runState === "running" && nextMoveAt && now >= nextMoveAt) {
     previousSnake = snake.map((segment) => ({ ...segment }));
     lastMoveAt = now;
-    stepDuration = getTickDelay();
+    stepDuration = getTickDelay(now);
     nextMoveAt = now + stepDuration;
   }
 }
@@ -1675,7 +1685,7 @@ function activateMutation(now) {
   const choice = Rules.signalIndex(signalRandomState, options.length);
   signalRandomState = choice.state;
   const type = options[choice.index];
-  mutation = { type, expiresAt: now + 8000 };
+  mutation = { type, expiresAt: now + MUTATION_DURATION };
   const descriptions = {
     flow: "TIME SLOWS",
     amplify: "POINTS ×2",

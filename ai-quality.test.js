@@ -11,9 +11,11 @@ const DIRECTIONS = [
 ];
 const SIGNAL_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const CANVAS_BRUSH_LENGTH = 18;
-const CORE_DURATION = 6500;
-const MUTATION_DURATION = 8000;
-const RUSH_DURATION = 60_000;
+const {
+  coreDuration: CORE_DURATION,
+  mutationDuration: MUTATION_DURATION,
+  rushDuration: RUSH_DURATION,
+} = rules.soloTiming();
 const PACES = rules.paceProfiles();
 
 function codeFromIndex(value) {
@@ -45,15 +47,17 @@ function simulateSolo(code, mode = "classic", maxSteps = 600, paceName = "arcade
   let reachedRushDeadline = false;
   let recentHeads = [];
   let committedPlan = [];
-  let stepsSinceFood = 0;
-  let maxFoodGap = 0;
+  let stepsSinceCapture = 0;
+  let maxCaptureGap = 0;
+  let stepsSinceObjective = 0;
+  let maxObjectiveGap = 0;
   let routeSignature = "";
   let canvasCompositionState = null;
   let canvasCompositionBudget = 0;
   let canvasCompositionSteps = 0;
   const canvasCompositionSeed = rules.signalState(code);
 
-  function placeFood(resetFoodGap = true) {
+  function placeFood(resetCaptureGap = true) {
     const open = [];
     for (let y = 0; y < 20; y += 1) {
       for (let x = 0; x < 20; x += 1) {
@@ -76,7 +80,8 @@ function simulateSolo(code, mode = "classic", maxSteps = 600, paceName = "arcade
     };
     recentHeads = [];
     committedPlan = [];
-    if (resetFoodGap) stepsSinceFood = 0;
+    stepsSinceObjective = 0;
+    if (resetCaptureGap) stepsSinceCapture = 0;
     if (mode === "canvas") {
       canvasCompositionBudget = 14 + (signalState % 12);
     }
@@ -84,13 +89,13 @@ function simulateSolo(code, mode = "classic", maxSteps = 600, paceName = "arcade
 
   placeFood();
   while (steps < maxSteps && food) {
-    if (mode === "rush" && nextMoveAt > RUSH_DURATION) {
+    if (mode === "rush" && nextMoveAt >= RUSH_DURATION) {
       elapsedMs = RUSH_DURATION;
       reachedRushDeadline = true;
       break;
     }
     elapsedMs = nextMoveAt;
-    if (mutation.type && elapsedMs >= mutation.expiresAt) {
+    if (mutation.type && !rules.mutationTypeAt(mutation, elapsedMs)) {
       mutation = { type: null, expiresAt: 0 };
     }
     if (food.kind === "core" && elapsedMs >= food.expiresAt) {
@@ -161,7 +166,8 @@ function simulateSolo(code, mode = "classic", maxSteps = 600, paceName = "arcade
         steps,
         foods,
         length: snake.length,
-        maxFoodGap,
+        maxCaptureGap,
+        maxObjectiveGap,
         routeSignature,
         canvasCompositionSteps,
         elapsedMs,
@@ -184,7 +190,8 @@ function simulateSolo(code, mode = "classic", maxSteps = 600, paceName = "arcade
         steps,
         foods,
         length: snake.length,
-        maxFoodGap,
+        maxCaptureGap,
+        maxObjectiveGap,
         routeSignature,
         canvasCompositionSteps,
         elapsedMs,
@@ -199,8 +206,10 @@ function simulateSolo(code, mode = "classic", maxSteps = 600, paceName = "arcade
     snake = [head, ...snake];
     recentHeads.push({ ...head });
     if (recentHeads.length > 256) recentHeads.shift();
-    stepsSinceFood += 1;
-    maxFoodGap = Math.max(maxFoodGap, stepsSinceFood);
+    stepsSinceCapture += 1;
+    stepsSinceObjective += 1;
+    maxCaptureGap = Math.max(maxCaptureGap, stepsSinceCapture);
+    maxObjectiveGap = Math.max(maxObjectiveGap, stepsSinceObjective);
     if (routeSignature.length < 300) routeSignature += selected.name[0];
     if (growing) {
       foods += 1;
@@ -233,7 +242,8 @@ function simulateSolo(code, mode = "classic", maxSteps = 600, paceName = "arcade
     steps,
     foods,
     length: snake.length,
-    maxFoodGap,
+    maxCaptureGap,
+    maxObjectiveGap,
     routeSignature,
     canvasCompositionSteps,
     elapsedMs,
@@ -550,8 +560,8 @@ const tests = [
     const codes = Array.from({ length: 8 }, (_, index) => codeFromIndex(index + 32));
     assert.equal(new Set(codes).size, codes.length);
     const expectations = {
-      classic: { foods: 45, maxFoodGap: 140 },
-      portal: { foods: 100, maxFoodGap: 180 },
+      classic: { foods: 45, maxCaptureGap: 140 },
+      portal: { foods: 100, maxCaptureGap: 180 },
     };
     for (const [mode, expectation] of Object.entries(expectations)) {
       const runs = codes.map((code) => simulateSolo(code, mode, 2000));
@@ -562,7 +572,7 @@ const tests = [
           JSON.stringify(run),
         );
         assert.ok(run.foods >= expectation.foods, JSON.stringify(run));
-        assert.ok(run.maxFoodGap <= expectation.maxFoodGap, JSON.stringify(run));
+        assert.ok(run.maxCaptureGap <= expectation.maxCaptureGap, JSON.stringify(run));
       });
       assert.equal(
         new Set(runs.map((run) => run.routeSignature)).size,
@@ -586,13 +596,13 @@ const tests = [
         assert.equal(run.outcome, "deadline", JSON.stringify(run));
         assert.equal(run.elapsedMs, RUSH_DURATION, JSON.stringify(run));
         assert.ok(run.foods >= expectation.rushFoods, JSON.stringify(run));
-        assert.ok(run.maxFoodGap <= expectation.rushGap, JSON.stringify(run));
+        assert.ok(run.maxCaptureGap <= expectation.rushGap, JSON.stringify(run));
       });
       canvasRuns.forEach((run) => {
         assert.equal(run.pace, paceName);
         assert.equal(run.outcome, "timeout", JSON.stringify(run));
         assert.ok(run.foods >= expectation.canvasFoods, JSON.stringify(run));
-        assert.ok(run.maxFoodGap <= expectation.canvasGap, JSON.stringify(run));
+        assert.ok(run.maxCaptureGap <= expectation.canvasGap, JSON.stringify(run));
         assert.equal(run.length, CANVAS_BRUSH_LENGTH, JSON.stringify(run));
         assert.ok(run.canvasCompositionSteps >= 800, JSON.stringify(run));
       });
@@ -608,9 +618,9 @@ const tests = [
       process.stdout.write(
         `${paceName} timing matrix: Rush foods ${Math.min(...rushFoods)}-${Math.max(...rushFoods)}, `
         + `steps ${Math.min(...rushSteps)}-${Math.max(...rushSteps)}, `
-        + `max gap ${Math.max(...rushRuns.map((run) => run.maxFoodGap))}; `
+        + `capture gap ${Math.max(...rushRuns.map((run) => run.maxCaptureGap))}; `
         + `Canvas foods ${Math.min(...canvasFoods)}-${Math.max(...canvasFoods)}, `
-        + `max gap ${Math.max(...canvasRuns.map((run) => run.maxFoodGap))}, `
+        + `capture gap ${Math.max(...canvasRuns.map((run) => run.maxCaptureGap))}, `
         + `core expiries ${Math.min(...canvasExpiries)}-${Math.max(...canvasExpiries)}\n`,
       );
       if (paceName === "steady") {
@@ -626,8 +636,15 @@ const tests = [
       assert.equal(run.outcome, "clear", JSON.stringify(run));
       assert.equal(run.length, 400, JSON.stringify(run));
       assert.equal(run.foods, 397, JSON.stringify(run));
-      assert.ok(run.maxFoodGap <= 500, JSON.stringify(run));
+      assert.ok(run.maxObjectiveGap <= 400, JSON.stringify(run));
+      assert.ok(run.maxCaptureGap <= 500, JSON.stringify(run));
     });
+    process.stdout.write(
+      `Classic completion: objective age ${Math.max(...runs.map((run) => run.maxObjectiveGap))}, `
+      + `capture gap ${Math.min(...runs.map((run) => run.maxCaptureGap))}-`
+      + `${Math.max(...runs.map((run) => run.maxCaptureGap))}, `
+      + `expired cores ${runs.map((run) => run.coresExpired).join("/")}\n`,
+    );
   }],
 ];
 

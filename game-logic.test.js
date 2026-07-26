@@ -151,6 +151,11 @@ const tests = [
       arcade: { base: 138, floor: 62, step: 3 },
       overdrive: { base: 98, floor: 44, step: 2 },
     });
+    assert.deepEqual(rules.soloTiming(), {
+      coreDuration: 6500,
+      mutationDuration: 8000,
+      rushDuration: 60_000,
+    });
     const pace = profiles.arcade;
     assert.equal(rules.tickDelay(pace, 0), 138);
     assert.equal(rules.tickDelay(pace, 10), 108);
@@ -171,6 +176,11 @@ const tests = [
     assert.equal(rules.mutationScoreMultiplier("amplify"), 2);
     assert.equal(rules.mutationDelay(100, "flow"), 135);
     assert.equal(rules.mutationDelay(100, "amplify"), 100);
+    const flow = { type: "flow", expiresAt: 100 };
+    assert.equal(rules.mutationTypeAt(flow, 90), "flow");
+    assert.equal(rules.mutationTypeAt(flow, 100), null);
+    assert.equal(rules.mutationDelay(100, rules.mutationTypeAt(flow, 90)), 135);
+    assert.equal(rules.mutationDelay(100, rules.mutationTypeAt(flow, 120)), 100);
 
     ["classic", "rush"].forEach((mode) => {
       const effectiveMode = rules.effectiveMode(mode, "phase");
