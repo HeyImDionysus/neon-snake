@@ -963,6 +963,13 @@ function handleTabKey(event) {
   (type === "ai" ? aiTab : liveTab).focus();
 }
 
+function registerServiceWorker() {
+  const localSecureContext = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+  if ("serviceWorker" in navigator && (location.protocol === "https:" || localSecureContext)) {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  }
+}
+
 aiButton.addEventListener("click", prepareAiDuel);
 aiStartButton.addEventListener("click", () => {
   if (runState === "paused") togglePause();
@@ -990,6 +997,7 @@ window.addEventListener("beforeunload", () => {
   roomTransport?.close();
   cancelAnimationFrame(frameHandle);
 });
+window.addEventListener("load", registerServiceWorker, { once: true });
 if ("ResizeObserver" in window) new ResizeObserver(resizeCanvas).observe(board);
 else window.addEventListener("resize", resizeCanvas);
 

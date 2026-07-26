@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE_NAME = "neon-snake-shell-v35";
+const CACHE_NAME = "neon-snake-shell-v36";
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -12,7 +12,10 @@ const APP_SHELL = [
   "/game-logic.js",
   "/game.js",
   "/manifest.webmanifest",
-  "/assets/icon.svg"
+  "/assets/icon.svg",
+  "/assets/icon-180.png",
+  "/assets/icon-192.png",
+  "/assets/icon-512.png"
 ];
 
 self.addEventListener("install", (event) => {
@@ -29,22 +32,31 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET" || new URL(event.request.url).origin !== self.location.origin) return;
+  const requestUrl = new URL(event.request.url);
+  if (event.request.method !== "GET" || requestUrl.origin !== self.location.origin) return;
 
   event.respondWith(
-    fetch(event.request)
-      .then((response) => {
+    (async () => {
+      try {
+        const response = await fetch(event.request);
         if (response.ok) {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          try {
+            const cache = await caches.open(CACHE_NAME);
+            await cache.put(event.request, response.clone());
+          } catch {
+            // A quota or unsupported-response failure must not replace a valid network response.
+          }
         }
         return response;
-      })
-      .catch(async () => {
+      } catch {
         const cached = await caches.match(event.request);
         if (cached) return cached;
-        if (event.request.mode === "navigate") return caches.match("/index.html");
+        if (event.request.mode === "navigate") {
+          const fallback = requestUrl.pathname.startsWith("/duel") ? "/duel.html" : "/index.html";
+          return caches.match(fallback);
+        }
         return Response.error();
-      })
+      }
+    })()
   );
 });
