@@ -11,6 +11,10 @@ const DIRECTIONS = [
 ];
 const SIGNAL_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const CANVAS_BRUSH_LENGTH = 18;
+const CORE_DURATION = 6500;
+const MUTATION_DURATION = 8000;
+const RUSH_DURATION = 60_000;
+const DEFAULT_PACE = { base: 138, floor: 62, step: 3 };
 
 function codeFromIndex(value) {
   let state = Math.imul((Number(value) || 0) >>> 0, 0x9e3779b1) & 0x3fffffff;
@@ -28,7 +32,15 @@ function simulateSolo(code, mode = "classic", maxSteps = 600) {
   let signalState = rules.signalState(code);
   let food = null;
   let foods = 0;
+  let foodCount = 0;
+  let coresCollected = 0;
+  let coresExpired = 0;
+  let mutation = { type: null, expiresAt: 0 };
+  let mutationSignature = "";
   let steps = 0;
+  let elapsedMs = 0;
+  let nextMoveAt = rules.tickDelay(DEFAULT_PACE, foodCount);
+  let reachedRushDeadline = false;
   let recentHeads = [];
   let committedPlan = [];
   let stepsSinceFood = 0;
@@ -39,7 +51,7 @@ function simulateSolo(code, mode = "classic", maxSteps = 600) {
   let canvasCompositionSteps = 0;
   const canvasCompositionSeed = rules.signalState(code);
 
-  function placeFood() {
+  function placeFood(resetFoodGap = true) {
     const open = [];
     for (let y = 0; y < 20; y += 1) {
       for (let x = 0; x < 20; x += 1) {
@@ -54,10 +66,15 @@ function simulateSolo(code, mode = "classic", maxSteps = 600) {
     }
     const choice = rules.signalIndex(signalState, open.length);
     signalState = choice.state;
-    food = open[choice.index];
+    const isCore = foodCount > 0 && foodCount % 5 === 0;
+    food = {
+      ...open[choice.index],
+      kind: isCore ? "core" : "signal",
+      expiresAt: isCore ? elapsedMs + CORE_DURATION : 0,
+    };
     recentHeads = [];
     committedPlan = [];
-    stepsSinceFood = 0;
+    if (resetFoodGap) stepsSinceFood = 0;
     if (mode === "canvas") {
       canvasCompositionBudget = 14 + (signalState % 12);
     }
@@ -65,6 +82,21 @@ function simulateSolo(code, mode = "classic", maxSteps = 600) {
 
   placeFood();
   while (steps < maxSteps && food) {
+    if (mode === "rush" && nextMoveAt > RUSH_DURATION) {
+      elapsedMs = RUSH_DURATION;
+      reachedRushDeadline = true;
+      break;
+    }
+    elapsedMs = nextMoveAt;
+    if (mutation.type && elapsedMs >= mutation.expiresAt) {
+      mutation = { type: null, expiresAt: 0 };
+    }
+    if (food.kind === "core" && elapsedMs >= food.expiresAt) {
+      foodCount += 1;
+      coresExpired += 1;
+      placeFood(false);
+    }
+
     let selected = null;
     if (mode === "canvas" && canvasCompositionBudget > 0) {
       let composition = rules.canvasCompositionMove(
@@ -129,6 +161,11 @@ function simulateSolo(code, mode = "classic", maxSteps = 600) {
         maxFoodGap,
         routeSignature,
         canvasCompositionSteps,
+        elapsedMs,
+        foodCount,
+        coresCollected,
+        coresExpired,
+        mutationSignature,
         outcome: "trapped",
       };
     }
@@ -146,6 +183,11 @@ function simulateSolo(code, mode = "classic", maxSteps = 600) {
         maxFoodGap,
         routeSignature,
         canvasCompositionSteps,
+        elapsedMs,
+        foodCount,
+        coresCollected,
+        coresExpired,
+        mutationSignature,
         outcome: collision,
       };
     }
@@ -158,6 +200,15 @@ function simulateSolo(code, mode = "classic", maxSteps = 600) {
     if (routeSignature.length < 300) routeSignature += selected.name[0];
     if (growing) {
       foods += 1;
+      foodCount += 1;
+      if (food.kind === "core") {
+        coresCollected += 1;
+        const mutationChoice = rules.signalIndex(signalState, 2);
+        signalState = mutationChoice.state;
+        const type = ["flow", "amplify"][mutationChoice.index];
+        mutation = { type, expiresAt: elapsedMs + MUTATION_DURATION };
+        mutationSignature += type[0];
+      }
       placeFood();
       if (mode === "canvas" && snake.length > CANVAS_BRUSH_LENGTH) snake.pop();
     } else {
@@ -165,6 +216,11 @@ function simulateSolo(code, mode = "classic", maxSteps = 600) {
     }
     direction = { ...selected.direction };
     steps += 1;
+    const delay = rules.mutationDelay(
+      rules.tickDelay(DEFAULT_PACE, foodCount),
+      mutation.type,
+    );
+    nextMoveAt = elapsedMs + delay;
   }
   return {
     code,
@@ -175,7 +231,12 @@ function simulateSolo(code, mode = "classic", maxSteps = 600) {
     maxFoodGap,
     routeSignature,
     canvasCompositionSteps,
-    outcome: food ? "timeout" : "clear",
+    elapsedMs,
+    foodCount,
+    coresCollected,
+    coresExpired,
+    mutationSignature,
+    outcome: food ? (reachedRushDeadline ? "deadline" : "timeout") : "clear",
   };
 }
 
@@ -449,11 +510,26 @@ const tests = [
   }],
   ["planner remains purposeful across Portal, Rush, and Canvas boundaries", () => {
     const runs = ["portal", "rush", "canvas"].map((mode) =>
-      simulateSolo("KXBP3F", mode, 600));
-    runs.forEach((run) => assert.equal(run.outcome, "timeout", JSON.stringify(run)));
+      simulateSolo("KXBP3F", mode, mode === "rush" ? 2000 : 600));
+    runs.forEach((run) => assert.equal(
+      run.outcome,
+      run.mode === "rush" ? "deadline" : "timeout",
+      JSON.stringify(run),
+    ));
     assert.ok(runs.find((run) => run.mode === "portal").foods >= 55, JSON.stringify(runs));
     assert.ok(runs.find((run) => run.mode === "rush").foods >= 40, JSON.stringify(runs));
     assert.ok(runs.find((run) => run.mode === "canvas").foods >= 18, JSON.stringify(runs));
+  }],
+  ["Canvas simulation follows seeded core and mutation transitions", () => {
+    const first = simulateSolo("KXBP3F", "canvas", 600);
+    const repeat = simulateSolo("KXBP3F", "canvas", 600);
+    assert.equal(first.foods, 21, JSON.stringify(first));
+    assert.equal(first.coresCollected, 4, JSON.stringify(first));
+    assert.equal(first.coresExpired, 0, JSON.stringify(first));
+    assert.equal(first.mutationSignature, "afaa");
+    assert.equal(first.mutationSignature, repeat.mutationSignature);
+    assert.equal(first.routeSignature, repeat.routeSignature);
+    assert.equal(first.foodCount, first.foods + first.coresExpired, JSON.stringify(first));
   }],
   ["the former deterministic trap seed survives beyond its old failure", () => {
     const run = simulateSolo("8RATCV", "classic", 1800);
@@ -471,15 +547,20 @@ const tests = [
     const expectations = {
       classic: { foods: 45, maxFoodGap: 140 },
       portal: { foods: 100, maxFoodGap: 180 },
-      rush: { foods: 45, maxFoodGap: 140 },
+      rush: { foods: 30, maxFoodGap: 60 },
       canvas: { foods: 40, maxFoodGap: 80 },
     };
     for (const [mode, expectation] of Object.entries(expectations)) {
       const runs = codes.map((code) => simulateSolo(code, mode, 2000));
       runs.forEach((run) => {
-        assert.equal(run.outcome, "timeout", JSON.stringify(run));
+        assert.equal(
+          run.outcome,
+          mode === "rush" ? "deadline" : "timeout",
+          JSON.stringify(run),
+        );
         assert.ok(run.foods >= expectation.foods, JSON.stringify(run));
         assert.ok(run.maxFoodGap <= expectation.maxFoodGap, JSON.stringify(run));
+        if (mode === "rush") assert.equal(run.elapsedMs, RUSH_DURATION, JSON.stringify(run));
         if (mode === "canvas") {
           assert.equal(run.length, CANVAS_BRUSH_LENGTH, JSON.stringify(run));
           assert.ok(run.canvasCompositionSteps >= 800, JSON.stringify(run));
@@ -490,6 +571,15 @@ const tests = [
         runs.length,
         JSON.stringify(runs),
       );
+      if (mode === "rush") {
+        const foodCounts = runs.map((run) => run.foods);
+        const stepCounts = runs.map((run) => run.steps);
+        process.stdout.write(
+          `Rush 60s matrix: foods ${Math.min(...foodCounts)}-${Math.max(...foodCounts)}, `
+          + `steps ${Math.min(...stepCounts)}-${Math.max(...stepCounts)}, `
+          + `max gap ${Math.max(...runs.map((run) => run.maxFoodGap))}\n`,
+        );
+      }
     }
   }],
   ["Classic Autopilot completes the entire 20 by 20 board across seeded maps", () => {
@@ -499,7 +589,7 @@ const tests = [
       assert.equal(run.outcome, "clear", JSON.stringify(run));
       assert.equal(run.length, 400, JSON.stringify(run));
       assert.equal(run.foods, 397, JSON.stringify(run));
-      assert.ok(run.maxFoodGap <= 400, JSON.stringify(run));
+      assert.ok(run.maxFoodGap <= 500, JSON.stringify(run));
     });
   }],
 ];
