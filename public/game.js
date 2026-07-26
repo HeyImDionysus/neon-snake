@@ -1247,32 +1247,56 @@ function chooseDemoDirection() {
     return composition.direction;
   }
   canvasCompositionActive = false;
-  planAiMove();
   const effectiveMode = Rules.effectiveMode(activeMode, mutation.type);
   const target = food ? `${food.x},${food.y},${food.kind || "signal"}` : "none";
-  if (autopilotPlanMode !== effectiveMode || autopilotPlanTarget !== target) {
-    autopilotPlan = [];
-  }
-  if (autopilotPlan.length) {
-    const committed = autopilotPlan.shift();
-    const evaluation = aiEvaluations.find((candidate) =>
-      candidate.legal
-      && candidate.direction.x === committed.x
-      && candidate.direction.y === committed.y);
-    if (evaluation) {
-      aiChoice = evaluation;
-      aiPlanInsight = Rules.decisionInsight(aiEvaluations, aiChoice);
-      updateAiTelemetry();
-      return committed;
-    }
-    autopilotPlan = [];
-  }
+  const committed = consumeAutopilotPlan(effectiveMode, target);
+  if (committed) return committed;
+
+  planAiMove();
   if (aiChoice?.route?.length) {
     autopilotPlanMode = effectiveMode;
     autopilotPlanTarget = target;
     autopilotPlan = aiChoice.route.slice(1).map((move) => ({ ...move }));
   }
   return aiChoice?.direction || direction;
+}
+
+function consumeAutopilotPlan(effectiveMode, target) {
+  if (autopilotPlanMode !== effectiveMode || autopilotPlanTarget !== target) {
+    autopilotPlan = [];
+  }
+  if (!autopilotPlan.length) return null;
+
+  const committed = autopilotPlan.shift();
+  const head = Rules.nextHead(snake[0], committed, effectiveMode, GRID);
+  const growing = Boolean(food && head.x === food.x && head.y === food.y);
+  if (Rules.collisionType(head, snake, growing, effectiveMode, GRID)) {
+    autopilotPlan = [];
+    return null;
+  }
+
+  const route = [committed, ...autopilotPlan];
+  const forecast = [];
+  let cursor = snake[0];
+  route.slice(0, 6).forEach((move) => {
+    cursor = Rules.nextHead(cursor, move, effectiveMode, GRID);
+    forecast.push({ ...cursor });
+  });
+  const option = DIRECTION_OPTIONS.find((candidate) =>
+    candidate.x === committed.x && candidate.y === committed.y);
+  aiChoice = {
+    ...aiChoice,
+    name: option?.name || "route",
+    direction: { ...committed },
+    head,
+    forecast,
+    horizon: forecast.length,
+    route: route.map((move) => ({ ...move })),
+    legal: true,
+  };
+  aiEvaluations = [aiChoice];
+  updateAiTelemetry();
+  return committed;
 }
 
 function lensVisible() {
@@ -1333,10 +1357,14 @@ function updateAiTelemetry() {
   const insight = aiPlanInsight || Rules.decisionInsight(aiEvaluations, aiChoice);
   aiPlan.textContent = `${demoMode ? "TURN" : "SAFEST"} ${aiChoice.name.toUpperCase()}`;
   aiReason.textContent = `${insight.confidence} · ${insight.reason}`;
-  const margin = Number.isFinite(insight.margin) ? `Δ${Math.round(insight.margin)}` : "NO ALTERNATE";
-  const runnerUp = insight.runnerUp ? `VS ${insight.runnerUp.toUpperCase()}` : "FORCED LINE";
   const commitment = autopilotPlan.length ? ` · LOCK ${autopilotPlan.length}` : "";
-  aiEvidence.textContent = `${runnerUp} · ${margin} · ${aiChoice.horizon} TURN FORECAST${commitment} · ${aiPlanDuration.toFixed(1)}MS`;
+  if (demoMode && commitment && aiEvaluations.length === 1) {
+    aiEvidence.textContent = `PROVEN ROUTE · ${aiChoice.horizon} TURN FORECAST${commitment} · PLANNED ${aiPlanDuration.toFixed(1)}MS`;
+  } else {
+    const margin = Number.isFinite(insight.margin) ? `Δ${Math.round(insight.margin)}` : "NO ALTERNATE";
+    const runnerUp = insight.runnerUp ? `VS ${insight.runnerUp.toUpperCase()}` : "FORCED LINE";
+    aiEvidence.textContent = `${runnerUp} · ${margin} · ${aiChoice.horizon} TURN FORECAST${commitment} · ${aiPlanDuration.toFixed(1)}MS`;
+  }
 }
 
 function prepareDemo() {
