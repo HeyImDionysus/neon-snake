@@ -138,6 +138,7 @@ const tests = [
     const guardedRules = {
       nextHead: rules.nextHead,
       collisionType: rules.collisionType,
+      isReverseDirection: rules.isReverseDirection,
       evaluateMoves() {
         throw new Error("A committed route must not invoke the full planner.");
       },
@@ -148,6 +149,7 @@ const tests = [
       autopilotPlanTarget: "15,15,signal",
       autopilotPlan: [{ x: 1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: 1 }],
       snake: [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }],
+      direction: { x: 1, y: 0 },
       food: { x: 15, y: 15, kind: "signal" },
       GRID: 20,
       DIRECTION_OPTIONS: DIRECTIONS,
@@ -171,6 +173,14 @@ const tests = [
       [{ x: 11, y: 10 }, { x: 11, y: 11 }, { x: 11, y: 12 }],
     );
     assert.equal(telemetryUpdates, 1);
+
+    loaded.sandbox.autopilotPlan = [{ x: -1, y: 0 }];
+    assert.equal(
+      loaded.consumeAutopilotPlan("canvas", "15,15,signal"),
+      null,
+      "Canvas must reject a reversing committed route even though self-crossing is legal",
+    );
+    assert.equal(loaded.sandbox.autopilotPlan.length, 0);
 
     const choose = functionSource("chooseDemoDirection");
     const tick = functionSource("tick");

@@ -1275,7 +1275,10 @@ function consumeAutopilotPlan(effectiveMode, target) {
   const committed = autopilotPlan.shift();
   const head = Rules.nextHead(snake[0], committed, effectiveMode, GRID);
   const growing = Boolean(food && head.x === food.x && head.y === food.y);
-  if (Rules.collisionType(head, snake, growing, effectiveMode, GRID)) {
+  if (
+    Rules.isReverseDirection(committed, direction)
+    || Rules.collisionType(head, snake, growing, effectiveMode, GRID)
+  ) {
     autopilotPlan = [];
     return null;
   }

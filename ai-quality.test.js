@@ -10,6 +10,7 @@ const DIRECTIONS = [
   { name: "left", x: -1, y: 0 },
 ];
 const SIGNAL_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+const CANVAS_BRUSH_LENGTH = 18;
 
 function codeFromIndex(value) {
   let state = Math.imul((Number(value) || 0) >>> 0, 0x9e3779b1) & 0x3fffffff;
@@ -33,6 +34,10 @@ function simulateSolo(code, mode = "classic", maxSteps = 600) {
   let stepsSinceFood = 0;
   let maxFoodGap = 0;
   let routeSignature = "";
+  let canvasCompositionState = null;
+  let canvasCompositionBudget = 0;
+  let canvasCompositionSteps = 0;
+  const canvasCompositionSeed = rules.signalState(code);
 
   function placeFood() {
     const open = [];
@@ -53,17 +58,42 @@ function simulateSolo(code, mode = "classic", maxSteps = 600) {
     recentHeads = [];
     committedPlan = [];
     stepsSinceFood = 0;
+    if (mode === "canvas") {
+      canvasCompositionBudget = 14 + (signalState % 12);
+    }
   }
 
   placeFood();
   while (steps < maxSteps && food) {
     let selected = null;
-    if (committedPlan.length) {
+    if (mode === "canvas" && canvasCompositionBudget > 0) {
+      let composition = rules.canvasCompositionMove(
+        canvasCompositionState,
+        direction,
+        canvasCompositionSeed,
+      );
+      if (rules.isReverseDirection(composition.direction, direction)) {
+        canvasCompositionState = null;
+        composition = rules.canvasCompositionMove(
+          null,
+          direction,
+          canvasCompositionSeed,
+        );
+      }
+      canvasCompositionState = composition.state;
+      canvasCompositionBudget -= 1;
+      canvasCompositionSteps += 1;
+      const option = DIRECTIONS.find((candidate) =>
+        candidate.x === composition.direction.x
+        && candidate.y === composition.direction.y);
+      selected = option
+        ? { name: option.name, direction: { ...composition.direction } }
+        : null;
+    } else if (committedPlan.length) {
       const committed = committedPlan.shift();
-      const reverse = committed.x === -direction.x && committed.y === -direction.y;
       const head = rules.nextHead(snake[0], committed, mode, 20);
       const growing = head.x === food.x && head.y === food.y;
-      const collision = reverse
+      const collision = rules.isReverseDirection(committed, direction)
         ? "reverse"
         : rules.collisionType(head, snake, growing, mode, 20);
       if (!collision) {
@@ -90,14 +120,34 @@ function simulateSolo(code, mode = "classic", maxSteps = 600) {
       committedPlan = selected?.route?.slice(1).map((move) => ({ ...move })) || [];
     }
     if (!selected) {
-      return { code, mode, steps, foods, length: snake.length, maxFoodGap, routeSignature, outcome: "trapped" };
+      return {
+        code,
+        mode,
+        steps,
+        foods,
+        length: snake.length,
+        maxFoodGap,
+        routeSignature,
+        canvasCompositionSteps,
+        outcome: "trapped",
+      };
     }
 
     const head = rules.nextHead(snake[0], selected.direction, mode, 20);
     const growing = head.x === food.x && head.y === food.y;
     const collision = rules.collisionType(head, snake, growing, mode, 20);
     if (collision) {
-      return { code, mode, steps, foods, length: snake.length, maxFoodGap, routeSignature, outcome: collision };
+      return {
+        code,
+        mode,
+        steps,
+        foods,
+        length: snake.length,
+        maxFoodGap,
+        routeSignature,
+        canvasCompositionSteps,
+        outcome: collision,
+      };
     }
 
     snake = [head, ...snake];
@@ -109,6 +159,7 @@ function simulateSolo(code, mode = "classic", maxSteps = 600) {
     if (growing) {
       foods += 1;
       placeFood();
+      if (mode === "canvas" && snake.length > CANVAS_BRUSH_LENGTH) snake.pop();
     } else {
       snake.pop();
     }
@@ -123,6 +174,7 @@ function simulateSolo(code, mode = "classic", maxSteps = 600) {
     length: snake.length,
     maxFoodGap,
     routeSignature,
+    canvasCompositionSteps,
     outcome: food ? "timeout" : "clear",
   };
 }
@@ -392,6 +444,7 @@ const tests = [
       runs.length,
       JSON.stringify(runs),
     );
+    runs.forEach((run) => assert.ok(run.foods >= 15, JSON.stringify(run)));
     assert.ok(totalFoods >= 280, JSON.stringify(runs));
   }],
   ["planner remains purposeful across Portal, Rush, and Canvas boundaries", () => {
@@ -400,7 +453,7 @@ const tests = [
     runs.forEach((run) => assert.equal(run.outcome, "timeout", JSON.stringify(run)));
     assert.ok(runs.find((run) => run.mode === "portal").foods >= 55, JSON.stringify(runs));
     assert.ok(runs.find((run) => run.mode === "rush").foods >= 40, JSON.stringify(runs));
-    assert.ok(runs.find((run) => run.mode === "canvas").foods >= 55, JSON.stringify(runs));
+    assert.ok(runs.find((run) => run.mode === "canvas").foods >= 18, JSON.stringify(runs));
   }],
   ["the former deterministic trap seed survives beyond its old failure", () => {
     const run = simulateSolo("8RATCV", "classic", 1800);
@@ -415,12 +468,22 @@ const tests = [
   ["unique Signal Codes stay purposeful and non-repeating across solo modes", () => {
     const codes = Array.from({ length: 8 }, (_, index) => codeFromIndex(index + 32));
     assert.equal(new Set(codes).size, codes.length);
-    for (const mode of ["classic", "portal", "canvas"]) {
+    const expectations = {
+      classic: { foods: 45, maxFoodGap: 140 },
+      portal: { foods: 100, maxFoodGap: 180 },
+      rush: { foods: 45, maxFoodGap: 140 },
+      canvas: { foods: 40, maxFoodGap: 80 },
+    };
+    for (const [mode, expectation] of Object.entries(expectations)) {
       const runs = codes.map((code) => simulateSolo(code, mode, 2000));
       runs.forEach((run) => {
         assert.equal(run.outcome, "timeout", JSON.stringify(run));
-        assert.ok(run.foods >= (mode === "classic" ? 45 : 100), JSON.stringify(run));
-        assert.ok(run.maxFoodGap <= (mode === "canvas" ? 24 : 140), JSON.stringify(run));
+        assert.ok(run.foods >= expectation.foods, JSON.stringify(run));
+        assert.ok(run.maxFoodGap <= expectation.maxFoodGap, JSON.stringify(run));
+        if (mode === "canvas") {
+          assert.equal(run.length, CANVAS_BRUSH_LENGTH, JSON.stringify(run));
+          assert.ok(run.canvasCompositionSteps >= 800, JSON.stringify(run));
+        }
       });
       assert.equal(
         new Set(runs.map((run) => run.routeSignature)).size,

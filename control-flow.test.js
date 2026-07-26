@@ -141,6 +141,14 @@ const tests = [
     assert.match(choose, /canvasCompositionBudget -= 1/);
     assert.match(place, /canvasCompositionBudget = 14 \+ \(signalRandomState % 12\)/);
   }],
+  ["Autopilot rejects a reversing committed route before collision rules", () => {
+    const consume = functionBody("consumeAutopilotPlan");
+    assert.match(consume, /Rules\.isReverseDirection\(committed, direction\)/);
+    assert.ok(
+      consume.indexOf("Rules.isReverseDirection(committed, direction)")
+        < consume.indexOf("Rules.collisionType(head, snake, growing, effectiveMode, GRID)"),
+    );
+  }],
   ["mutation selection cannot alter mode boundaries", () => {
     const body = functionBody("activateMutation");
     assert.ok(!body.includes("phase"));

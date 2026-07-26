@@ -187,6 +187,13 @@
     return first?.x === second?.x && first?.y === second?.y;
   }
 
+  function isReverseDirection(nextDirection, currentDirection) {
+    return isCardinalDirection(nextDirection)
+      && isCardinalDirection(currentDirection)
+      && nextDirection.x === -currentDirection.x
+      && nextDirection.y === -currentDirection.y;
+  }
+
   function bufferDirection(queue, currentDirection, nextDirection, limit = 2) {
     const capacity = Math.max(1, Math.min(4, Math.floor(Number(limit) || 2)));
     const pending = (Array.isArray(queue) ? queue : [])
@@ -1757,6 +1764,7 @@
     evaluateMoves,
     fluidMotionPath,
     gridDistance,
+    isReverseDirection,
     mutationDelay,
     mutationScoreMultiplier,
     motionProgress,

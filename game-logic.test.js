@@ -19,6 +19,8 @@ const tests = [
     assert.deepEqual(queue, [up, left]);
     assert.deepEqual(rules.bufferDirection(queue, right, down), queue, "the two-turn buffer stays bounded");
     assert.deepEqual(rules.bufferDirection([], right, left), [], "an immediate reversal is rejected");
+    assert.equal(rules.isReverseDirection(left, right), true);
+    assert.equal(rules.isReverseDirection(up, right), false);
   }],
   ["buffered turns are consumed one per logic step", () => {
     const right = { x: 1, y: 0 };
