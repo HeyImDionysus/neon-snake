@@ -30,6 +30,9 @@ const copyRoomButton = $("#copyRoomButton");
 const connectRoomButton = $("#connectRoomButton");
 const readyRoomButton = $("#readyRoomButton");
 const roomState = $("#roomState");
+const aiTraceMove = $("#aiTraceMove");
+const aiTraceRisk = $("#aiTraceRisk");
+const aiTraceDepth = $("#aiTraceDepth");
 const roomSlotOne = $("#roomSlotOne");
 const roomSlotTwo = $("#roomSlotTwo");
 
@@ -62,6 +65,7 @@ let opponentQueuedDirection = { ...DIRECTIONS.left };
 let playerInputBuffer = [];
 let opponentInputBuffer = [];
 let opponentInputSequences = [];
+let autopilotRecentHeads = [];
 let localInputSequence = Date.now();
 let lastGuestInputSequence = 0;
 let guestInputAck = 0;
@@ -154,6 +158,7 @@ function resetDuel() {
   playerInputBuffer = [];
   opponentInputBuffer = [];
   opponentInputSequences = [];
+  autopilotRecentHeads = [];
   lastGuestInputSequence = 0;
   guestInputAck = 0;
   playerScore = 0;
@@ -343,8 +348,19 @@ function chooseAiDirection() {
     mode: "classic",
     gridSize: DUEL_GRID,
     candidates: CANDIDATES,
+    seed: signalCursor,
+    recentHeads: autopilotRecentHeads,
   });
-  return Rules.chooseBestMove(evaluations)?.direction || opponentDirection;
+  const selected = Rules.chooseBestMove(evaluations);
+  const insight = Rules.decisionInsight(evaluations, selected);
+  aiTraceMove.textContent = selected?.name?.toUpperCase() || "NO SAFE MOVE";
+  aiTraceRisk.textContent = selected
+    ? `${selected.losingReplies || 0} LOSING · ${selected.drawingReplies || 0} DRAW · ${Math.round(selected.searchValue || 0)} VALUE`
+    : "FORCED CRASH";
+  aiTraceDepth.textContent = selected
+    ? `${selected.searchDepth} PLY · ${selected.searchNodes} NODES · ${insight.confidence}`
+    : "0 TURNS";
+  return selected?.direction || opponentDirection;
 }
 
 function applyDuelResult(result, now) {
@@ -352,6 +368,10 @@ function applyDuelResult(result, now) {
   previousOpponentSnake = cloneSnake(opponentSnake);
   playerSnake = cloneSnake(result.players.player.snake);
   opponentSnake = cloneSnake(result.players.opponent.snake);
+  if (duelType === "ai" && opponentSnake[0]) {
+    autopilotRecentHeads.push({ ...opponentSnake[0] });
+    if (autopilotRecentHeads.length > 192) autopilotRecentHeads.shift();
+  }
   playerDirection = { ...result.players.player.direction };
   opponentDirection = { ...result.players.opponent.direction };
   playerScore = result.players.player.score;
@@ -433,7 +453,7 @@ function setRunState(state, label) {
   pauseDesktop.disabled = !pausable;
   const pauseLabel = state === "paused" ? "Resume" : "Pause";
   pauseDesktop.querySelector("span").textContent = pauseLabel;
-  pauseDesktop.setAttribute("aria-label", `${pauseLabel} AI duel`);
+  pauseDesktop.setAttribute("aria-label", `${pauseLabel} Autopilot duel`);
   pauseButton.setAttribute("aria-label", `${pauseLabel} duel`);
   aiButton.hidden = duelType !== "ai" || state !== "ready";
   restartButton.hidden = duelType !== "ai" || state === "ready" || state === "countdown";
@@ -471,7 +491,7 @@ function prepareAiDuel() {
   if (duelType !== "ai") switchDuelType("ai");
   resetDuel();
   beginCountdown(3);
-  announcement.textContent = "AI duel countdown started.";
+  announcement.textContent = "Autopilot duel countdown started.";
   focusWithoutScroll(canvas);
 }
 
@@ -480,8 +500,8 @@ function startAiDuel() {
   overlayTitle.classList.remove("countdown");
   lastMoveAt = performance.now();
   nextMoveAt = lastMoveAt + TICK_DURATION;
-  setRunState("running", "AI DUEL ACTIVE");
-  announcement.textContent = "AI duel active. First crash loses.";
+  setRunState("running", "AUTOPILOT DUEL ACTIVE");
+  announcement.textContent = "Autopilot duel active. First crash loses.";
   focusWithoutScroll(canvas);
 }
 
@@ -495,7 +515,7 @@ function endDuel(winner, crashes = {}) {
       : "DUAL<br><em>COLLISION</em>";
   const reason = crashes.player || crashes.opponent || "collision";
   showOverlay(
-    duelType === "ai" ? "AI DUEL COMPLETE" : "LIVE DUEL COMPLETE",
+    duelType === "ai" ? "AUTOPILOT DUEL COMPLETE" : "LIVE DUEL COMPLETE",
     title,
     winner ? `First crash: ${reason.replace("-", " ")}.` : "Both signals broke on the same tick.",
     duelType === "ai" ? "Run it back" : "",
@@ -527,7 +547,7 @@ function updateHud() {
   }
   const localIsOpponent = duelType === "live" && localIndex === 1;
   leftLabel.textContent = localIsOpponent ? "RIVAL" : "YOU";
-  rightLabel.textContent = localIsOpponent ? "YOU" : duelType === "ai" ? "AI" : "RIVAL";
+  rightLabel.textContent = localIsOpponent ? "YOU" : duelType === "ai" ? "AUTOPILOT" : "RIVAL";
   leftScore.textContent = String(playerScore).padStart(2, "0");
   rightScore.textContent = String(opponentScore).padStart(2, "0");
 }
@@ -564,7 +584,7 @@ function togglePause() {
   if (runState === "running") {
     pausedMotion = currentMotion(performance.now());
     nextMoveAt = 0;
-    setRunState("paused", "AI DUEL PAUSED");
+    setRunState("paused", "AUTOPILOT DUEL PAUSED");
     showOverlay("SYSTEM HOLD", "PAUSED", "The rival is frozen on the same tick.", "Resume duel");
     focusWithoutScroll(aiStartButton);
     return;
@@ -573,7 +593,7 @@ function togglePause() {
     overlay.hidden = true;
     lastMoveAt = performance.now() - pausedMotion * TICK_DURATION;
     nextMoveAt = performance.now() + Math.max(20, (1 - pausedMotion) * TICK_DURATION);
-    setRunState("running", "AI DUEL ACTIVE");
+    setRunState("running", "AUTOPILOT DUEL ACTIVE");
     focusWithoutScroll(canvas);
   }
 }
@@ -596,8 +616,8 @@ function switchDuelType(type) {
     showOverlay(
       "DUEL PROTOCOL",
       "FACE THE<br><em>PLANNER</em>",
-      "You steer the acid signal. The violet rival uses the same survival logic.",
-      "Play vs AI",
+      "You steer the acid signal. The violet rival forecasts both legal move sets, protects future territory, races the shared target, and breaks repeated routes.",
+      "Play vs Autopilot",
     );
   } else {
     showOverlay(
@@ -746,7 +766,15 @@ function handleRoomStatus(status) {
   if (status.state === "reconnecting") {
     roomConnectionState = "reconnecting";
     roomState.textContent = "ROOM LINK RECONNECTING";
-    announcement.textContent = "Room link interrupted. Reconnecting.";
+    announcement.textContent = status.code === "timeout"
+      ? "Room request timed out. Reconnecting."
+      : "Room link interrupted. Reconnecting.";
+    return;
+  }
+  if (status.state === "rejected") {
+    roomConnectionState = "degraded";
+    roomState.textContent = "ROOM UPDATE REJECTED · RETRYING";
+    announcement.textContent = "The room service rejected one update. It was discarded instead of retrying forever.";
     return;
   }
   if (status.state !== "connected") return;

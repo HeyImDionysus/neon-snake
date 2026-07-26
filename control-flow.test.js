@@ -38,12 +38,12 @@ const tests = [
     assert.equal((request.match(/Rules\.bufferDirection\(directionBuffer, direction, next\)/g) || []).length, 2);
     assert.match(functionBody("tick"), /Rules\.consumeDirectionBuffer\(directionBuffer, direction\)/);
   }],
-  ["AI play uses the currently selected mode", () => {
+  ["Autopilot uses the currently selected mode", () => {
     const body = functionBody("prepareDemo");
     assert.match(body, /activeMode = selectedMode\(\)/);
-    assert.match(body, /setState\("running", `\$\{activeMode\.toUpperCase\(\)\} AI PLAY`\)/);
+    assert.match(body, /setState\("running", `\$\{activeMode\.toUpperCase\(\)\} AUTOPILOT`\)/);
   }],
-  ["Rush AI initializes its own countdown", () => {
+  ["Rush Autopilot initializes its own countdown", () => {
     const body = functionBody("prepareDemo");
     assert.match(body, /activeMode === "rush".*rushDeadline = performance\.now\(\) \+ rushRemaining/s);
   }],
@@ -58,7 +58,7 @@ const tests = [
     assert.ok(!idleBranch[1].includes("prepareRun("));
     assert.match(idleBranch[1], /Choose Play/);
   }],
-  ["backgrounding does not silently stop AI play", () => {
+  ["backgrounding does not silently stop Autopilot", () => {
     const body = functionBody("handleVisibilityChange");
     assert.match(body, /runState === "running" && !demoMode/);
     assert.ok(!body.includes('runState === "running" && demoMode'));
@@ -85,19 +85,48 @@ const tests = [
     assert.match(body, /demoButton\.hidden = false/);
     assert.match(body, /THE RUN STARTS ONLY AFTER YOU CHOOSE/);
   }],
-  ["AI telemetry distinguishes control from advice", () => {
+  ["decision telemetry distinguishes Autopilot from advice", () => {
     const body = functionBody("updateAiTelemetry");
-    assert.match(body, /AI CONTROL/);
-    assert.match(body, /AI HINT · YOU DRIVE/);
+    assert.match(body, /AUTOPILOT/);
+    assert.match(body, /DECISION LENS · YOU DRIVE/);
     assert.match(body, /classList\.toggle\("driver", demoMode\)/);
     assert.match(body, /Rules\.decisionInsight\(aiEvaluations, aiChoice\)/);
+    assert.match(body, /aiEvidence\.textContent/);
+  }],
+  ["one versioned board decision is reused by Autopilot, Lens, and Decision DNA", () => {
+    const evaluate = functionBody("evaluatePlannerState");
+    const record = functionBody("recordDecision");
+    const choose = functionBody("chooseDemoDirection");
+    assert.match(evaluate, /nextKey === aiPlanKey/);
+    assert.match(evaluate, /Rules\.evaluateMoves/);
+    assert.doesNotMatch(record, /Rules\.evaluateMoves/);
+    assert.match(record, /evaluatePlannerState\(effectiveMode\)/);
+    assert.match(choose, /planAiMove\(\)/);
+  }],
+  ["an expired Core is replaced before the next movement decision", () => {
+    const body = functionBody("render");
+    assert.ok(body.indexOf("expireCore(now)") < body.indexOf("advanceMovement(now)"));
+  }],
+  ["Canvas paint cost stays constant as permanent strokes accumulate", () => {
+    const draw = functionBody("drawCanvasPaint");
+    const add = functionBody("addCanvasMark");
+    assert.match(draw, /target\.drawImage\(canvasPaintLayer, 0, 0\)/);
+    assert.match(draw, /else \{\n    canvasMarks\.forEach/);
+    assert.match(add, /strokeCanvasMark\(canvasPaintLayerCtx, canvasMarks\.at\(-1\)\)/);
+  }],
+  ["Canvas Autopilot alternates an authored motif with signal capture", () => {
+    const choose = functionBody("chooseDemoDirection");
+    const place = functionBody("placeFood");
+    assert.match(choose, /Rules\.canvasCompositionMove/);
+    assert.match(choose, /canvasCompositionBudget -= 1/);
+    assert.match(place, /canvasCompositionBudget = 14 \+ \(signalRandomState % 12\)/);
   }],
   ["mutation selection cannot alter mode boundaries", () => {
     const body = functionBody("activateMutation");
     assert.ok(!body.includes("phase"));
     assert.match(body, /const options = \["flow", "amplify"\]/);
   }],
-  ["AI forecast renders beneath the snake without animated dashes", () => {
+  ["Autopilot forecast renders beneath the snake without animated dashes", () => {
     const forecast = functionBody("drawAiForecast");
     const board = functionBody("drawBoard");
     assert.match(forecast, /aiChoice\?\.forecast\?\.length/);
@@ -105,7 +134,7 @@ const tests = [
     assert.ok(!forecast.includes("setLineDash"));
     assert.ok(board.indexOf("drawAiForecast(now)") < board.indexOf("drawSnake(now)"));
   }],
-  ["mobile AI play exposes a readable stop control", () => {
+  ["mobile Autopilot exposes a readable stop control", () => {
     const body = functionBody("updateActionLabels");
     assert.match(body, /aiPlaying \? "STOP"/);
     assert.match(body, /classList\.toggle\("stop-ai", aiPlaying\)/);
@@ -121,14 +150,14 @@ const tests = [
     assert.match(body, /announcement\.textContent = `Signal \$\{runSignal\} shared\.`/);
     assert.match(body, /announcement\.textContent = `Signal \$\{runSignal\} link copied\.`/);
   }],
-  ["player-only AI Lens control hides while AI drives", () => {
+  ["player-only Decision Lens control hides while Autopilot drives", () => {
     const body = functionBody("updateActionLabels");
     assert.match(body, /lensButton\.hidden = aiPlaying/);
   }],
   ["post-run choices stay concise and mode-aware", () => {
     const body = functionBody("endGame");
     assert.match(body, /modeLabel\(\)\.toUpperCase\(\).*RUN REPORT/);
-    assert.match(body, /demoButtonLabel\.textContent = "Watch AI"/);
+    assert.match(body, /demoButtonLabel\.textContent = "Watch Autopilot"/);
   }],
   ["dim interface text meets normal-text contrast across panel surfaces", () => {
     const match = styles.match(/--dim:\s*#([a-f\d]{6})/i);

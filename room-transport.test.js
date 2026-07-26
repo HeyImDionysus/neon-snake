@@ -259,6 +259,91 @@ const tests = [
     ]);
     transport.close();
   }],
+  ["remote requests carry a bounded timeout signal", async () => {
+    const timeoutCalls = [];
+    const signals = [];
+    const transport = await transports.createRemoteRoomTransport({
+      code: "ABC234",
+      clientId: "client-one",
+      onMessage: () => {},
+      AbortSignalImpl: {
+        timeout(milliseconds) {
+          timeoutCalls.push(milliseconds);
+          return { milliseconds };
+        },
+      },
+      requestTimeoutMs: 4_200,
+      fetchImpl: async (_url, options) => {
+        signals.push(options.signal);
+        return {
+          ok: true,
+          async json() {
+            return {
+              role: "player",
+              slot: 0,
+              session: "session-one",
+              players: [],
+              stateRev: 0,
+              inputRev: 0,
+              countdownRev: 0,
+            };
+          },
+        };
+      },
+      setTimeoutImpl: () => 1,
+      clearTimeoutImpl: () => {},
+    });
+    assert.deepEqual(timeoutCalls, [4_200]);
+    assert.deepEqual(signals, [{ milliseconds: 4_200 }]);
+    transport.close();
+  }],
+  ["a rejected update is discarded instead of becoming a poison retry", async () => {
+    const requests = [];
+    const scheduled = [];
+    const statuses = [];
+    let syncCount = 0;
+    const transport = await transports.createRemoteRoomTransport({
+      code: "ABC234",
+      clientId: "client-two",
+      onMessage: () => {},
+      onStatus: (status) => statuses.push(status),
+      fetchImpl: async (_url, options) => {
+        const body = JSON.parse(options.body);
+        requests.push(body);
+        if (body.action === "sync") {
+          syncCount += 1;
+          if (syncCount === 1) return { ok: false, status: 400 };
+        }
+        return {
+          ok: true,
+          async json() {
+            return {
+              role: "player",
+              slot: 1,
+              session: "session-two",
+              players: [],
+              stateRev: 0,
+              inputRev: 0,
+              countdownRev: 0,
+              input: [],
+            };
+          },
+        };
+      },
+      setTimeoutImpl: (callback) => {
+        scheduled.push(callback);
+        return scheduled.length;
+      },
+      clearTimeoutImpl: () => {},
+    });
+
+    transport.send({ type: "input", round: 100, sequence: 300, direction: { x: 0, y: -1 } });
+    await scheduled.shift()();
+    assert.equal(statuses.at(-1).state, "rejected");
+    await scheduled.shift()();
+    assert.deepEqual(requests[2].messages, []);
+    transport.close();
+  }],
   ["remote close uses a keepalive leave without leaking the session into the URL", async () => {
     const requests = [];
     const transport = await transports.createRemoteRoomTransport({

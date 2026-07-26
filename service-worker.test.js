@@ -119,7 +119,7 @@ async function main() {
   });
   process.stdout.write("PASS install primes the complete versioned app shell\n");
 
-  assert.match(source, /neon-snake-shell-v42/);
+  assert.match(source, /neon-snake-shell-v43/);
   process.stdout.write("PASS Signal Cartography ships behind a fresh shell cache version\n");
 
   stores.set("neon-snake-shell-stale", new Map());

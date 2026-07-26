@@ -1,10 +1,12 @@
-# Neon Snake Lab
+# Neon Snake
 
-Neon Snake is a dependency-free browser game used to explore how far simple rules can be pushed through game feel, procedural systems, and interface design.
+Neon Snake is a public capability experiment: give Codex one familiar game, then judge how far the AI behind its construction can push the finished artifact through engineering, autonomous control, backend architecture, game feel, visual identity, and verification.
+
+The game itself is not AI. Its Autopilot and duel opponent are deterministic decision systems written specifically for this project. They are part of the evidence—alongside the renderer, realtime room protocol, accessibility, offline shell, and tests—not a claim that ordinary game code is a model.
 
 ## Run it
 
-Open `public/index.html` in a modern browser. Solo play, AI play, AI duels, Canvas export, and offline installation require no installation, build step, package manager, server, account, or network connection. Public Live Rooms use the deployed Vercel room function and Redis resource.
+Open `public/index.html` in a modern browser. Solo play, Autopilot runs, Autopilot duels, Canvas export, and offline installation require no installation, build step, package manager, server, account, or network connection. Public Live Rooms use the deployed Vercel room function and Redis resource.
 
 To run the deterministic rules and control-flow suites:
 
@@ -40,7 +42,7 @@ The implementation grid is deliberately invisible. Solo movement and collision r
 
 The separate Duel Lab uses the same canvas footprint with a 30 × 30 logical arena. That makes each snake one-third smaller while increasing playable cells from 400 to 900—125% more room without consuming more page space. Both snakes advance in one deterministic transaction, so wall, self, rival-body, head-on, and head-swap collisions cannot depend on browser callback order.
 
-The AI player follows one readable priority stack in every selected protocol:
+The Autopilot follows one readable priority stack in every selected protocol:
 
 ```text
 prove an escape after food → take the shortest safe route
@@ -49,19 +51,21 @@ tail route is unavailable → preserve the Hamiltonian safety arc
 cycle order is unavailable → compare space, exits, and six-turn survival
 ```
 
-It rejects collisions first, tries the shortest visible route to the signal, simulates that whole route, and accepts it only when the resulting head can still reach the tail with enough open space. If the current body blocks that route, a bounded deterministic beam search models the tail moving out of the way. When no food line proves safe, the planner follows the moving tail to reopen the board. A deterministic Hamiltonian cycle is the final safety rail on an ordered even board: shortcuts may advance through free cells but can never overtake the tail. Arbitrary player positions still use the bounded six-turn flood-fill search. The selected continuation is rendered as a subtle Foresight Trail beneath the snake, including correct edge breaks in Portal mode. Decision Insight now says whether the AI is following a proven route, resetting behind its tail, guarding the cycle, or choosing between local survival options.
+It rejects collisions first, tries the shortest visible route to the signal, simulates that whole route, and accepts it only when the resulting head can still reach the tail with enough open space. If the current body blocks that route, a bounded deterministic beam search models the tail moving out of the way. When no food line proves safe, the planner follows the moving tail to reopen the board. A deterministic Hamiltonian cycle is the final safety rail on an ordered even board: shortcuts may advance through free cells but can never overtake the tail. Arbitrary player positions still use the bounded six-turn flood-fill search. The selected continuation is rendered as a subtle Foresight Trail beneath the snake, including correct edge breaks in Portal mode. Decision Insight says whether the engine is following a verified route, resetting behind its tail, guarding the cycle, or choosing between local survival options.
 
 Decision DNA turns that planner into a mirror instead of an opponent. On every player step, the game records whether the chosen direction matched the planner, how much reachable space the choice preserved, and whether it left one or fewer exits. The run report translates those aggregates into one of four readable styles: Tactician, Explorer, Daredevil, or Hybrid. It never changes movement, score, or difficulty.
 
-The optional live AI Lens uses that identical calculation as a co-pilot. Press `L` or use the single toggle to reveal legal candidate cells, the planner's chosen direction, and the reason it beat the runner-up while retaining full control. Turning it on never steers the snake or modifies scoring.
+The optional live Decision Lens uses that identical calculation as a co-pilot. Press `L` or use the single toggle to reveal legal candidate cells, the planner's chosen direction, and the reason it beat the runner-up while retaining full control. Turning it on never steers the snake or modifies scoring.
 
-In the Duel Lab, `Play vs AI` is a true two-snake match rather than an advice mode. The violet rival uses an opponent-aware variant of the planner: your body is occupied space, the shared signal affects route value, and every legal move is tested against every legal reply you could make on the next tick. It cannot see your next input, but it no longer volunteers for an avoidable head-on or head-swap.
+In the Duel Lab, `Play vs Autopilot` is a true two-snake match rather than an advice mode. The violet rival treats your body as occupied space and performs a deterministic two-ply simultaneous-move search: every candidate move is tested against your worst legal reply, then against the next exchange. Terminal wins and losses dominate the score; surviving lines compare future territory, exits, food-race pressure, score, and body length. Recent head history penalizes repeated circuits, while a small Signal-derived tie break varies equivalent safe lines without overriding tactics. It cannot see your next input and does not claim to solve the full game.
+
+The executable quality suite proves more than isolated fixtures. Classic Autopilot fills all 400 cells—397 pickups after the opening length—on three distinct public Signal Codes while preserving the cycle invariant and collecting every target within one board lap. Duel simulations run the controller against direct food-racing and pursuit policies, require seeded route variation, reject avoidable next-tick losses, retain the food target across the full search horizon, and detect regressions into short pursuit loops.
 
 Signal Codes make challenge generation equally inspectable. A six-character code is hashed once, then a tiny seeded generator chooses each gameplay-affecting random outcome. The same code, mode, pace, and player moves therefore produce the same pickup and mutation sequence—without a backend or saved server state.
 
 That code also drives the site's Signal Cartography identity. A separate deterministic renderer turns the current Signal and protocol into flowing currents, contour fields, and orbiting nodes behind the interface. It is capped at 24 frames per second, pauses drawing in hidden tabs, becomes static when reduced motion is requested, and never participates in game state. The custom signal-serpent mark, protocol glyphs, and curved run trace carry the same visual grammar through solo and Duel surfaces without adding a framework or image payload.
 
-Signal Codes also name duel rooms. `PUBLIC LIVE ROOM` reserves exactly two server-assigned player slots in Redis, while additional visitors become read-only spectators. The first slot owns the deterministic simulation and publishes validated snapshots; the second publishes only validated direction input. The room cannot enter countdown until two connected players have both marked themselves Ready, and stale slots expire automatically after a lost connection.
+Signal Codes also name duel rooms. `PUBLIC LIVE ROOM` reserves exactly two server-assigned player slots in Redis, while additional visitors become read-only spectators. These are casual, host-authoritative matches: Player 1's browser owns the deterministic simulation and publishes schema-validated snapshots; Player 2 publishes an ordered, acknowledged direction queue. The Vercel Function validates message shape and player-slot permissions, but it does not verify legal moves, scores, or outcomes. Anyone with the Signal Code can enter the room. Countdown requires two connected, Ready players, and idle data expires automatically.
 
 ## Current rule set
 
@@ -69,19 +73,19 @@ Signal Codes also name duel rooms. `PUBLIC LIVE ROOM` reserves exactly two serve
 - **Portal:** crossing an edge enters from the opposite edge.
 - **Rush:** score as much as possible in 60 seconds.
 - **Canvas:** edges wrap, self-crossing is safe, and every move becomes a persistent brush stroke.
-- **Fluid presentation:** the board has no visible lattice; the snake, Echo, trails, AI markers, and exported artwork use rounded continuous forms while preserving exact tile rules underneath.
+- **Fluid presentation:** the board has no visible lattice; the snake, Echo, decision markers, and exported artwork use rounded continuous forms while preserving exact tile rules underneath.
 - **Responsive controls:** keyboard, swipe, touch buttons, and gamepad input share a bounded two-turn buffer, so a rapid corner sequence is consumed one turn per logic step without allowing reversals.
 - **Combo:** quick consecutive pickups increase the multiplier up to five.
 - **Core:** every fifth pickup creates a timed, high-value target.
 - **Mutation:** a Core temporarily bends one run rule—Flow slows time or Amplify doubles points. Mode boundaries never change.
-- **AI play:** a deterministic survival planner obeys whichever protocol is selected, identifies itself as `AI CONTROL`, paints its decision on the board, and has an explicit Stop AI control that returns to the Play / Watch AI choice.
-- **Live AI Lens:** the player can reveal the same planner as `AI HINT · YOU DRIVE` during a normal run without surrendering control or changing the rules.
-- **Decision DNA:** the post-run report compares every player step with the same visible planner and summarizes AI agreement, space preserved, risk turns, and play style without affecting the run.
+- **Autopilot:** a deterministic survival planner obeys whichever protocol is selected, identifies itself clearly, paints its decision on the board, and has an explicit stop control that returns to the player/Autopilot choice.
+- **Decision Lens:** the player can reveal the same planner as `DECISION LENS · YOU DRIVE` during a normal run without surrendering control or changing the rules.
+- **Decision DNA:** the post-run report compares every player step with the same visible planner and summarizes engine agreement, space preserved, risk turns, and play style without affecting the run.
 - **Signal Code:** the same six-character code recreates the same hidden pickup and mutation sequence, and the Share action packages it with the selected mode and pace.
 - **Echo:** your previous run in the same mode returns as a harmless ghost moving one step for every step you take.
 - **Export:** Canvas sessions can be saved locally as a branded 1440 × 1440 PNG without uploading the artwork.
 - **Run integrity:** movement never starts until the owner choice and visible countdown complete; hiding the page suspends a player countdown, and career runs increment only when play actually begins.
-- **AI Duel:** two fluid snakes share a compressed 30 × 30 lethal arena; the first crash loses and simultaneous head-on or head-swap collisions draw.
+- **Autopilot Duel:** two fluid snakes share a compressed 30 × 30 lethal arena; the first crash loses and simultaneous head-on or head-swap collisions draw.
 - **Public Live Room:** a six-character room Signal connects exactly two players across different devices; both must be connected and Ready before countdown, and a disconnect cancels or stops play.
 
 ## Source map
@@ -92,14 +96,14 @@ Signal Codes also name duel rooms. `PUBLIC LIVE ROOM` reserves exactly two serve
 - `public/assets/signal-mark.svg` — the custom signal-serpent identity mark.
 - `public/game-logic.js` — small deterministic rules with no browser dependency.
 - `public/game.js` — canvas rendering, input, audio, persistence, and orchestration.
-- `public/duel.html` — focused AI/live duel interface.
+- `public/duel.html` — focused Autopilot/live duel interface.
 - `public/duel.css` — responsive duel arena and room-state presentation.
-- `public/duel.js` — AI duel and room-state orchestration.
+- `public/duel.js` — autonomous duel and room-state orchestration.
 - `public/room-transport.js` — dependency-free BroadcastChannel and Vercel/Redis room adapters.
 - `api/room.mjs` — the isolated Vercel Function entry point.
 - `server/room-core.cjs` — request validation, Redis REST client, and atomic two-slot room protocol.
 - `game-logic.test.js` — executable rule regressions using Node's built-in assertions.
-- `ai-quality.test.js` — seeded survival, routing-efficiency, safety-cycle, and duel counter-move benchmarks.
+- `ai-quality.test.js` — three-seed full-board completion, routing-efficiency, safety-cycle, adversarial duel, route-diversity, and loop-recovery benchmarks.
 - `control-flow.test.js` — executable ownership and explicit-start regressions.
 - `duel-control-flow.test.js` — executable expanded-arena and room-gate regressions.
 - `room-transport.test.js` — executable transport lifecycle and envelope regressions.
@@ -127,7 +131,7 @@ Keeping the static app in `public` ensures tests, documentation, configuration, 
 
 Before attaching a custom domain, update the metadata in `index.html` with an absolute canonical URL and absolute `og:image` URL for the final domain.
 
-The deployment includes the complete AI duel and a Redis-backed Public Live Room. Production acceptance still requires exercising one room from two different devices after every network-layer change.
+The deployment includes the complete Autopilot duel and a Redis-backed Public Live Room. Production acceptance still requires exercising one room from two different devices after every network-layer change.
 
 ### Multiplayer transport boundary
 
@@ -142,7 +146,7 @@ The server boundary enforces:
 - rebuilt envelopes so clients cannot spoof another sender, room, or timestamp;
 - no-store responses and generic failures that never expose credentials.
 
-Solo play and AI duels still work entirely in the browser. Live-room state is ephemeral and disappears after the room goes idle.
+Solo play and Autopilot duels still work entirely in the browser. Live-room state is ephemeral and disappears after the room goes idle.
 
 ## Public-data boundary
 

@@ -1,7 +1,7 @@
 {
-  "name": "Neon Snake — A Browser AI Lab",
+  "name": "Neon Snake — An AI-Built Systems Experiment",
   "short_name": "Neon Snake",
-  "description": "A dependency-free browser arcade and transparent AI experiment built from simple Snake rules.",
+  "description": "A public test of how far Codex can push one simple browser game through engineering, autonomy, visual design, and systems depth.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
