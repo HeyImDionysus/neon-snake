@@ -35,3 +35,4 @@ jobs:
           node control-flow.test.js
           node duel-control-flow.test.js
           node room-transport.test.js
+          node deployment-contract.test.js

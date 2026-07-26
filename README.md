@@ -12,6 +12,8 @@ To run the deterministic rules and control-flow suites:
 node game-logic.test.js
 node control-flow.test.js
 node duel-control-flow.test.js
+node room-transport.test.js
+node deployment-contract.test.js
 ```
 
 ## The methodology
@@ -104,6 +106,16 @@ Keeping the app in this dedicated project root—and serving only `public`—ens
 Before attaching a custom domain, update the metadata in `index.html` with an absolute canonical URL and absolute `og:image` URL for the final domain.
 
 The static deployment includes the complete AI duel and the same-browser live-room canary. Do not relabel the canary as public multiplayer until a cross-device transport has been deployed to Vercel, exercised from two separate devices, and shown to recover from the platform's maximum-duration reconnect.
+
+### Multiplayer transport boundary
+
+Vercel now officially supports bidirectional WebSockets in Functions, but its current upgrade API requires both `@vercel/functions` and `ws`. Each connection is pinned to one Function instance, so Vercel's own [cross-instance example](https://vercel.com/kb/guide/real-time-chat-websockets) adds Redis to relay events when two clients land on different instances. The underlying limits and reconnect requirement are documented in [Vercel Functions WebSockets](https://vercel.com/docs/functions/websockets).
+
+Those packages and that shared service are not hidden inside this dependency-free static build. Until a production transport is deliberately isolated, load-tested, and canaried, the honest public contract remains:
+
+- Solo play and AI duels work entirely in the browser.
+- `SAME-BROWSER CANARY` proves the two-player room state machine without claiming internet transport.
+- Public multiplayer requires cross-instance delivery, origin and payload validation, reconnect/state recovery, and a two-device Vercel canary.
 
 ## Public-data boundary
 
