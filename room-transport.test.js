@@ -37,6 +37,7 @@ class FakeBroadcastChannel {
 
 function createTimerHarness() {
   let nextId = 1;
+  let currentTime = 0;
   const timers = new Map();
 
   return {
@@ -52,11 +53,18 @@ function createTimerHarness() {
     nextDelay() {
       return timers.values().next().value?.delay ?? null;
     },
+    now() {
+      return currentTime;
+    },
+    advance(milliseconds) {
+      currentTime += milliseconds;
+    },
     async runNext() {
       const next = timers.entries().next().value;
       assert.ok(next, "Expected a scheduled room sync");
       const [id, timer] = next;
       timers.delete(id);
+      currentTime += timer.delay;
       await timer.callback();
     },
     size() {
@@ -309,6 +317,7 @@ const tests = [
       code: "ABC234",
       clientId: "client-one",
       onMessage: () => {},
+      now: timers.now,
       fetchImpl,
       setTimeoutImpl: timers.setTimeout,
       clearTimeoutImpl: timers.clearTimeout,
@@ -325,6 +334,57 @@ const tests = [
     assert.equal(timers.nextDelay(), 2_000);
     transport.close();
   }],
+  ["lease refresh cadence is anchored to request start across opposing network legs", async () => {
+    const timers = createTimerHarness();
+    const serverObservations = [];
+    let requests = 0;
+    const transport = await transports.createRemoteRoomTransport({
+      code: "ABC234",
+      clientId: "client-one",
+      onMessage: () => {},
+      now: timers.now,
+      fetchImpl: async () => {
+        requests += 1;
+        if (requests === 5) {
+          serverObservations.push(timers.now());
+          timers.advance(2_900);
+        } else if (requests === 6) {
+          timers.advance(2_900);
+          serverObservations.push(timers.now());
+        }
+        return {
+          ok: true,
+          async json() {
+            return {
+              role: "player",
+              slot: 0,
+              session: "session-one",
+              players: [{ id: "client-one", slot: 0, ready: false }],
+              stateRev: 0,
+              inputRev: 0,
+              countdownRev: 0,
+            };
+          },
+        };
+      },
+      setTimeoutImpl: timers.setTimeout,
+      clearTimeoutImpl: timers.clearTimeout,
+    });
+
+    await timers.runNext();
+    await timers.runNext();
+    await timers.runNext();
+    assert.equal(timers.nextDelay(), 2_000);
+
+    await timers.runNext();
+    assert.equal(timers.nextDelay(), 0);
+    await timers.runNext();
+
+    assert.deepEqual(serverObservations.length, 2);
+    assert.equal(serverObservations[1] - serverObservations[0], 5_800);
+    assert.ok(serverObservations[1] - serverObservations[0] < 7_000);
+    transport.close();
+  }],
   ["roster changes reset backoff and two-player rooms accelerate", async () => {
     const timers = createTimerHarness();
     let players = [{ id: "client-one", slot: 0, ready: false }];
@@ -332,6 +392,7 @@ const tests = [
       code: "ABC234",
       clientId: "client-one",
       onMessage: () => {},
+      now: timers.now,
       fetchImpl: async () => ({
         ok: true,
         async json() {
@@ -370,6 +431,7 @@ const tests = [
       code: "ABC234",
       clientId: "client-one",
       onMessage: () => {},
+      now: timers.now,
       fetchImpl: async (_url, options) => {
         const body = JSON.parse(options.body);
         requests.push(body);
@@ -409,6 +471,7 @@ const tests = [
         code: "ABC234",
         clientId: `client-${slot}`,
         onMessage: () => {},
+        now: timers.now,
         fetchImpl: async () => ({
           ok: true,
           async json() {
@@ -446,6 +509,7 @@ const tests = [
       code: "ABC234",
       clientId: "client-one",
       onMessage: () => {},
+      now: timers.now,
       fetchImpl: async (_url, options) => {
         requests += 1;
         bodies.push(JSON.parse(options.body));
@@ -493,7 +557,7 @@ const tests = [
     ]);
     transport.close();
   }],
-  ["the default request timeout leaves margin inside the player lease", async () => {
+  ["the default request timeout is bounded below the player lease", async () => {
     const timeoutCalls = [];
     const transport = await transports.createRemoteRoomTransport({
       code: "ABC234",
@@ -524,7 +588,7 @@ const tests = [
     });
 
     assert.deepEqual(timeoutCalls, [3_000]);
-    assert.ok(timeoutCalls[0] + 2_000 < 7_000);
+    assert.ok(timeoutCalls[0] * 2 < 7_000);
     transport.close();
   }],
   ["remote requests carry a bounded timeout signal", async () => {

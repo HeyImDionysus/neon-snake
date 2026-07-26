@@ -125,6 +125,7 @@
     let failures = 0;
     let stableResponses = 0;
     let lastResponseFingerprint = "";
+    let lastRequestStartedAt = null;
     let roster = [];
 
     try {
@@ -137,6 +138,7 @@
       let response;
       let timeoutTimer = null;
       let signal;
+      if (action === "join" || action === "sync") lastRequestStartedAt = now();
       if (typeof AbortSignalImpl?.timeout === "function") {
         signal = AbortSignalImpl.timeout(requestTimeoutMs);
       } else {
@@ -274,7 +276,12 @@
       return [700, 1_000, 1_500, 2_000][stableResponses];
     }
 
-    function schedule(delay = pollDelay(), isBackoff = false) {
+    function remainingPollDelay(delay = pollDelay()) {
+      if (!Number.isFinite(lastRequestStartedAt)) return delay;
+      return Math.max(0, delay - Math.max(0, now() - lastRequestStartedAt));
+    }
+
+    function schedule(delay = remainingPollDelay(), isBackoff = false) {
       if (closed || timer !== null) return;
       backoffTimer = isBackoff;
       timer = setTimeoutImpl(async () => {
@@ -342,7 +349,7 @@
             : Math.min(2_500, 300 * 2 ** failures), true);
       } finally {
         inFlight = false;
-        schedule(hasPendingMessages() ? 0 : pollDelay());
+        schedule(hasPendingMessages() ? 0 : remainingPollDelay());
       }
     }
 
@@ -368,7 +375,9 @@
       setActive(nextActive) {
         const changed = active !== Boolean(nextActive);
         active = Boolean(nextActive);
-        if (changed && !inFlight && !backoffTimer) reschedule(active ? 0 : pollDelay());
+        if (changed && !inFlight && !backoffTimer) {
+          reschedule(active ? 0 : remainingPollDelay());
+        }
       },
       close() {
         if (closed) return;
