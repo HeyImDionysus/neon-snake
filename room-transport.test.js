@@ -402,8 +402,8 @@ const tests = [
     ]);
     transport.close();
   }],
-  ["active host and guest cadences stay aligned with the game tick", async () => {
-    for (const [slot, expectedDelay] of [[0, 138], [1, 90]]) {
+  ["active host and guest cadences stay below the game tick", async () => {
+    for (const [slot, expectedDelay] of [[0, 70], [1, 90]]) {
       const timers = createTimerHarness();
       const transport = await transports.createRemoteRoomTransport({
         code: "ABC234",
@@ -441,6 +441,7 @@ const tests = [
     const timers = createTimerHarness();
     let requests = 0;
     const bodies = [];
+    let releaseRateLimit;
     const transport = await transports.createRemoteRoomTransport({
       code: "ABC234",
       clientId: "client-one",
@@ -448,7 +449,11 @@ const tests = [
       fetchImpl: async (_url, options) => {
         requests += 1;
         bodies.push(JSON.parse(options.body));
-        if (requests === 2) return { ok: false, status: 429 };
+        if (requests === 2) {
+          return new Promise((resolve) => {
+            releaseRateLimit = () => resolve({ ok: false, status: 429 });
+          });
+        }
         return {
           ok: true,
           async json() {
@@ -472,7 +477,12 @@ const tests = [
     });
 
     transport.setActive(true);
-    await timers.runNext();
+    const limitedSync = timers.runNext();
+    await Promise.resolve();
+    transport.setActive(false);
+    assert.equal(timers.size(), 0);
+    releaseRateLimit();
+    await limitedSync;
     assert.equal(timers.nextDelay(), 1_000);
     transport.send({ type: "state", sequence: 2, state: { frame: "after-limit" } });
     assert.equal(timers.size(), 1);
@@ -481,6 +491,40 @@ const tests = [
     assert.deepEqual(bodies[2].messages, [
       { type: "state", sequence: 2, state: { frame: "after-limit" } },
     ]);
+    transport.close();
+  }],
+  ["the default request timeout leaves margin inside the player lease", async () => {
+    const timeoutCalls = [];
+    const transport = await transports.createRemoteRoomTransport({
+      code: "ABC234",
+      clientId: "client-one",
+      onMessage: () => {},
+      AbortSignalImpl: {
+        timeout(milliseconds) {
+          timeoutCalls.push(milliseconds);
+          return { milliseconds };
+        },
+      },
+      fetchImpl: async () => ({
+        ok: true,
+        async json() {
+          return {
+            role: "player",
+            slot: 0,
+            session: "session-one",
+            players: [{ id: "client-one", slot: 0, ready: false }],
+            stateRev: 0,
+            inputRev: 0,
+            countdownRev: 0,
+          };
+        },
+      }),
+      setTimeoutImpl: () => 1,
+      clearTimeoutImpl: () => {},
+    });
+
+    assert.deepEqual(timeoutCalls, [3_000]);
+    assert.ok(timeoutCalls[0] + 2_000 < 7_000);
     transport.close();
   }],
   ["remote requests carry a bounded timeout signal", async () => {

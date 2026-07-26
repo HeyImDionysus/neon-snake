@@ -73,7 +73,7 @@
     clearTimeoutImpl = root.clearTimeout,
     AbortSignalImpl = root.AbortSignal,
     AbortControllerImpl = root.AbortController,
-    requestTimeoutMs = 5_000,
+    requestTimeoutMs = 3_000,
     storage = root.sessionStorage,
   } = {}) {
     if (typeof code !== "string" || !code.trim()) {
@@ -263,7 +263,7 @@
 
     function pollDelay() {
       if (active) {
-        if (role === "player" && slot === 0) return 138;
+        if (role === "player" && slot === 0) return 70;
         if (role === "player" && slot === 1) return 90;
         return 180;
       }
@@ -368,7 +368,7 @@
       setActive(nextActive) {
         const changed = active !== Boolean(nextActive);
         active = Boolean(nextActive);
-        if (changed && !backoffTimer) reschedule(active ? 0 : pollDelay());
+        if (changed && !inFlight && !backoffTimer) reschedule(active ? 0 : pollDelay());
       },
       close() {
         if (closed) return;
