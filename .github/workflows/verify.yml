@@ -32,6 +32,7 @@ jobs:
       - name: Verify deterministic behavior
         run: |
           node game-logic.test.js
+          node ai-quality.test.js
           node control-flow.test.js
           node duel-control-flow.test.js
           node room-transport.test.js

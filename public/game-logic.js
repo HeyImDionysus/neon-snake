@@ -377,6 +377,313 @@
     return dx + dy;
   }
 
+  function hamiltonianCycle(gridSize = 20) {
+    const size = Math.floor(Number(gridSize) || 0);
+    if (size < 4 || size % 2 !== 0) return [];
+
+    const cycle = [];
+    for (let x = 0; x < size; x += 1) cycle.push({ x, y: 0 });
+    for (let y = 1; y < size; y += 1) {
+      if (y % 2 === 1) {
+        for (let x = size - 1; x >= 1; x -= 1) cycle.push({ x, y });
+      } else {
+        for (let x = 1; x < size; x += 1) cycle.push({ x, y });
+      }
+    }
+    cycle.push({ x: 0, y: size - 1 });
+    for (let y = size - 2; y >= 1; y -= 1) cycle.push({ x: 0, y });
+    return cycle;
+  }
+
+  function cyclePlannerState(snake, food, mode, gridSize) {
+    if (mode === "canvas" || !Array.isArray(snake) || snake.length < 2) return null;
+    const cycle = hamiltonianCycle(gridSize);
+    if (!cycle.length) return null;
+
+    const indexes = new Map(cycle.map((point, index) => [`${point.x},${point.y}`, index]));
+    const snakeIndexes = snake.map((point) => indexes.get(`${point.x},${point.y}`));
+    if (snakeIndexes.some((index) => !Number.isInteger(index))) return null;
+    if (new Set(snakeIndexes).size !== snakeIndexes.length) return null;
+
+    const total = cycle.length;
+    const forward = (from, to) => (to - from + total) % total;
+    let occupiedSpan = 0;
+    for (let index = snakeIndexes.length - 1; index > 0; index -= 1) {
+      const distance = forward(snakeIndexes[index], snakeIndexes[index - 1]);
+      if (!distance) return null;
+      occupiedSpan += distance;
+      if (occupiedSpan >= total) return null;
+    }
+
+    const headIndex = snakeIndexes[0];
+    const tailIndex = snakeIndexes.at(-1);
+    const freeDistance = forward(headIndex, tailIndex);
+    if (!freeDistance || freeDistance + occupiedSpan !== total) return null;
+
+    const foodIndex = food ? indexes.get(`${food.x},${food.y}`) : null;
+    const foodDistance = Number.isInteger(foodIndex) ? forward(headIndex, foodIndex) : null;
+    return {
+      cycle,
+      indexes,
+      total,
+      headIndex,
+      tailIndex,
+      freeDistance,
+      foodDistance,
+      forward,
+    };
+  }
+
+  function cycleMovePlan(state, head, growing) {
+    if (!state) return null;
+    const nextIndex = state.indexes.get(`${head.x},${head.y}`);
+    if (!Number.isInteger(nextIndex)) return null;
+    const advance = state.forward(state.headIndex, nextIndex);
+    const followsFreeArc = advance > 0 && (
+      advance < state.freeDistance
+      || (!growing && state.freeDistance === 1 && advance === 1)
+    );
+    const reachesTowardFood = followsFreeArc
+      && Number.isInteger(state.foodDistance)
+      && advance <= state.foodDistance;
+    return {
+      advance,
+      safe: followsFreeArc,
+      towardFood: reachesTowardFood,
+      remainingToFood: Number.isInteger(state.foodDistance)
+        ? Math.max(0, state.foodDistance - advance)
+        : null,
+    };
+  }
+
+  function cycleContinuation(snake, direction, food, mode, gridSize, depth) {
+    const forecast = [];
+    let virtualSnake = snake.map((segment) => ({ ...segment }));
+    let virtualDirection = { ...direction };
+    let virtualFood = food ? { ...food } : null;
+
+    for (let step = 0; step < depth; step += 1) {
+      const state = cyclePlannerState(virtualSnake, virtualFood, mode, gridSize);
+      if (!state) break;
+      const options = CARDINAL_DIRECTIONS.map((move, order) => {
+        const reverse = move.x === -virtualDirection.x && move.y === -virtualDirection.y;
+        const head = nextHead(virtualSnake[0], move, mode, gridSize);
+        const growing = samePoint(head, virtualFood);
+        const collision = reverse
+          ? "reverse"
+          : collisionType(head, virtualSnake, growing, mode, gridSize);
+        const plan = collision ? null : cycleMovePlan(state, head, growing);
+        const distance = virtualFood ? gridDistance(head, virtualFood, mode, gridSize) : Infinity;
+        return { move, order, head, growing, collision, plan, distance };
+      }).filter((option) => !option.collision && option.plan?.safe);
+      if (!options.length) break;
+
+      options.sort((first, second) => {
+        if (first.plan.towardFood !== second.plan.towardFood) {
+          return first.plan.towardFood ? -1 : 1;
+        }
+        if (first.plan.towardFood) {
+          return first.distance - second.distance
+            || second.plan.advance - first.plan.advance
+            || first.order - second.order;
+        }
+        return first.plan.advance - second.plan.advance || first.order - second.order;
+      });
+      const selected = options[0];
+      virtualSnake.unshift({ ...selected.head });
+      if (selected.growing) {
+        virtualFood = null;
+      } else {
+        virtualSnake.pop();
+      }
+      virtualDirection = { ...selected.move };
+      forecast.push({ ...selected.head });
+    }
+    return forecast;
+  }
+
+  function shortestGridRoute(
+    start,
+    target,
+    blockedPoints,
+    mode,
+    gridSize,
+    initialDirection = null,
+  ) {
+    if (!start || !target) return null;
+    if (samePoint(start, target)) return [];
+
+    const pointKey = (point) => `${point.x},${point.y}`;
+    const targetKey = pointKey(target);
+    const blocked = new Set((blockedPoints || []).map(pointKey));
+    blocked.delete(targetKey);
+    const startKey = pointKey(start);
+    const queue = [{ ...start }];
+    const parents = new Map([[startKey, null]]);
+
+    for (let index = 0; index < queue.length; index += 1) {
+      const point = queue[index];
+      for (const move of CARDINAL_DIRECTIONS) {
+        if (
+          index === 0
+          && initialDirection
+          && move.x === -initialDirection.x
+          && move.y === -initialDirection.y
+        ) continue;
+        const next = nextHead(point, move, mode, gridSize);
+        const outside = next.x < 0 || next.x >= gridSize || next.y < 0 || next.y >= gridSize;
+        if (outside) continue;
+        const key = pointKey(next);
+        if (blocked.has(key) || parents.has(key)) continue;
+        parents.set(key, { previous: pointKey(point), direction: { ...move }, point: { ...next } });
+        if (key === targetKey) {
+          const route = [];
+          let cursor = key;
+          while (cursor !== startKey) {
+            const entry = parents.get(cursor);
+            route.unshift({ ...entry.point, direction: { ...entry.direction } });
+            cursor = entry.previous;
+          }
+          return route;
+        }
+        queue.push(next);
+      }
+    }
+    return null;
+  }
+
+  function simulateRoute(snake, direction, food, route, mode, gridSize) {
+    let virtualSnake = snake.map((segment) => ({ ...segment }));
+    let virtualDirection = { ...direction };
+    let virtualFood = food ? { ...food } : null;
+
+    for (const step of route) {
+      const move = step.direction;
+      if (move.x === -virtualDirection.x && move.y === -virtualDirection.y) return null;
+      const head = nextHead(virtualSnake[0], move, mode, gridSize);
+      if (!samePoint(head, step)) return null;
+      const growing = samePoint(head, virtualFood);
+      if (collisionType(head, virtualSnake, growing, mode, gridSize)) return null;
+      virtualSnake.unshift(head);
+      if (growing) {
+        virtualFood = null;
+      } else {
+        virtualSnake.pop();
+      }
+      virtualDirection = { ...move };
+    }
+    return { snake: virtualSnake, direction: virtualDirection, food: virtualFood };
+  }
+
+  function routePreservesEscape(result, mode, gridSize) {
+    if (!result || result.food) return false;
+    if (mode === "canvas") return true;
+    const tail = result.snake.at(-1);
+    const escape = shortestGridRoute(
+      result.snake[0],
+      tail,
+      result.snake.slice(1, -1),
+      mode,
+      gridSize,
+      result.direction,
+    );
+    if (!escape?.length) return false;
+    const escapeSpace = reachableArea(result.snake[0], result.snake, mode, gridSize);
+    const remainsCycleOrdered = Boolean(
+      cyclePlannerState(result.snake, null, mode, gridSize),
+    );
+    return escapeSpace >= result.snake.length || remainsCycleOrdered;
+  }
+
+  function dynamicSafeFoodRoute(snake, direction, food, mode, gridSize) {
+    const beamWidth = 16;
+    const maxDepth = Math.min(48, gridSize * 3);
+    let frontier = [{
+      snake: snake.map((segment) => ({ ...segment })),
+      direction: { ...direction },
+      path: [],
+      rank: gridDistance(snake[0], food, mode, gridSize) * 100,
+    }];
+    const seen = new Set();
+
+    for (let depth = 0; depth < maxDepth; depth += 1) {
+      const nextFrontier = [];
+      for (const state of frontier) {
+        for (const move of CARDINAL_DIRECTIONS) {
+          if (move.x === -state.direction.x && move.y === -state.direction.y) continue;
+          const head = nextHead(state.snake[0], move, mode, gridSize);
+          const growing = samePoint(head, food);
+          if (collisionType(head, state.snake, growing, mode, gridSize)) continue;
+
+          const nextSnake = [head, ...state.snake.map((segment) => ({ ...segment }))];
+          if (!growing) nextSnake.pop();
+          const path = [...state.path, { ...head, direction: { ...move } }];
+          if (growing) {
+            const result = { snake: nextSnake, direction: { ...move }, food: null };
+            if (routePreservesEscape(result, mode, gridSize)) return path;
+            continue;
+          }
+
+          const stateKey = `${move.x},${move.y}|${nextSnake
+            .map((segment) => `${segment.x},${segment.y}`)
+            .join(";")}`;
+          if (seen.has(stateKey)) continue;
+          seen.add(stateKey);
+          const exits = CARDINAL_DIRECTIONS.filter((nextMove) => {
+            if (nextMove.x === -move.x && nextMove.y === -move.y) return false;
+            const nextHeadPoint = nextHead(head, nextMove, mode, gridSize);
+            return !collisionType(nextHeadPoint, nextSnake, false, mode, gridSize);
+          }).length;
+          const turnCost = move.x === state.direction.x && move.y === state.direction.y ? 0 : 1;
+          nextFrontier.push({
+            snake: nextSnake,
+            direction: { ...move },
+            path,
+            rank: gridDistance(head, food, mode, gridSize) * 100
+              + path.length * 3
+              + turnCost
+              - exits * 8,
+          });
+        }
+      }
+      if (!nextFrontier.length) return null;
+      nextFrontier.sort((first, second) => first.rank - second.rank);
+      frontier = nextFrontier.slice(0, beamWidth);
+    }
+    return null;
+  }
+
+  function safeFoodRoute(snake, direction, food, mode, gridSize) {
+    if (!food) return null;
+    const blocked = mode === "canvas" ? [] : snake.slice(1, -1);
+    const route = shortestGridRoute(
+      snake[0],
+      food,
+      blocked,
+      mode,
+      gridSize,
+      direction,
+    );
+    if (route?.length) {
+      const result = simulateRoute(snake, direction, food, route, mode, gridSize);
+      if (routePreservesEscape(result, mode, gridSize)) return route;
+    }
+    return dynamicSafeFoodRoute(snake, direction, food, mode, gridSize);
+  }
+
+  function tailChaseRoute(snake, direction, mode, gridSize) {
+    if (mode === "canvas" || snake.length < 2) return null;
+    const route = shortestGridRoute(
+      snake[0],
+      snake.at(-1),
+      snake.slice(1, -1),
+      mode,
+      gridSize,
+      direction,
+    );
+    return route?.length ? route : null;
+  }
+
   function reachableArea(start, snake, mode, gridSize) {
     if (!start || !Number.isInteger(gridSize) || gridSize <= 0) return 0;
     const body = mode === "canvas" ? [] : (Array.isArray(snake) ? snake.slice(1) : []);
@@ -535,6 +842,7 @@
     snake,
     direction,
     opponentSnake,
+    opponentDirection,
     food,
     mode,
     gridSize,
@@ -548,6 +856,17 @@
       || !direction
       || !Array.isArray(candidates)
     ) return [];
+
+    const inferredOpponentDirection = opponentDirection || (
+      opponentSnake.length > 1
+        ? {
+          x: opponentSnake[0].x - opponentSnake[1].x,
+          y: opponentSnake[0].y - opponentSnake[1].y,
+        }
+        : { x: 0, y: 0 }
+    );
+    const opponentReplies = CARDINAL_DIRECTIONS.filter((reply) =>
+      reply.x !== -inferredOpponentDirection.x || reply.y !== -inferredOpponentDirection.y);
 
     return candidates.map((candidate, order) => {
       const move = { x: Number(candidate.x) || 0, y: Number(candidate.y) || 0 };
@@ -626,12 +945,36 @@
         PLANNER_HORIZON - 1,
       )];
       const horizon = forecast.length;
+      const tacticalReplies = opponentReplies.map((reply) => resolveDuelTick({
+        players: {
+          player: { snake, direction: move, score: 0 },
+          opponent: { snake: opponentSnake, direction: reply, score: 0 },
+        },
+        food,
+        mode,
+        gridSize,
+      }));
+      const losingReplies = tacticalReplies.filter((result) =>
+        result.over && result.winner === "opponent").length;
+      const drawingReplies = tacticalReplies.filter((result) =>
+        result.over && result.winner === null).length;
+      const winningReplies = tacticalReplies.filter((result) =>
+        result.over && result.winner === "player").length;
+      const openReplies = tacticalReplies.filter((result) => !result.over).length;
+      const forcedWin = winningReplies > 0
+        && winningReplies === tacticalReplies.length;
+      const tacticalScore = losingReplies
+        ? -80_000
+        : drawingReplies
+          ? -12_000
+          : forcedWin ? 40_000 : 0;
       const score = Math.round(
         space * 8
         + exits * 6
         + horizon * 24
         - distance * 3
-        + (growing ? 24 : 0),
+        + (growing ? 24 : 0)
+        + tacticalScore,
       );
       return {
         name,
@@ -645,6 +988,18 @@
         horizon,
         forecast,
         distance,
+        losingReplies,
+        drawingReplies,
+        winningReplies,
+        openReplies,
+        forcedWin,
+        strategy: losingReplies
+          ? "THREATENED"
+          : drawingReplies
+            ? "CONTESTED"
+            : forcedWin
+              ? "TACTICAL WIN"
+              : "CLEAR ROUTE",
         score,
       };
     });
@@ -652,6 +1007,9 @@
 
   function evaluateMoves({ snake, direction, food, mode, gridSize, candidates }) {
     if (!Array.isArray(snake) || !snake.length || !direction || !Array.isArray(candidates)) return [];
+    const cycleState = cyclePlannerState(snake, food, mode, gridSize);
+    const foodRoute = safeFoodRoute(snake, direction, food, mode, gridSize);
+    const tailRoute = foodRoute ? null : tailChaseRoute(snake, direction, mode, gridSize);
     return candidates.map((candidate, order) => {
       const move = { x: Number(candidate.x) || 0, y: Number(candidate.y) || 0 };
       const name = String(candidate.name || order);
@@ -676,17 +1034,92 @@
         const futureHead = nextHead(head, nextDirection, mode, gridSize);
         return !collisionType(futureHead, nextSnake, false, mode, gridSize);
       }).length;
-      const forecast = [head, ...survivalForecast(
-        nextSnake,
-        move,
-        growing ? null : food,
-        mode,
-        gridSize,
-        PLANNER_HORIZON - 1,
-      )];
+      const cyclePlan = cycleMovePlan(cycleState, head, growing);
+      const followsFoodRoute = Boolean(
+        foodRoute?.length
+        && move.x === foodRoute[0].direction.x
+        && move.y === foodRoute[0].direction.y
+      );
+      const followsTailRoute = Boolean(
+        !growing
+        && tailRoute?.length
+        && move.x === tailRoute[0].direction.x
+        && move.y === tailRoute[0].direction.y
+      );
+      let forecast;
+      if (followsFoodRoute) {
+        forecast = foodRoute.slice(0, PLANNER_HORIZON).map(({ x, y }) => ({ x, y }));
+      } else if (followsTailRoute) {
+        forecast = tailRoute.slice(0, PLANNER_HORIZON).map(({ x, y }) => ({ x, y }));
+      } else if (cycleState && cyclePlan?.safe) {
+        forecast = [
+          head,
+          ...cycleContinuation(
+            nextSnake,
+            move,
+            growing ? null : food,
+            mode,
+            gridSize,
+            PLANNER_HORIZON - 1,
+          ),
+        ];
+      } else {
+        forecast = [head, ...survivalForecast(
+          nextSnake,
+          move,
+          growing ? null : food,
+          mode,
+          gridSize,
+          PLANNER_HORIZON - 1,
+        )];
+      }
       const horizon = forecast.length;
-      const score = Math.round(space * 8 + exits * 6 + horizon * 24 - distance * 3 + (growing ? 18 : 0));
-      return { name, direction: move, order, legal: true, collision: null, head, space, exits, horizon, forecast, distance, score };
+      const localScore = Math.round(
+        space * 8
+        + exits * 6
+        + horizon * 24
+        - distance * 3
+        + (growing ? 18 : 0),
+      );
+      let score = localScore;
+      let strategy = "SURVIVAL SEARCH";
+      if (followsFoodRoute) {
+        score = 3_000_000 - foodRoute.length * 1_000 + localScore;
+        strategy = "SAFE FOOD ROUTE";
+      } else if (followsTailRoute) {
+        score = 2_000_000 - tailRoute.length * 100 + localScore;
+        strategy = "TAIL CHASE";
+      } else if (cyclePlan?.safe) {
+        score = 1_000_000
+          + (cyclePlan.towardFood ? 500_000 : 0)
+          + (cyclePlan.towardFood ? -distance * 10_000 + cyclePlan.advance : -cyclePlan.advance)
+          + localScore;
+        strategy = cyclePlan.towardFood ? "SAFE SHORTCUT" : "CYCLE GUARD";
+      } else if (cycleState) {
+        score = localScore - 1_000_000;
+        strategy = "BREAKS SAFE CYCLE";
+      }
+      return {
+        name,
+        direction: move,
+        order,
+        legal: true,
+        collision: null,
+        head,
+        space,
+        exits,
+        horizon,
+        forecast,
+        distance,
+        cycleAdvance: cyclePlan?.advance ?? null,
+        cycleSafe: cyclePlan?.safe ?? null,
+        cycleFoodDistance: cyclePlan?.remainingToFood ?? null,
+        routeDistance: followsFoodRoute
+          ? foodRoute.length
+          : followsTailRoute ? tailRoute.length : null,
+        strategy,
+        score,
+      };
     });
   }
 
@@ -718,6 +1151,71 @@
 
     if (!runnerUp) {
       return { confidence: "FORCED", reason: "ONLY SAFE MOVE", margin: null, runnerUp: null };
+    }
+
+    if (selected.strategy === "SAFE FOOD ROUTE") {
+      const remaining = Math.max(0, Number(selected.routeDistance) || 0);
+      return {
+        confidence: "ROUTE",
+        reason: remaining === 1 ? "SIGNAL CAPTURE · EXIT PROVEN" : `SAFE PATH · ${remaining} TO SIGNAL`,
+        margin: Math.max(0, selected.score - runnerUp.score),
+        runnerUp: runnerUp.name,
+      };
+    }
+    if (selected.strategy === "TAIL CHASE") {
+      return {
+        confidence: "RESET",
+        reason: "FOOD UNSAFE · FOLLOWING TAIL",
+        margin: Math.max(0, selected.score - runnerUp.score),
+        runnerUp: runnerUp.name,
+      };
+    }
+    if (selected.strategy === "SAFE SHORTCUT") {
+      const remaining = Math.max(0, Number(selected.cycleFoodDistance) || 0);
+      return {
+        confidence: "ROUTE",
+        reason: remaining ? `SAFE ARC · ${remaining} TO SIGNAL` : "SIGNAL CAPTURE · TAIL SAFE",
+        margin: Math.max(0, selected.score - runnerUp.score),
+        runnerUp: runnerUp.name,
+      };
+    }
+    if (selected.strategy === "CYCLE GUARD") {
+      return {
+        confidence: "GUARD",
+        reason: "TAIL ARC PRESERVED",
+        margin: Math.max(0, selected.score - runnerUp.score),
+        runnerUp: runnerUp.name,
+      };
+    }
+    if (
+      Number(selected.losingReplies) === 0
+      && Number(runnerUp.losingReplies) > 0
+    ) {
+      return {
+        confidence: "EVADE",
+        reason: "COUNTER-MOVE AVOIDED",
+        margin: Math.max(0, selected.score - runnerUp.score),
+        runnerUp: runnerUp.name,
+      };
+    }
+    if (
+      Number(selected.drawingReplies) === 0
+      && Number(runnerUp.drawingReplies) > 0
+    ) {
+      return {
+        confidence: "EVADE",
+        reason: "CONTESTED CELL AVOIDED",
+        margin: Math.max(0, selected.score - runnerUp.score),
+        runnerUp: runnerUp.name,
+      };
+    }
+    if (selected.forcedWin && !runnerUp.forcedWin) {
+      return {
+        confidence: "ATTACK",
+        reason: "FORCED CRASH FOUND",
+        margin: Math.max(0, selected.score - runnerUp.score),
+        runnerUp: runnerUp.name,
+      };
     }
 
     const margin = Math.max(0, selected.score - runnerUp.score);
@@ -830,6 +1328,7 @@
     mutationScoreMultiplier,
     motionProgress,
     ghostWindow,
+    hamiltonianCycle,
     modeWraps,
     normalizeReplay,
     nextHead,

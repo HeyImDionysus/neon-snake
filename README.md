@@ -10,6 +10,7 @@ To run the deterministic rules and control-flow suites:
 
 ```powershell
 node game-logic.test.js
+node ai-quality.test.js
 node control-flow.test.js
 node duel-control-flow.test.js
 node room-transport.test.js
@@ -35,19 +36,22 @@ The implementation grid is deliberately invisible. Solo movement and collision r
 
 The separate Duel Lab uses the same canvas footprint with a 30 × 30 logical arena. That makes each snake one-third smaller while increasing playable cells from 400 to 900—125% more room without consuming more page space. Both snakes advance in one deterministic transaction, so wall, self, rival-body, head-on, and head-swap collisions cannot depend on browser callback order.
 
-The AI player follows the same rule in every selected protocol:
+The AI player follows one readable priority stack in every selected protocol:
 
 ```text
-move score = safe cells × 8 + exits × 6 + survival horizon × 24 - signal distance × 3 + pickup bonus
+prove an escape after food → take the shortest safe route
+food route is unsafe → follow the moving tail
+tail route is unavailable → preserve the Hamiltonian safety arc
+cycle order is unavailable → compare space, exits, and six-turn survival
 ```
 
-It rejects collisions first, flood-fills the remaining board to estimate safe space, and then compares every legal continuation up to six turns ahead. The search is bounded and deterministic: survival length wins first, equal-length paths move toward the signal, and a final tie preserves the current heading. Its exact current continuation is rendered as a subtle Foresight Trail beneath the snake, including correct edge breaks in Portal mode. A deterministic Decision Insight compares the winner with the runner-up, labels the choice `FORCED`, `TIE`, `CLOSE`, `EDGE`, or `CLEAR`, and names the dominant advantage: a longer survival horizon, safer cells, more exits, or fewer steps to the signal.
+It rejects collisions first, tries the shortest visible route to the signal, simulates that whole route, and accepts it only when the resulting head can still reach the tail with enough open space. If the current body blocks that route, a bounded deterministic beam search models the tail moving out of the way. When no food line proves safe, the planner follows the moving tail to reopen the board. A deterministic Hamiltonian cycle is the final safety rail on an ordered even board: shortcuts may advance through free cells but can never overtake the tail. Arbitrary player positions still use the bounded six-turn flood-fill search. The selected continuation is rendered as a subtle Foresight Trail beneath the snake, including correct edge breaks in Portal mode. Decision Insight now says whether the AI is following a proven route, resetting behind its tail, guarding the cycle, or choosing between local survival options.
 
 Decision DNA turns that planner into a mirror instead of an opponent. On every player step, the game records whether the chosen direction matched the planner, how much reachable space the choice preserved, and whether it left one or fewer exits. The run report translates those aggregates into one of four readable styles: Tactician, Explorer, Daredevil, or Hybrid. It never changes movement, score, or difficulty.
 
 The optional live AI Lens uses that identical calculation as a co-pilot. Press `L` or use the single toggle to reveal legal candidate cells, the planner's chosen direction, and the reason it beat the runner-up while retaining full control. Turning it on never steers the snake or modifies scoring.
 
-In the Duel Lab, `Play vs AI` is a true two-snake match rather than an advice mode. The violet rival uses an opponent-aware variant of the planner: your body is occupied space, the shared signal affects route value, and the AI cannot see the player's next input.
+In the Duel Lab, `Play vs AI` is a true two-snake match rather than an advice mode. The violet rival uses an opponent-aware variant of the planner: your body is occupied space, the shared signal affects route value, and every legal move is tested against every legal reply you could make on the next tick. It cannot see your next input, but it no longer volunteers for an avoidable head-on or head-swap.
 
 Signal Codes make challenge generation equally inspectable. A six-character code is hashed once, then a tiny seeded generator chooses each gameplay-affecting random outcome. The same code, mode, pace, and player moves therefore produce the same pickup and mutation sequence—without a backend or saved server state.
 
@@ -84,6 +88,7 @@ Signal Codes also name duel rooms. The current live-room transport is deliberate
 - `public/duel.js` — AI duel and room-state orchestration.
 - `public/room-transport.js` — the replaceable dependency-free same-browser room adapter.
 - `game-logic.test.js` — executable rule regressions using Node's built-in assertions.
+- `ai-quality.test.js` — seeded survival, routing-efficiency, safety-cycle, and duel counter-move benchmarks.
 - `control-flow.test.js` — executable ownership and explicit-start regressions.
 - `duel-control-flow.test.js` — executable expanded-arena and room-gate regressions.
 - `room-transport.test.js` — executable transport lifecycle and envelope regressions.

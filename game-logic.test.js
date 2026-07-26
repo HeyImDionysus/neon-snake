@@ -340,12 +340,9 @@ const tests = [
       assert.equal(move.horizon, 0);
     });
     assert.equal(portalLeft.legal, true);
-    assert.equal(portalLeft.horizon, 6);
+    assert.equal(portalLeft.horizon, 1);
     assert.deepEqual(portalLeft.head, { x: 19, y: 8 });
-    assert.deepEqual(portalLeft.forecast, [
-      { x: 19, y: 8 }, { x: 18, y: 8 }, { x: 17, y: 8 },
-      { x: 16, y: 8 }, { x: 15, y: 8 }, { x: 14, y: 8 },
-    ]);
+    assert.deepEqual(portalLeft.forecast, [{ x: 19, y: 8 }]);
     const forecastGroups = rules.splitFluidPath([setup.snake[0], ...portalLeft.forecast], setup.gridSize);
     assert.deepEqual(forecastGroups[0], [{ x: 0, y: 8 }, { x: -.5, y: 8 }]);
     assert.deepEqual(forecastGroups[1].slice(0, 2), [{ x: 19.5, y: 8 }, { x: 19, y: 8 }]);

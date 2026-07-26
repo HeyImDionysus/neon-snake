@@ -316,6 +316,7 @@ function chooseAiDirection() {
     snake: opponentSnake,
     direction: opponentDirection,
     opponentSnake: playerSnake,
+    opponentDirection: playerDirection,
     food,
     mode: "classic",
     gridSize: DUEL_GRID,

@@ -10,6 +10,7 @@ const vercel = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8"
 const manifest = JSON.parse(fs.readFileSync(path.join(publicRoot, "manifest.webmanifest"), "utf8"));
 const serviceWorker = fs.readFileSync(path.join(publicRoot, "sw.js"), "utf8");
 const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
+const workflow = fs.readFileSync(path.join(root, ".github", "workflows", "verify.yml"), "utf8");
 
 function publicPath(urlPath) {
   if (urlPath === "/") return path.join(publicRoot, "index.html");
@@ -89,6 +90,11 @@ const tests = [
     assert.match(readme, /dependency-free/i);
     assert.equal(manifest.start_url, "/");
     assert.equal(manifest.scope, "/");
+  }],
+  ["hosted verification includes the deterministic AI quality benchmark", () => {
+    assert.match(workflow, /node ai-quality\.test\.js/);
+    assert.match(readme, /ai-quality\.test\.js/);
+    assert.match(readme, /Hamiltonian safety arc/);
   }],
 ];
 
