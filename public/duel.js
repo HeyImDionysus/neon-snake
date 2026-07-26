@@ -79,7 +79,6 @@ let pausedMotion = 1;
 let countdownTimer = null;
 let frameHandle = null;
 let roomTransport = null;
-let roomHeartbeat = null;
 let roomSweep = null;
 let roomCode = "";
 let roomReady = false;
@@ -643,10 +642,6 @@ function postRoomMessage(message) {
   roomTransport?.send(message);
 }
 
-function announcePresence() {
-  postRoomMessage({ type: "presence", ready: roomReady });
-}
-
 function updateRosterSlot(element, player, index) {
   element.classList.toggle("connected", Boolean(player));
   element.querySelector("span").textContent = `PLAYER ${index + 1}`;
@@ -835,8 +830,6 @@ async function connectLiveRoom() {
 
   roomConnected = true;
   connectRoomButton.disabled = false;
-  announcePresence();
-  roomHeartbeat = setInterval(announcePresence, 850);
   roomSweep = setInterval(syncLiveRoom, 700);
   const url = new URL(window.location.href);
   url.search = "";
@@ -852,10 +845,8 @@ function disconnectLiveRoom() {
     postRoomMessage({ type: "leave" });
     roomTransport.close();
   }
-  clearInterval(roomHeartbeat);
   clearInterval(roomSweep);
   roomTransport = null;
-  roomHeartbeat = null;
   roomSweep = null;
   roomPeers = new Map();
   roomPlayers = [];
@@ -880,7 +871,6 @@ function toggleRoomReady() {
   if (!roomConnected || !roomPlayers.some((player) => player.id === clientId)) return;
   roomReady = !roomReady;
   postRoomMessage({ type: "ready", ready: roomReady });
-  announcePresence();
   syncLiveRoom();
 }
 

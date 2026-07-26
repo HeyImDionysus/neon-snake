@@ -107,11 +107,12 @@ const tests = [
     assert.match(body, /abortLiveCountdown/);
     assert.match(body, /liveCountdownActive/);
   }],
-  ["presence heartbeats do not create a reply loop", () => {
+  ["the transport owns presence cadence without a duplicate page heartbeat", () => {
     const body = functionBody("handleRoomMessage");
     const branch = body.match(/if \(message\.type === "presence" \|\| message\.type === "ready"\) \{([^]*?)\n  \}/);
     assert.ok(branch, "Expected a presence/ready branch");
     assert.ok(!branch[1].includes("announcePresence()"));
+    assert.ok(!script.includes("setInterval(announcePresence"));
   }],
   ["connected live players get an accurate ready-gate overlay", () => {
     const body = functionBody("syncLiveRoom");

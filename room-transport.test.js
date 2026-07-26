@@ -35,6 +35,36 @@ class FakeBroadcastChannel {
   }
 }
 
+function createTimerHarness() {
+  let nextId = 1;
+  const timers = new Map();
+
+  return {
+    setTimeout(callback, delay = 0) {
+      const id = nextId;
+      nextId += 1;
+      timers.set(id, { callback, delay });
+      return id;
+    },
+    clearTimeout(id) {
+      timers.delete(id);
+    },
+    nextDelay() {
+      return timers.values().next().value?.delay ?? null;
+    },
+    async runNext() {
+      const next = timers.entries().next().value;
+      assert.ok(next, "Expected a scheduled room sync");
+      const [id, timer] = next;
+      timers.delete(id);
+      await timer.callback();
+    },
+    size() {
+      return timers.size;
+    },
+  };
+}
+
 const tests = [
   ["support detection is explicit", () => {
     assert.equal(transports.broadcastRoomSupported({ BroadcastChannel: FakeBroadcastChannel }), true);
@@ -256,6 +286,200 @@ const tests = [
     assert.deepEqual(requests[1].messages, [
       { type: "input", round: 100, sequence: 200, direction: { x: 0, y: -1 } },
       { type: "input", round: 100, sequence: 201, direction: { x: -1, y: 0 } },
+    ]);
+    transport.close();
+  }],
+  ["idle room polling backs off without risking the presence lease", async () => {
+    const timers = createTimerHarness();
+    const fetchImpl = async () => ({
+      ok: true,
+      async json() {
+        return {
+          role: "player",
+          slot: 0,
+          session: "session-one",
+          players: [{ id: "client-one", slot: 0, ready: false }],
+          stateRev: 0,
+          inputRev: 0,
+          countdownRev: 0,
+        };
+      },
+    });
+    const transport = await transports.createRemoteRoomTransport({
+      code: "ABC234",
+      clientId: "client-one",
+      onMessage: () => {},
+      fetchImpl,
+      setTimeoutImpl: timers.setTimeout,
+      clearTimeoutImpl: timers.clearTimeout,
+    });
+
+    assert.equal(timers.nextDelay(), 700);
+    await timers.runNext();
+    assert.equal(timers.nextDelay(), 1_000);
+    await timers.runNext();
+    assert.equal(timers.nextDelay(), 1_500);
+    await timers.runNext();
+    assert.equal(timers.nextDelay(), 2_000);
+    await timers.runNext();
+    assert.equal(timers.nextDelay(), 2_000);
+    transport.close();
+  }],
+  ["roster changes reset backoff and two-player rooms accelerate", async () => {
+    const timers = createTimerHarness();
+    let players = [{ id: "client-one", slot: 0, ready: false }];
+    const transport = await transports.createRemoteRoomTransport({
+      code: "ABC234",
+      clientId: "client-one",
+      onMessage: () => {},
+      fetchImpl: async () => ({
+        ok: true,
+        async json() {
+          return {
+            role: "player",
+            slot: 0,
+            session: "session-one",
+            players,
+            stateRev: 0,
+            inputRev: 0,
+            countdownRev: 0,
+          };
+        },
+      }),
+      setTimeoutImpl: timers.setTimeout,
+      clearTimeoutImpl: timers.clearTimeout,
+    });
+
+    await timers.runNext();
+    assert.equal(timers.nextDelay(), 1_000);
+    players = [
+      { id: "client-one", slot: 0, ready: false },
+      { id: "client-two", slot: 1, ready: false },
+    ];
+    await timers.runNext();
+    assert.equal(timers.nextDelay(), 450);
+    players = players.map((player) => ({ ...player, ready: true }));
+    await timers.runNext();
+    assert.equal(timers.nextDelay(), 220);
+    transport.close();
+  }],
+  ["local updates preempt idle polling and flush immediately", async () => {
+    const timers = createTimerHarness();
+    const requests = [];
+    const transport = await transports.createRemoteRoomTransport({
+      code: "ABC234",
+      clientId: "client-one",
+      onMessage: () => {},
+      fetchImpl: async (_url, options) => {
+        const body = JSON.parse(options.body);
+        requests.push(body);
+        return {
+          ok: true,
+          async json() {
+            return {
+              role: "player",
+              slot: 0,
+              session: "session-one",
+              players: [{ id: "client-one", slot: 0, ready: false }],
+              stateRev: body.action === "sync" ? 1 : 0,
+              inputRev: 0,
+              countdownRev: 0,
+            };
+          },
+        };
+      },
+      setTimeoutImpl: timers.setTimeout,
+      clearTimeoutImpl: timers.clearTimeout,
+    });
+
+    assert.equal(timers.nextDelay(), 700);
+    transport.send({ type: "state", sequence: 1, state: { frame: "now" } });
+    assert.equal(timers.size(), 1);
+    assert.equal(timers.nextDelay(), 0);
+    await timers.runNext();
+    assert.deepEqual(requests[1].messages, [
+      { type: "state", sequence: 1, state: { frame: "now" } },
+    ]);
+    transport.close();
+  }],
+  ["active host and guest cadences stay aligned with the game tick", async () => {
+    for (const [slot, expectedDelay] of [[0, 138], [1, 90]]) {
+      const timers = createTimerHarness();
+      const transport = await transports.createRemoteRoomTransport({
+        code: "ABC234",
+        clientId: `client-${slot}`,
+        onMessage: () => {},
+        fetchImpl: async () => ({
+          ok: true,
+          async json() {
+            return {
+              role: "player",
+              slot,
+              session: `session-${slot}`,
+              players: [
+                { id: "client-0", slot: 0, ready: true },
+                { id: "client-1", slot: 1, ready: true },
+              ],
+              stateRev: 1,
+              inputRev: 1,
+              countdownRev: 1,
+            };
+          },
+        }),
+        setTimeoutImpl: timers.setTimeout,
+        clearTimeoutImpl: timers.clearTimeout,
+      });
+
+      transport.setActive(true);
+      assert.equal(timers.nextDelay(), 0);
+      await timers.runNext();
+      assert.equal(timers.nextDelay(), expectedDelay);
+      transport.close();
+    }
+  }],
+  ["rate limits preserve their retry delay instead of active polling overriding it", async () => {
+    const timers = createTimerHarness();
+    let requests = 0;
+    const bodies = [];
+    const transport = await transports.createRemoteRoomTransport({
+      code: "ABC234",
+      clientId: "client-one",
+      onMessage: () => {},
+      fetchImpl: async (_url, options) => {
+        requests += 1;
+        bodies.push(JSON.parse(options.body));
+        if (requests === 2) return { ok: false, status: 429 };
+        return {
+          ok: true,
+          async json() {
+            return {
+              role: "player",
+              slot: 0,
+              session: "session-one",
+              players: [
+                { id: "client-one", slot: 0, ready: true },
+                { id: "client-two", slot: 1, ready: true },
+              ],
+              stateRev: 1,
+              inputRev: 1,
+              countdownRev: 1,
+            };
+          },
+        };
+      },
+      setTimeoutImpl: timers.setTimeout,
+      clearTimeoutImpl: timers.clearTimeout,
+    });
+
+    transport.setActive(true);
+    await timers.runNext();
+    assert.equal(timers.nextDelay(), 1_000);
+    transport.send({ type: "state", sequence: 2, state: { frame: "after-limit" } });
+    assert.equal(timers.size(), 1);
+    assert.equal(timers.nextDelay(), 1_000);
+    await timers.runNext();
+    assert.deepEqual(bodies[2].messages, [
+      { type: "state", sequence: 2, state: { frame: "after-limit" } },
     ]);
     transport.close();
   }],
