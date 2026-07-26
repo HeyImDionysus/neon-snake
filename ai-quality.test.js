@@ -12,11 +12,11 @@ const DIRECTIONS = [
 const SIGNAL_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 
 function codeFromIndex(value) {
+  let state = Math.imul((Number(value) || 0) >>> 0, 0x9e3779b1) & 0x3fffffff;
   let code = "";
   for (let index = 0; index < 6; index += 1) {
-    code += SIGNAL_ALPHABET[
-      (value * 17 + index * 11 + value * index) % SIGNAL_ALPHABET.length
-    ];
+    code += SIGNAL_ALPHABET[state % SIGNAL_ALPHABET.length];
+    state = Math.floor(state / SIGNAL_ALPHABET.length);
   }
   return code;
 }
@@ -57,25 +57,35 @@ function simulateSolo(code, mode = "classic", maxSteps = 600) {
 
   placeFood();
   while (steps < maxSteps && food) {
-    const evaluations = rules.evaluateMoves({
-      snake,
-      direction,
-      food,
-      mode,
-      gridSize: 20,
-      candidates: DIRECTIONS,
-      recentHeads,
-    });
     let selected = null;
     if (committedPlan.length) {
       const committed = committedPlan.shift();
-      selected = evaluations.find((evaluation) =>
-        evaluation.legal
-        && evaluation.direction.x === committed.x
-        && evaluation.direction.y === committed.y);
-      if (!selected) committedPlan = [];
+      const reverse = committed.x === -direction.x && committed.y === -direction.y;
+      const head = rules.nextHead(snake[0], committed, mode, 20);
+      const growing = head.x === food.x && head.y === food.y;
+      const collision = reverse
+        ? "reverse"
+        : rules.collisionType(head, snake, growing, mode, 20);
+      if (!collision) {
+        const option = DIRECTIONS.find((candidate) =>
+          candidate.x === committed.x && candidate.y === committed.y);
+        selected = option
+          ? { name: option.name, direction: { x: option.x, y: option.y } }
+          : null;
+      } else {
+        committedPlan = [];
+      }
     }
     if (!selected) {
+      const evaluations = rules.evaluateMoves({
+        snake,
+        direction,
+        food,
+        mode,
+        gridSize: 20,
+        candidates: DIRECTIONS,
+        recentHeads,
+      });
       selected = rules.chooseBestMove(evaluations);
       committedPlan = selected?.route?.slice(1).map((move) => ({ ...move })) || [];
     }
@@ -368,11 +378,21 @@ const tests = [
     assert.ok(run.distinctHeads >= 100, JSON.stringify(run));
   }],
   ["seeded solo benchmark stays alive and collects purposefully", () => {
-    const runs = [1, 2, 3, 4].map((index) =>
+    const runs = Array.from({ length: 16 }, (_, index) =>
       simulateSolo(codeFromIndex(index), "classic", 600));
     const totalFoods = runs.reduce((total, run) => total + run.foods, 0);
     runs.forEach((run) => assert.equal(run.outcome, "timeout", JSON.stringify(run)));
-    assert.ok(totalFoods >= 75, JSON.stringify(runs));
+    assert.equal(
+      new Set(runs.map((run) => run.code)).size,
+      runs.length,
+      JSON.stringify(runs),
+    );
+    assert.equal(
+      new Set(runs.map((run) => run.routeSignature)).size,
+      runs.length,
+      JSON.stringify(runs),
+    );
+    assert.ok(totalFoods >= 280, JSON.stringify(runs));
   }],
   ["planner remains purposeful across Portal, Rush, and Canvas boundaries", () => {
     const runs = ["portal", "rush", "canvas"].map((mode) =>
@@ -391,6 +411,23 @@ const tests = [
     const first = simulateSolo("KXBP3F", "classic", 300);
     const second = simulateSolo("8RATCV", "classic", 300);
     assert.notEqual(first.routeSignature, second.routeSignature);
+  }],
+  ["unique Signal Codes stay purposeful and non-repeating across solo modes", () => {
+    const codes = Array.from({ length: 8 }, (_, index) => codeFromIndex(index + 32));
+    assert.equal(new Set(codes).size, codes.length);
+    for (const mode of ["classic", "portal", "canvas"]) {
+      const runs = codes.map((code) => simulateSolo(code, mode, 2000));
+      runs.forEach((run) => {
+        assert.equal(run.outcome, "timeout", JSON.stringify(run));
+        assert.ok(run.foods >= (mode === "classic" ? 45 : 100), JSON.stringify(run));
+        assert.ok(run.maxFoodGap <= (mode === "canvas" ? 24 : 140), JSON.stringify(run));
+      });
+      assert.equal(
+        new Set(runs.map((run) => run.routeSignature)).size,
+        runs.length,
+        JSON.stringify(runs),
+      );
+    }
   }],
   ["Classic Autopilot completes the entire 20 by 20 board across seeded maps", () => {
     const runs = ["KXBP3F", "8RATCV", "F8ZUNJ"].map((code) =>
