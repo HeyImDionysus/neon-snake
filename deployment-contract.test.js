@@ -11,6 +11,8 @@ const manifest = JSON.parse(fs.readFileSync(path.join(publicRoot, "manifest.webm
 const serviceWorker = fs.readFileSync(path.join(publicRoot, "sw.js"), "utf8");
 const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
 const workflow = fs.readFileSync(path.join(root, ".github", "workflows", "verify.yml"), "utf8");
+const roomFunction = fs.readFileSync(path.join(root, "api", "room.mjs"), "utf8");
+const roomCore = fs.readFileSync(path.join(root, "server", "room-core.cjs"), "utf8");
 
 function publicPath(urlPath) {
   if (urlPath === "/") return path.join(publicRoot, "index.html");
@@ -34,12 +36,21 @@ function pngDimensions(file) {
 }
 
 const tests = [
-  ["Vercel publishes only the dependency-free public directory", () => {
+  ["Vercel publishes a dependency-free static shell plus one isolated room function", () => {
     assert.equal(vercel.outputDirectory, "public");
     assert.equal(vercel.cleanUrls, true);
     assert.equal(fs.existsSync(path.join(root, "package.json")), false);
     assert.equal(fs.existsSync(path.join(publicRoot, "README.md")), false);
     assert.equal(fs.existsSync(path.join(publicRoot, "game-logic.test.js")), false);
+    assert.match(roomFunction, /createRoomHandler/);
+    assert.match(roomFunction, /maxDuration: 10/);
+    assert.match(roomCore, /STORAGE_KV_REST_API_URL/);
+    assert.match(roomCore, /STORAGE_KV_REST_API_TOKEN/);
+    const publicSource = fs.readdirSync(publicRoot)
+      .filter((name) => name.endsWith(".js") || name.endsWith(".html"))
+      .map((name) => fs.readFileSync(path.join(publicRoot, name), "utf8"))
+      .join("\n");
+    assert.doesNotMatch(publicSource, /STORAGE_KV_REST_API_TOKEN|STORAGE_REDIS_URL|rediss:\/\//);
   }],
   ["every cached app-shell URL resolves to a public file", () => {
     const shell = serviceWorker.match(/const APP_SHELL = \[([^]*?)\];/);
@@ -120,11 +131,11 @@ const tests = [
     assert.match(headers["Permissions-Policy"], /camera=\(\)/);
     assert.match(headers["Permissions-Policy"], /microphone=\(\)/);
   }],
-  ["deployment docs preserve the multiplayer truth boundary", () => {
-    assert.match(readme, /SAME-BROWSER CANARY/);
-    assert.match(readme, /@vercel\/functions/);
-    assert.match(readme, /Redis/);
-    assert.match(readme, /cross-instance/i);
+  ["deployment docs explain the production multiplayer boundary", () => {
+    assert.match(readme, /PUBLIC LIVE ROOM/);
+    assert.match(readme, /STORAGE_KV_REST_API_URL/);
+    assert.match(readme, /Redis-backed/i);
+    assert.match(readme, /two different devices/i);
     assert.match(readme, /dependency-free/i);
     assert.equal(manifest.start_url, "/");
     assert.equal(manifest.scope, "/");
@@ -133,9 +144,11 @@ const tests = [
     assert.match(workflow, /node ai-quality\.test\.js/);
     assert.match(workflow, /node accessibility\.test\.js/);
     assert.match(workflow, /node service-worker\.test\.js/);
+    assert.match(workflow, /node room-api\.test\.js/);
     assert.match(readme, /ai-quality\.test\.js/);
     assert.match(readme, /accessibility\.test\.js/);
     assert.match(readme, /service-worker\.test\.js/);
+    assert.match(readme, /room-api\.test\.js/);
     assert.match(readme, /Hamiltonian safety arc/);
   }],
 ];

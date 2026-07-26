@@ -28,6 +28,8 @@ jobs:
           node --check public/room-transport.js
           node --check public/duel.js
           node --check public/sw.js
+          node --check server/room-core.cjs
+          node --check api/room.mjs
 
       - name: Verify deterministic behavior
         run: |
@@ -36,6 +38,7 @@ jobs:
           node control-flow.test.js
           node duel-control-flow.test.js
           node room-transport.test.js
+          node room-api.test.js
           node accessibility.test.js
           node service-worker.test.js
           node deployment-contract.test.js

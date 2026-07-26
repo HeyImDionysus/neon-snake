@@ -57,11 +57,29 @@ const tests = [
     assert.match(body, /phase === "countdown"/);
     assert.match(body, /beginLiveCountdown/);
   }],
-  ["live-room transport is explicitly identified as a local canary", () => {
-    assert.match(html, /SAME-BROWSER CANARY/);
+  ["live-room transport is explicitly identified as public cross-device play", () => {
+    assert.match(html, /PUBLIC LIVE ROOM/);
     assert.match(html, /room-transport\.js/);
-    assert.match(script, /Transports\.createBroadcastRoomTransport/);
+    assert.match(script, /Transports\.createRemoteRoomTransport/);
+    assert.match(script, /async function connectLiveRoom/);
     assert.ok(!script.includes("new BroadcastChannel"));
+  }],
+  ["server-assigned player slots determine the live-room roster and host", () => {
+    assert.match(script, /let roomRole = "disconnected"/);
+    assert.match(script, /let roomSlot = -1/);
+    assert.match(functionBody("roomIdentity"), /slot: roomSlot/);
+    const roster = functionBody("activeRoomRoster");
+    assert.match(roster, /first\.slot - second\.slot/);
+    assert.match(roster, /roomRole === "player"/);
+    assert.match(functionBody("handleRoomMessage"), /slot: Number\.isInteger\(message\.slot\)/);
+    assert.match(functionBody("handleRoomMessage"), /message\.seenAt/);
+  }],
+  ["network recovery is visible and cannot silently masquerade as a healthy room", () => {
+    const status = functionBody("handleRoomStatus");
+    assert.match(status, /reconnecting/);
+    assert.match(status, /ROOM LINK RECONNECTING/);
+    assert.match(status, /roomConnectionState/);
+    assert.match(functionBody("disconnectLiveRoom"), /roomConnectionState = "disconnected"/);
   }],
   ["live countdown aborts if either player disconnects", () => {
     const body = functionBody("syncLiveRoom");

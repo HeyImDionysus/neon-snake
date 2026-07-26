@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#070b09" />
     <meta name="color-scheme" content="dark" />
-    <meta name="description" content="Neon Snake Duel Lab: battle the survival AI or prove a two-player room protocol on a larger compressed arena." />
+    <meta name="description" content="Neon Snake Duel Lab: battle the survival AI or challenge another player across devices in a shared live room." />
     <meta name="robots" content="index,follow" />
     <title>Neon Snake — Duel Lab</title>
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
@@ -127,19 +127,19 @@
         </section>
 
         <section class="duel-panel live-panel" id="livePanel" role="tabpanel" aria-labelledby="liveTab" hidden>
-          <div class="canary-row">
+          <div class="room-status-row">
             <p class="section-kicker">ROOM PROTOCOL</p>
-            <span>SAME-BROWSER CANARY</span>
+            <span>PUBLIC LIVE ROOM</span>
           </div>
           <h2>Wait for your rival.</h2>
-          <p>This transport canary proves the room lifecycle in two tabs. Public cross-device transport remains visibly gated until its Vercel runtime passes a production canary.</p>
+          <p>Share one Signal Code across phones, tablets, or computers. The room reserves two player slots and stops the duel if either rival disconnects.</p>
 
           <label class="room-code-label" for="roomCodeInput">ROOM SIGNAL</label>
           <div class="room-code-row">
             <input id="roomCodeInput" type="text" maxlength="6" inputmode="text" autocomplete="off" spellcheck="false" aria-describedby="roomHelp" />
             <button id="copyRoomButton" type="button">COPY LINK</button>
           </div>
-          <p class="room-help" id="roomHelp">Open the copied link in a second tab on this browser to connect Player 2.</p>
+          <p class="room-help" id="roomHelp">Send the copied link to Player 2 on any modern browser.</p>
 
           <div class="room-roster" role="list" aria-label="Room players">
             <div id="roomSlotOne" role="listitem"><i aria-hidden="true"></i><span>PLAYER 1</span><strong>OPEN</strong></div>

@@ -310,14 +310,14 @@
   font-size: 8px;
 }
 
-.canary-row {
+.room-status-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
 }
 
-.canary-row > span {
+.room-status-row > span {
   padding: 5px 7px;
   border: 1px solid #ffd16655;
   color: #ffd166;
@@ -442,6 +442,13 @@
 .room-actions button {
   width: 100%;
   min-width: 0;
+}
+
+#readyRoomButton:disabled {
+  opacity: .34;
+  filter: saturate(.2);
+  box-shadow: none;
+  cursor: not-allowed;
 }
 
 .duel-method {

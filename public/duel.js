@@ -75,6 +75,9 @@ let roomSweep = null;
 let roomCode = "";
 let roomReady = false;
 let roomConnected = false;
+let roomRole = "disconnected";
+let roomSlot = -1;
+let roomConnectionState = "disconnected";
 let roomPlayers = [];
 let roomPeers = new Map();
 let liveCountdownTimer = null;
@@ -411,6 +414,9 @@ function setRunState(state, label) {
   pauseButton.setAttribute("aria-label", `${pauseLabel} duel`);
   aiButton.hidden = duelType !== "ai" || state !== "ready";
   restartButton.hidden = duelType !== "ai" || state === "ready" || state === "countdown";
+  roomTransport?.setActive?.(
+    duelType === "live" && (state === "countdown" || state === "running"),
+  );
 }
 
 function showOverlay(kicker, title, message, action = "") {
@@ -579,6 +585,7 @@ function roomIdentity() {
     id: clientId,
     connected: roomConnected,
     ready: roomReady,
+    slot: roomSlot,
     seenAt: Date.now(),
   };
 }
@@ -604,10 +611,19 @@ function updateRosterSlot(element, player, index) {
 function activeRoomRoster() {
   const now = Date.now();
   const peers = [...roomPeers.values()].filter((peer) => now - peer.seenAt < PEER_TIMEOUT);
-  const all = roomConnected ? [roomIdentity(), ...peers] : peers;
+  if (roomTransport?.kind === "broadcast-channel") {
+    const localPlayers = roomConnected ? [roomIdentity(), ...peers] : peers;
+    return localPlayers
+      .filter((player) => player.connected)
+      .sort((first, second) => first.id.localeCompare(second.id));
+  }
+  const all = roomConnected && roomRole === "player"
+    ? [roomIdentity(), ...peers]
+    : peers;
   return all
     .filter((player) => player.connected)
-    .sort((first, second) => first.id.localeCompare(second.id));
+    .filter((player, index, roster) => roster.findIndex((entry) => entry.id === player.id) === index)
+    .sort((first, second) => first.slot - second.slot);
 }
 
 function syncLiveRoom() {
@@ -616,9 +632,7 @@ function syncLiveRoom() {
   updateRosterSlot(roomSlotOne, roomPlayers[0], 0);
   updateRosterSlot(roomSlotTwo, roomPlayers[1], 1);
   const localIndex = roomPlayers.findIndex((player) => player.id === clientId);
-  const roomFull = roomConnected
-    && localIndex < 0
-    && roomRoster.some((player) => player.id === clientId);
+  const roomFull = roomConnected && roomRole === "spectator";
   const participants = roomPlayers.map((player) => ({
     connected: true,
     ready: Boolean(player.ready),
@@ -691,11 +705,29 @@ function syncLiveRoom() {
       beginLiveCountdown(startsAt);
     }
   }
+  if (roomConnectionState === "reconnecting") {
+    roomState.textContent = "ROOM LINK RECONNECTING";
+  }
   updateHud();
 }
 
-function connectLiveRoom() {
-  if (roomConnected) {
+function handleRoomStatus(status) {
+  if (!status || typeof status !== "object") return;
+  if (status.state === "reconnecting") {
+    roomConnectionState = "reconnecting";
+    roomState.textContent = "ROOM LINK RECONNECTING";
+    announcement.textContent = "Room link interrupted. Reconnecting.";
+    return;
+  }
+  if (status.state !== "connected") return;
+  roomConnectionState = "connected";
+  roomConnected = true;
+  roomRole = status.role === "player" ? "player" : "spectator";
+  roomSlot = roomRole === "player" && Number.isInteger(status.slot) ? status.slot : -1;
+}
+
+async function connectLiveRoom() {
+  if (roomTransport) {
     disconnectLiveRoom();
     return;
   }
@@ -704,29 +736,47 @@ function connectLiveRoom() {
     roomState.textContent = "ENTER A VALID 6-CHARACTER SIGNAL";
     return;
   }
-  if (!Transports?.broadcastRoomSupported()) {
-    roomState.textContent = "ROOM CANARY UNSUPPORTED IN THIS BROWSER";
-    return;
-  }
-
-  try {
-    roomTransport = Transports.createBroadcastRoomTransport({
-      code: normalized,
-      clientId,
-      onMessage: handleRoomMessage,
-    });
-  } catch (error) {
-    roomTransport = null;
-    roomState.textContent = "ROOM CANARY COULD NOT START";
-    console.warn("Room transport could not start.", error);
+  if (!Transports?.remoteRoomSupported()) {
+    roomState.textContent = "LIVE ROOM UNSUPPORTED IN THIS BROWSER";
     return;
   }
 
   roomCode = normalized;
   roomCodeInput.value = roomCode;
+  roomCodeInput.disabled = true;
+  connectRoomButton.disabled = true;
+  roomState.textContent = "CONNECTING TO LIVE ROOM";
   roomPeers = new Map();
   roomReady = false;
+  roomRole = "disconnected";
+  roomSlot = -1;
+  roomConnectionState = "connecting";
+
+  try {
+    roomTransport = await Transports.createRemoteRoomTransport({
+      code: normalized,
+      clientId,
+      onMessage: handleRoomMessage,
+      onStatus: handleRoomStatus,
+    });
+  } catch (error) {
+    roomTransport = null;
+    roomConnected = false;
+    roomRole = "disconnected";
+    roomSlot = -1;
+    roomConnectionState = "disconnected";
+    roomCodeInput.disabled = false;
+    connectRoomButton.disabled = false;
+    roomState.textContent = "LIVE ROOM SERVICE UNAVAILABLE";
+    announcement.textContent = "The live room service could not connect.";
+    console.warn("Live room transport could not start.", {
+      name: typeof error?.name === "string" ? error.name : "Error",
+    });
+    return;
+  }
+
   roomConnected = true;
+  connectRoomButton.disabled = false;
   announcePresence();
   roomHeartbeat = setInterval(announcePresence, 850);
   roomSweep = setInterval(syncLiveRoom, 700);
@@ -753,6 +803,9 @@ function disconnectLiveRoom() {
   roomPlayers = [];
   roomReady = false;
   roomConnected = false;
+  roomRole = "disconnected";
+  roomSlot = -1;
+  roomConnectionState = "disconnected";
   abortLiveCountdown();
   if (duelType === "live") {
     setRunState("ready", "LIVE ROOM STANDBY");
@@ -896,7 +949,8 @@ function handleRoomMessage(message) {
       id: message.from,
       connected: true,
       ready: Boolean(message.ready),
-      seenAt: Date.now(),
+      slot: Number.isInteger(message.slot) ? message.slot : -1,
+      seenAt: Number.isFinite(Number(message.seenAt)) ? Number(message.seenAt) : Date.now(),
     });
     syncLiveRoom();
     return;

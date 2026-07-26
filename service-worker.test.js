@@ -119,6 +119,9 @@ async function main() {
   });
   process.stdout.write("PASS install primes the complete versioned app shell\n");
 
+  assert.match(source, /neon-snake-shell-v38/);
+  process.stdout.write("PASS multiplayer transport ships behind a fresh shell cache version\n");
+
   stores.set("neon-snake-shell-stale", new Map());
   await dispatchWaitUntil("activate");
   assert.equal(stores.has("neon-snake-shell-stale"), false);
@@ -163,7 +166,7 @@ async function main() {
   assert.equal(duelFallback.body, "shell:/duel.html");
   process.stdout.write("PASS offline navigation preserves solo and Duel routes\n");
 
-  process.stdout.write("\n5 deterministic service-worker lifecycle tests passed.\n");
+  process.stdout.write("\n6 deterministic service-worker lifecycle tests passed.\n");
 }
 
 main().catch((error) => {

@@ -4,7 +4,7 @@ Neon Snake is a dependency-free browser game used to explore how far simple rule
 
 ## Run it
 
-Open `public/index.html` in a modern browser. No installation, build step, package manager, server, account, or network connection is required.
+Open `public/index.html` in a modern browser. Solo play, AI play, AI duels, Canvas export, and offline installation require no installation, build step, package manager, server, account, or network connection. Public Live Rooms use the deployed Vercel room function and Redis resource.
 
 To run the deterministic rules and control-flow suites:
 
@@ -14,6 +14,7 @@ node ai-quality.test.js
 node control-flow.test.js
 node duel-control-flow.test.js
 node room-transport.test.js
+node room-api.test.js
 node accessibility.test.js
 node service-worker.test.js
 node deployment-contract.test.js
@@ -57,7 +58,7 @@ In the Duel Lab, `Play vs AI` is a true two-snake match rather than an advice mo
 
 Signal Codes make challenge generation equally inspectable. A six-character code is hashed once, then a tiny seeded generator chooses each gameplay-affecting random outcome. The same code, mode, pace, and player moves therefore produce the same pickup and mutation sequence—without a backend or saved server state.
 
-Signal Codes also name duel rooms. The current live-room transport is deliberately labeled `SAME-BROWSER CANARY`: `BroadcastChannel` proves two-tab presence, room capacity, Ready state, countdown cancellation, host snapshots, and disconnect handling without pretending it works across devices. The room cannot enter countdown until two connected players have both marked themselves Ready. Public cross-device play remains gated on an actual Vercel WebSocket runtime canary.
+Signal Codes also name duel rooms. `PUBLIC LIVE ROOM` reserves exactly two server-assigned player slots in Redis, while additional visitors become read-only spectators. The first slot owns the deterministic simulation and publishes validated snapshots; the second publishes only validated direction input. The room cannot enter countdown until two connected players have both marked themselves Ready, and stale slots expire automatically after a lost connection.
 
 ## Current rule set
 
@@ -77,7 +78,7 @@ Signal Codes also name duel rooms. The current live-room transport is deliberate
 - **Export:** Canvas sessions can be saved locally as a branded 1440 × 1440 PNG without uploading the artwork.
 - **Run integrity:** movement never starts until the owner choice and visible countdown complete; hiding the page suspends a player countdown, and career runs increment only when play actually begins.
 - **AI Duel:** two fluid snakes share a compressed 30 × 30 lethal arena; the first crash loses and simultaneous head-on or head-swap collisions draw.
-- **Live-room canary:** a six-character room Signal connects exactly two same-browser tabs; both players must be connected and Ready before countdown, and a disconnect cancels or stops play.
+- **Public Live Room:** a six-character room Signal connects exactly two players across different devices; both must be connected and Ready before countdown, and a disconnect cancels or stops play.
 
 ## Source map
 
@@ -88,12 +89,15 @@ Signal Codes also name duel rooms. The current live-room transport is deliberate
 - `public/duel.html` — focused AI/live duel interface.
 - `public/duel.css` — responsive duel arena and room-state presentation.
 - `public/duel.js` — AI duel and room-state orchestration.
-- `public/room-transport.js` — the replaceable dependency-free same-browser room adapter.
+- `public/room-transport.js` — dependency-free BroadcastChannel and Vercel/Redis room adapters.
+- `api/room.mjs` — the isolated Vercel Function entry point.
+- `server/room-core.cjs` — request validation, Redis REST client, and atomic two-slot room protocol.
 - `game-logic.test.js` — executable rule regressions using Node's built-in assertions.
 - `ai-quality.test.js` — seeded survival, routing-efficiency, safety-cycle, and duel counter-move benchmarks.
 - `control-flow.test.js` — executable ownership and explicit-start regressions.
 - `duel-control-flow.test.js` — executable expanded-arena and room-gate regressions.
 - `room-transport.test.js` — executable transport lifecycle and envelope regressions.
+- `room-api.test.js` — executable origin, validation, role, rate, expiry, and configuration regressions.
 - `accessibility.test.js` — executable semantics, focus, touch-target, canvas-fallback, and reduced-motion regressions.
 - `service-worker.test.js` — executable install, upgrade, runtime-cache, and route-aware offline regressions.
 - `deployment-contract.test.js` — executable public-boundary, manifest, cache-shell, and hosted-verification regressions.
@@ -102,35 +106,42 @@ The environment intentionally remains plain HTML, CSS, and JavaScript so every e
 
 ## Public deployment on Vercel
 
-The repository is intentionally deployable as a framework-free static site:
+The repository is intentionally deployable as a framework-free site with one isolated room function:
 
 1. Import the repository into Vercel.
 2. Leave **Root Directory** at the repository root.
 3. Set **Framework Preset** to **Other**.
-4. Leave the build command blank. `vercel.json` serves only the `public` output directory.
+4. Leave the build command blank. `vercel.json` serves static files only from `public`; Vercel deploys `api/room.mjs` separately at `/api/room`.
+5. Connect an Upstash Redis resource to the project so Vercel provides `STORAGE_KV_REST_API_URL` and `STORAGE_KV_REST_API_TOKEN`.
 
 `vercel.json` supplies security headers, service-worker cache behavior, and conservative asset caching. `manifest.webmanifest` and `sw.js` provide an installable, offline-capable shell after the first successful visit.
 
-Keeping the app in this dedicated project root—and serving only `public`—ensures tests, documentation, configuration, and unrelated workspace files cannot become public deployment artifacts.
+Keeping the static app in `public` ensures tests, documentation, configuration, server code, and unrelated workspace files cannot become downloadable static artifacts. Database credentials are read only inside the server function and are never included in browser JavaScript.
 
 Before attaching a custom domain, update the metadata in `index.html` with an absolute canonical URL and absolute `og:image` URL for the final domain.
 
-The static deployment includes the complete AI duel and the same-browser live-room canary. Do not relabel the canary as public multiplayer until a cross-device transport has been deployed to Vercel, exercised from two separate devices, and shown to recover from the platform's maximum-duration reconnect.
+The deployment includes the complete AI duel and a Redis-backed Public Live Room. Production acceptance still requires exercising one room from two different devices after every network-layer change.
 
 ### Multiplayer transport boundary
 
-Vercel now officially supports bidirectional WebSockets in Functions, but its current upgrade API requires both `@vercel/functions` and `ws`. Each connection is pinned to one Function instance, so Vercel's own [cross-instance example](https://vercel.com/kb/guide/real-time-chat-websockets) adds Redis to relay events when two clients land on different instances. The underlying limits and reconnect requirement are documented in [Vercel Functions WebSockets](https://vercel.com/docs/functions/websockets).
+The live-room adapter uses same-origin short polling against `/api/room`. Each request executes one atomic Redis Lua command that cleans stale slots, refreshes presence, applies the sender's allowed update, and returns the latest room state. This avoids adding a browser package or a long-lived socket process while still working across Vercel Function instances.
 
-Those packages and that shared service are not hidden inside this dependency-free static build. Until a production transport is deliberately isolated, load-tested, and canaried, the honest public contract remains:
+The server boundary enforces:
 
-- Solo play and AI duels work entirely in the browser.
-- `SAME-BROWSER CANARY` proves the two-player room state machine without claiming internet transport.
-- Public multiplayer requires cross-instance delivery, origin and payload validation, reconnect/state recovery, and a two-device Vercel canary.
+- exact six-character room codes and bounded client/session identifiers;
+- same-origin POST requests, a 64 KiB body ceiling, and a room-level request rate;
+- exactly two expiring player slots, with later visitors restricted to spectator reads;
+- host-only countdown/state writes and guest-only direction writes;
+- rebuilt envelopes so clients cannot spoof another sender, room, or timestamp;
+- no-store responses and generic failures that never expose credentials.
+
+Solo play and AI duels still work entirely in the browser. Live-room state is ephemeral and disappears after the room goes idle.
 
 ## Public-data boundary
 
-- Gameplay has no backend and sends no run data anywhere.
-- The live-room canary uses same-origin `BroadcastChannel`; it cannot transmit outside the current browser profile.
+- Solo gameplay sends no run data anywhere.
+- Public Live Rooms send only temporary presence, readiness, direction, countdown, and board-state messages to the same-origin room API.
+- Room records expire automatically; they are not a leaderboard, account, chat log, or analytics store.
 - Scores, settings, leaderboard entries, and Echo paths stay in `localStorage`.
 - The service worker caches only same-origin public game files.
 - The page requests no camera, microphone, geolocation, payment, or USB permissions.
