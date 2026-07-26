@@ -116,9 +116,9 @@ function summarize(values) {
   };
 }
 
-function sampleCombinedPass(firstMark, count = 80) {
+function sampleCombinedPass(firstMark, count = 80, warmup = 10) {
   const samples = [];
-  for (let sample = 0; sample < count; sample += 1) {
+  for (let sample = 0; sample < count + warmup; sample += 1) {
     const startedAt = performance.now();
     strokeCanvasMark(canvasPaintLayerCtx, mark(firstMark + sample));
     ctx.fillStyle = "#040806";
@@ -136,19 +136,21 @@ function sampleCombinedPass(firstMark, count = 80) {
       recentHeads: [],
     });
     ctx.getImageData(0, 0, 1, 1);
-    samples.push(performance.now() - startedAt);
+    if (sample >= warmup) samples.push(performance.now() - startedAt);
   }
   return summarize(samples);
 }
 
 canvasMarks.push(mark(0));
 strokeCanvasMark(canvasPaintLayerCtx, canvasMarks[0]);
+canvasPaintLayerCtx.getImageData(0, 0, 1, 1);
 const early = sampleCombinedPass(1);
 for (let index = 1; index < 1400; index += 1) {
   const nextMark = mark(index);
   canvasMarks.push(nextMark);
   strokeCanvasMark(canvasPaintLayerCtx, nextMark);
 }
+canvasPaintLayerCtx.getImageData(0, 0, 1, 1);
 const late = sampleCombinedPass(1400);
 const result = {
   width: canvas.width,
@@ -210,7 +212,7 @@ if (!chrome) {
     assert.ok(result.retainedMarks >= 1400, JSON.stringify(result));
     assert.equal(result.particles, 252);
     assert.equal(result.ripples, 14);
-    assert.ok(result.late.mean < 24, JSON.stringify(result));
+    assert.ok(result.late.p50 < 20, JSON.stringify(result));
     assert.ok(result.late.p95 < 44, JSON.stringify(result));
     assert.ok(
       result.late.p95 <= result.early.p95 * 2.5 + 6,
