@@ -15,6 +15,7 @@ node control-flow.test.js
 node duel-control-flow.test.js
 node room-transport.test.js
 node room-api.test.js
+node identity-system.test.js
 node accessibility.test.js
 node service-worker.test.js
 node deployment-contract.test.js
@@ -58,6 +59,8 @@ In the Duel Lab, `Play vs AI` is a true two-snake match rather than an advice mo
 
 Signal Codes make challenge generation equally inspectable. A six-character code is hashed once, then a tiny seeded generator chooses each gameplay-affecting random outcome. The same code, mode, pace, and player moves therefore produce the same pickup and mutation sequence—without a backend or saved server state.
 
+That code also drives the site's Signal Cartography identity. A separate deterministic renderer turns the current Signal and protocol into flowing currents, contour fields, and orbiting nodes behind the interface. It is capped at 24 frames per second, pauses drawing in hidden tabs, becomes static when reduced motion is requested, and never participates in game state. The custom signal-serpent mark, protocol glyphs, and curved run trace carry the same visual grammar through solo and Duel surfaces without adding a framework or image payload.
+
 Signal Codes also name duel rooms. `PUBLIC LIVE ROOM` reserves exactly two server-assigned player slots in Redis, while additional visitors become read-only spectators. The first slot owns the deterministic simulation and publishes validated snapshots; the second publishes only validated direction input. The room cannot enter countdown until two connected players have both marked themselves Ready, and stale slots expire automatically after a lost connection.
 
 ## Current rule set
@@ -84,6 +87,8 @@ Signal Codes also name duel rooms. `PUBLIC LIVE ROOM` reserves exactly two serve
 
 - `public/index.html` — semantic interface and controls.
 - `public/styles.css` — visual system and responsive layout.
+- `public/signal-field.js` — deterministic, mode-aware Signal Cartography background renderer.
+- `public/assets/signal-mark.svg` — the custom signal-serpent identity mark.
 - `public/game-logic.js` — small deterministic rules with no browser dependency.
 - `public/game.js` — canvas rendering, input, audio, persistence, and orchestration.
 - `public/duel.html` — focused AI/live duel interface.
@@ -98,6 +103,7 @@ Signal Codes also name duel rooms. `PUBLIC LIVE ROOM` reserves exactly two serve
 - `duel-control-flow.test.js` — executable expanded-arena and room-gate regressions.
 - `room-transport.test.js` — executable transport lifecycle and envelope regressions.
 - `room-api.test.js` — executable origin, validation, role, rate, expiry, and configuration regressions.
+- `identity-system.test.js` — executable identity, deterministic field, protocol-glyph, cache, and motion-budget regressions.
 - `accessibility.test.js` — executable semantics, focus, touch-target, canvas-fallback, and reduced-motion regressions.
 - `service-worker.test.js` — executable install, upgrade, runtime-cache, and route-aware offline regressions.
 - `deployment-contract.test.js` — executable public-boundary, manifest, cache-shell, and hosted-verification regressions.

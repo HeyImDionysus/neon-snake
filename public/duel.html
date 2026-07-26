@@ -15,12 +15,13 @@
     <link rel="stylesheet" href="duel.css" />
   </head>
   <body class="duel-page" data-duel-state="ready" data-duel-type="ai">
+    <canvas class="signal-field" id="signalField" aria-hidden="true"></canvas>
     <div class="ambient ambient-one" aria-hidden="true"></div>
     <div class="ambient ambient-two" aria-hidden="true"></div>
 
     <header class="site-header duel-header">
       <a class="brand" href="./" aria-label="Return to Neon Snake">
-        <span class="brand-glyph" aria-hidden="true">S</span>
+        <span class="brand-glyph" aria-hidden="true"><img src="assets/signal-mark.svg" alt="" /></span>
         <span>NEON SNAKE</span>
       </a>
       <div class="system-status" aria-live="polite">
@@ -172,6 +173,7 @@
     </main>
 
     <p class="sr-only" id="duelAnnouncement" aria-live="assertive"></p>
+    <script src="signal-field.js"></script>
     <script src="game-logic.js"></script>
     <script src="room-transport.js"></script>
     <script src="duel.js"></script>

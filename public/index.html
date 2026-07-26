@@ -27,12 +27,13 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body data-game-state="ready">
+    <canvas class="signal-field" id="signalField" aria-hidden="true"></canvas>
     <div class="ambient ambient-one" aria-hidden="true"></div>
     <div class="ambient ambient-two" aria-hidden="true"></div>
 
     <header class="site-header">
       <a class="brand" href="./" aria-label="Reset Neon Snake">
-        <span class="brand-glyph" aria-hidden="true">S</span>
+        <span class="brand-glyph" aria-hidden="true"><img src="assets/signal-mark.svg" alt="" /></span>
         <span>NEON SNAKE</span>
       </a>
       <div class="system-status" aria-live="polite">
@@ -167,7 +168,7 @@
           <h2>Choose your run.</h2>
           <p>Four protocols. One familiar gesture: choose what movement means.</p>
           <a class="duel-launch" href="duel.html">
-            <span><strong>Enter Duel Lab</strong><small>VS AI · LIVE ROOM CANARY</small></span>
+            <span><strong>Enter Duel Lab</strong><small>VS AI · PUBLIC LIVE ROOM</small></span>
             <span aria-hidden="true">⚔</span>
           </a>
         </div>
@@ -177,24 +178,28 @@
           <label class="mode-option">
             <input type="radio" name="mode" value="classic" checked />
             <span class="mode-number">01</span>
+            <span class="protocol-glyph" data-glyph="classic" aria-hidden="true"><i></i></span>
             <span class="mode-copy"><strong>Classic</strong><small>Walls end the run</small></span>
             <span class="radio-mark" aria-hidden="true"></span>
           </label>
           <label class="mode-option">
             <input type="radio" name="mode" value="portal" />
             <span class="mode-number">02</span>
+            <span class="protocol-glyph" data-glyph="portal" aria-hidden="true"><i></i></span>
             <span class="mode-copy"><strong>Portal</strong><small>Edges loop the board</small></span>
             <span class="radio-mark" aria-hidden="true"></span>
           </label>
           <label class="mode-option">
             <input type="radio" name="mode" value="rush" />
             <span class="mode-number">03</span>
+            <span class="protocol-glyph" data-glyph="rush" aria-hidden="true"><i></i></span>
             <span class="mode-copy"><strong>Rush</strong><small>Score big in 60 seconds</small></span>
             <span class="radio-mark" aria-hidden="true"></span>
           </label>
           <label class="mode-option">
             <input type="radio" name="mode" value="canvas" />
             <span class="mode-number">04</span>
+            <span class="protocol-glyph" data-glyph="canvas" aria-hidden="true"><i></i></span>
             <span class="mode-copy"><strong>Canvas</strong><small>Cross freely. Paint forever.</small></span>
             <span class="radio-mark" aria-hidden="true"></span>
           </label>
@@ -262,37 +267,39 @@
 
     <section class="showcase" id="how-it-works" aria-labelledby="showcaseTitle">
       <div class="showcase-heading">
-        <p class="section-kicker">BUILT IN THE OPEN</p>
-        <h2 id="showcaseTitle">Simple rules.<br />Visible intelligence.</h2>
-        <p>Neon Snake is both a public game and a readable AI experiment. Nothing important happens behind a server or an opaque dependency.</p>
+        <p class="section-kicker">SIGNAL CARTOGRAPHY</p>
+        <h2 id="showcaseTitle">Every run<br />leaves a trace.</h2>
+        <p>The atmosphere is generated from your Signal Code and protocol. Under the glow is a small, observable system: one rule, one response, one visible consequence at a time.</p>
       </div>
-      <div class="showcase-grid">
-        <article>
-          <span class="showcase-number">01</span>
-          <h3>One rule at a time</h3>
+      <div class="signal-atlas">
+        <svg class="atlas-route" viewBox="0 0 1000 520" preserveAspectRatio="none" aria-hidden="true">
+          <path class="atlas-route__base" d="M54 414 C156 75 298 86 409 292 S635 474 760 178 S900 79 948 244" />
+          <path class="atlas-route__flow" d="M54 414 C156 75 298 86 409 292 S635 474 760 178 S900 79 948 244" />
+        </svg>
+        <article class="atlas-entry" data-step="01">
+          <span class="showcase-number">01 / RULE</span>
+          <h3>Readable by design</h3>
           <p>Every mechanic fits in one sentence. Flow slows time. Amplify doubles points. Canvas turns movement into permanent light.</p>
         </article>
-        <article>
-          <span class="showcase-number">02</span>
-          <h3>Same mode, your choice</h3>
-          <p>AI play proves a route can still escape before chasing a signal, follows its tail when food is unsafe, and keeps a full-board safety cycle in reserve. AI Lens never steers.</p>
+        <article class="atlas-entry" data-step="02">
+          <span class="showcase-number">02 / DECISION</span>
+          <h3>Intelligence you can inspect</h3>
+          <p>AI play tests escape routes before chasing a signal, follows its tail when food is unsafe, and keeps a full-board safety cycle in reserve. AI Lens watches; it never steers.</p>
         </article>
-        <article>
-          <span class="showcase-number">03</span>
-          <h3>Replay the challenge</h3>
+        <article class="atlas-entry" data-step="03">
+          <span class="showcase-number">03 / REPLAY</span>
+          <h3>The code is the map</h3>
           <p>A six-character Signal Code deterministically recreates pickup positions and mutations. Share the URL and everyone faces the same hidden sequence.</p>
         </article>
-        <article>
-          <span class="showcase-number">04</span>
-          <h3>Your data stays yours</h3>
-          <p>Scores, settings, and Echo paths remain in local browser storage. There are no accounts, trackers, or remote gameplay services.</p>
+        <article class="atlas-entry" data-step="04">
+          <span class="showcase-number">04 / PROOF</span>
+          <h3>A public experiment</h3>
+          <p>Rules, rendering, AI decisions, and verification stay inspectable. Scores and Echo paths remain local; live rooms retain only temporary match state.</p>
         </article>
       </div>
-      <div class="method-strip">
-        <span>RULE</span><i aria-hidden="true">→</i>
-        <span>FEEDBACK</span><i aria-hidden="true">→</i>
-        <span>COMBINATION</span><i aria-hidden="true">→</i>
-        <span>PROOF</span>
+      <div class="atlas-legend" aria-hidden="true">
+        <span><i></i> YOUR SIGNAL</span>
+        <span>DETERMINISTIC FIELD / LIVE RULES / LOCAL MEMORY</span>
       </div>
     </section>
 
@@ -302,6 +309,7 @@
     </footer>
 
     <p class="sr-only" id="gameAnnouncement" aria-live="assertive"></p>
+    <script src="signal-field.js"></script>
     <script src="game-logic.js"></script>
     <script src="game.js"></script>
   </body>
