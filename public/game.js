@@ -1060,7 +1060,12 @@ function tick(now = performance.now()) {
       announcement.textContent = "Echo outrun. You survived beyond your previous path.";
     }
   }
-  if (runState === "running" && (demoMode || lensEnabled)) planAiMove();
+  const followingCommittedRoute = demoMode && autopilotPlan.length > 0;
+  if (
+    runState === "running"
+    && (demoMode || lensEnabled)
+    && !followingCommittedRoute
+  ) planAiMove();
 }
 
 function recordDecision(effectiveMode) {

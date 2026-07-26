@@ -14,6 +14,7 @@ To run the deterministic rules and control-flow suites:
 node game-logic.test.js
 node ai-quality.test.js
 node canvas-performance.test.js
+node canvas-browser-performance.test.js
 node control-flow.test.js
 node duel-control-flow.test.js
 node room-transport.test.js
@@ -106,6 +107,7 @@ Signal Codes also name duel rooms. `PUBLIC LIVE ROOM` reserves exactly two serve
 - `game-logic.test.js` — executable rule regressions using Node's built-in assertions.
 - `ai-quality.test.js` — three-seed full-board completion, routing-efficiency, safety-cycle, adversarial duel, route-diversity, and loop-recovery benchmarks.
 - `canvas-performance.test.js` — executable late-run gate for accumulated raster strokes, 2× compositing, effect retirement, and worst-shaped Autopilot planning.
+- `canvas-browser-performance.test.js` — real Chromium late-run gate that combines 1,400 rasterized glow strokes, 2× compositing, peak overlapping effects, and a worst-shaped planner decision inside the 44 ms Overdrive movement budget.
 - `control-flow.test.js` — executable ownership and explicit-start regressions.
 - `duel-control-flow.test.js` — executable expanded-arena and room-gate regressions.
 - `room-transport.test.js` — executable transport lifecycle and envelope regressions.

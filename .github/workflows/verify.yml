@@ -37,6 +37,7 @@ jobs:
           node game-logic.test.js
           node ai-quality.test.js
           node canvas-performance.test.js
+          CANVAS_BROWSER_REQUIRED=1 node canvas-browser-performance.test.js
           node control-flow.test.js
           node duel-control-flow.test.js
           node room-transport.test.js

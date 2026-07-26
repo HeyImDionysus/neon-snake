@@ -173,10 +173,13 @@ const tests = [
     assert.equal(telemetryUpdates, 1);
 
     const choose = functionSource("chooseDemoDirection");
+    const tick = functionSource("tick");
     assert.ok(
       choose.indexOf("consumeAutopilotPlan") < choose.indexOf("planAiMove()"),
       "Committed routes must be checked before a new full-board plan",
     );
+    assert.match(tick, /followingCommittedRoute = demoMode && autopilotPlan\.length > 0/);
+    assert.match(tick, /&& !followingCommittedRoute/);
   }],
   ["worst-shaped Canvas planning retains a reproducible interactive budget", () => {
     const snake = [];
