@@ -14,7 +14,7 @@ const CANVAS_BRUSH_LENGTH = 18;
 const CORE_DURATION = 6500;
 const MUTATION_DURATION = 8000;
 const RUSH_DURATION = 60_000;
-const DEFAULT_PACE = { base: 138, floor: 62, step: 3 };
+const PACES = rules.paceProfiles();
 
 function codeFromIndex(value) {
   let state = Math.imul((Number(value) || 0) >>> 0, 0x9e3779b1) & 0x3fffffff;
@@ -26,7 +26,9 @@ function codeFromIndex(value) {
   return code;
 }
 
-function simulateSolo(code, mode = "classic", maxSteps = 600) {
+function simulateSolo(code, mode = "classic", maxSteps = 600, paceName = "arcade") {
+  const pace = PACES[paceName];
+  assert.ok(pace, `Unknown pace: ${paceName}`);
   let snake = [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }];
   let direction = { x: 1, y: 0 };
   let signalState = rules.signalState(code);
@@ -39,7 +41,7 @@ function simulateSolo(code, mode = "classic", maxSteps = 600) {
   let mutationSignature = "";
   let steps = 0;
   let elapsedMs = 0;
-  let nextMoveAt = rules.tickDelay(DEFAULT_PACE, foodCount);
+  let nextMoveAt = rules.tickDelay(pace, foodCount);
   let reachedRushDeadline = false;
   let recentHeads = [];
   let committedPlan = [];
@@ -155,6 +157,7 @@ function simulateSolo(code, mode = "classic", maxSteps = 600) {
       return {
         code,
         mode,
+        pace: paceName,
         steps,
         foods,
         length: snake.length,
@@ -177,6 +180,7 @@ function simulateSolo(code, mode = "classic", maxSteps = 600) {
       return {
         code,
         mode,
+        pace: paceName,
         steps,
         foods,
         length: snake.length,
@@ -217,7 +221,7 @@ function simulateSolo(code, mode = "classic", maxSteps = 600) {
     direction = { ...selected.direction };
     steps += 1;
     const delay = rules.mutationDelay(
-      rules.tickDelay(DEFAULT_PACE, foodCount),
+      rules.tickDelay(pace, foodCount),
       mutation.type,
     );
     nextMoveAt = elapsedMs + delay;
@@ -225,6 +229,7 @@ function simulateSolo(code, mode = "classic", maxSteps = 600) {
   return {
     code,
     mode,
+    pace: paceName,
     steps,
     foods,
     length: snake.length,
@@ -547,38 +552,70 @@ const tests = [
     const expectations = {
       classic: { foods: 45, maxFoodGap: 140 },
       portal: { foods: 100, maxFoodGap: 180 },
-      rush: { foods: 30, maxFoodGap: 60 },
-      canvas: { foods: 40, maxFoodGap: 80 },
     };
     for (const [mode, expectation] of Object.entries(expectations)) {
       const runs = codes.map((code) => simulateSolo(code, mode, 2000));
       runs.forEach((run) => {
         assert.equal(
           run.outcome,
-          mode === "rush" ? "deadline" : "timeout",
+          "timeout",
           JSON.stringify(run),
         );
         assert.ok(run.foods >= expectation.foods, JSON.stringify(run));
         assert.ok(run.maxFoodGap <= expectation.maxFoodGap, JSON.stringify(run));
-        if (mode === "rush") assert.equal(run.elapsedMs, RUSH_DURATION, JSON.stringify(run));
-        if (mode === "canvas") {
-          assert.equal(run.length, CANVAS_BRUSH_LENGTH, JSON.stringify(run));
-          assert.ok(run.canvasCompositionSteps >= 800, JSON.stringify(run));
-        }
       });
       assert.equal(
         new Set(runs.map((run) => run.routeSignature)).size,
         runs.length,
         JSON.stringify(runs),
       );
-      if (mode === "rush") {
-        const foodCounts = runs.map((run) => run.foods);
-        const stepCounts = runs.map((run) => run.steps);
-        process.stdout.write(
-          `Rush 60s matrix: foods ${Math.min(...foodCounts)}-${Math.max(...foodCounts)}, `
-          + `steps ${Math.min(...stepCounts)}-${Math.max(...stepCounts)}, `
-          + `max gap ${Math.max(...runs.map((run) => run.maxFoodGap))}\n`,
-        );
+    }
+  }],
+  ["timed Rush and Canvas diagnostics cover every selectable pace", () => {
+    const codes = Array.from({ length: 8 }, (_, index) => codeFromIndex(index + 32));
+    const expectations = {
+      steady: { rushFoods: 20, rushGap: 60, canvasFoods: 55, canvasGap: 100 },
+      arcade: { rushFoods: 30, rushGap: 60, canvasFoods: 55, canvasGap: 100 },
+      overdrive: { rushFoods: 45, rushGap: 60, canvasFoods: 55, canvasGap: 100 },
+    };
+    for (const [paceName, expectation] of Object.entries(expectations)) {
+      const rushRuns = codes.map((code) => simulateSolo(code, "rush", 2000, paceName));
+      const canvasRuns = codes.map((code) => simulateSolo(code, "canvas", 2000, paceName));
+      rushRuns.forEach((run) => {
+        assert.equal(run.pace, paceName);
+        assert.equal(run.outcome, "deadline", JSON.stringify(run));
+        assert.equal(run.elapsedMs, RUSH_DURATION, JSON.stringify(run));
+        assert.ok(run.foods >= expectation.rushFoods, JSON.stringify(run));
+        assert.ok(run.maxFoodGap <= expectation.rushGap, JSON.stringify(run));
+      });
+      canvasRuns.forEach((run) => {
+        assert.equal(run.pace, paceName);
+        assert.equal(run.outcome, "timeout", JSON.stringify(run));
+        assert.ok(run.foods >= expectation.canvasFoods, JSON.stringify(run));
+        assert.ok(run.maxFoodGap <= expectation.canvasGap, JSON.stringify(run));
+        assert.equal(run.length, CANVAS_BRUSH_LENGTH, JSON.stringify(run));
+        assert.ok(run.canvasCompositionSteps >= 800, JSON.stringify(run));
+      });
+      [rushRuns, canvasRuns].forEach((runs) => assert.equal(
+        new Set(runs.map((run) => run.routeSignature)).size,
+        runs.length,
+        JSON.stringify(runs),
+      ));
+      const rushFoods = rushRuns.map((run) => run.foods);
+      const rushSteps = rushRuns.map((run) => run.steps);
+      const canvasFoods = canvasRuns.map((run) => run.foods);
+      const canvasExpiries = canvasRuns.map((run) => run.coresExpired);
+      process.stdout.write(
+        `${paceName} timing matrix: Rush foods ${Math.min(...rushFoods)}-${Math.max(...rushFoods)}, `
+        + `steps ${Math.min(...rushSteps)}-${Math.max(...rushSteps)}, `
+        + `max gap ${Math.max(...rushRuns.map((run) => run.maxFoodGap))}; `
+        + `Canvas foods ${Math.min(...canvasFoods)}-${Math.max(...canvasFoods)}, `
+        + `max gap ${Math.max(...canvasRuns.map((run) => run.maxFoodGap))}, `
+        + `core expiries ${Math.min(...canvasExpiries)}-${Math.max(...canvasExpiries)}\n`,
+      );
+      if (paceName === "steady") {
+        const expirySeed = canvasRuns.find((run) => run.code === "PN7B2H");
+        assert.equal(expirySeed.coresExpired, 1, JSON.stringify(expirySeed));
       }
     }
   }],

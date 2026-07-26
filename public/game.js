@@ -99,11 +99,7 @@ const DIRECTION_OPTIONS = [
   { name: "down", ...DIRECTIONS.down },
   { name: "left", ...DIRECTIONS.left },
 ];
-const PACES = {
-  steady: { base: 180, floor: 88, step: 3 },
-  arcade: { base: 138, floor: 62, step: 3 },
-  overdrive: { base: 98, floor: 44, step: 2 },
-};
+const PACES = Rules.paceProfiles();
 const CANVAS_PALETTES = [
   { name: "ACID", color: "#adff66", glow: "#adff66" },
   { name: "AURORA", color: "#74e1ff", glow: "#58d6ff" },
@@ -904,7 +900,8 @@ function render(now) {
   const delta = Math.min(now - lastFrame, 34);
   lastFrame = now;
   updateEffects(delta);
-  advanceMovement(now);
+  const rushEnded = updateRushTimer(now);
+  if (!rushEnded) advanceMovement(now);
   expireCore(now);
   updateTimeSystems(now);
   pollGamepad(now);
@@ -915,6 +912,15 @@ function render(now) {
   });
   drawBoard(now);
   requestAnimationFrame(render);
+}
+
+function updateRushTimer(now) {
+  if (activeMode !== "rush" || runState !== "running") return false;
+  rushRemaining = Math.max(0, rushDeadline - now);
+  rushTimeEl.textContent = (rushRemaining / 1000).toFixed(1);
+  if (rushRemaining > 0) return false;
+  endGame("time");
+  return true;
 }
 
 function updateTimeSystems(now) {
@@ -937,12 +943,6 @@ function updateTimeSystems(now) {
     }
   } else if (!comboExpiresAt) {
     comboMeterFill.style.width = "0%";
-  }
-
-  if (activeMode === "rush" && runState === "running") {
-    rushRemaining = Math.max(0, rushDeadline - now);
-    rushTimeEl.textContent = (rushRemaining / 1000).toFixed(1);
-    if (rushRemaining <= 0) endGame("time");
   }
 
   if (food?.kind === "core") {

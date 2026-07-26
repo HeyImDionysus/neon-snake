@@ -145,7 +145,13 @@ const tests = [
     assert.equal(rules.pickupScore("core", 2), 100);
   }],
   ["pace accelerates but respects its floor", () => {
-    const pace = { base: 138, floor: 62, step: 3 };
+    const profiles = rules.paceProfiles();
+    assert.deepEqual(profiles, {
+      steady: { base: 180, floor: 88, step: 3 },
+      arcade: { base: 138, floor: 62, step: 3 },
+      overdrive: { base: 98, floor: 44, step: 2 },
+    });
+    const pace = profiles.arcade;
     assert.equal(rules.tickDelay(pace, 0), 138);
     assert.equal(rules.tickDelay(pace, 10), 108);
     assert.equal(rules.tickDelay(pace, 100), 62);

@@ -414,6 +414,18 @@
     return mutation === "flow" ? Math.round(delay * 1.35) : delay;
   }
 
+  const PACE_PROFILES = Object.freeze({
+    steady: Object.freeze({ base: 180, floor: 88, step: 3 }),
+    arcade: Object.freeze({ base: 138, floor: 62, step: 3 }),
+    overdrive: Object.freeze({ base: 98, floor: 44, step: 2 }),
+  });
+
+  function paceProfiles() {
+    return Object.fromEntries(
+      Object.entries(PACE_PROFILES).map(([name, pace]) => [name, { ...pace }]),
+    );
+  }
+
   function tickDelay(pace, foodCount) {
     return Math.max(pace.floor, pace.base - foodCount * pace.step);
   }
@@ -1779,6 +1791,7 @@
     survivalHorizon,
     normalizeSignalCode,
     nextSignalRandom,
+    paceProfiles,
     signalIndex,
     signalState,
     sortedTopRuns,

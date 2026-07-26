@@ -61,7 +61,7 @@ The optional live Decision Lens uses that identical calculation as a co-pilot. P
 
 In the Duel Lab, `Play vs Autopilot` is a true two-snake match rather than an advice mode. The violet rival treats your body as occupied space and performs a deterministic two-ply simultaneous-move search: every candidate move is tested against your worst legal reply, then against the next exchange. Terminal wins and losses dominate the score; surviving lines compare future territory, exits, food-race pressure, score, and body length. Recent head history penalizes repeated circuits, while a small Signal-derived tie break varies equivalent safe lines without overriding tactics. It cannot see your next input and does not claim to solve the full game.
 
-The executable quality suite proves more than isolated fixtures. Classic Autopilot fills all 400 cells—397 pickups after the opening length—on three distinct public Signal Codes while preserving the cycle invariant and collecting every target within one board lap. Duel simulations run the controller against direct food-racing and pursuit policies, require seeded route variation, reject avoidable next-tick losses, retain the food target across the full search horizon, and detect regressions into short pursuit loops.
+The executable quality suite proves more than isolated fixtures. Classic Autopilot fills all 400 cells—397 pickups after the opening length—on three distinct public Signal Codes while preserving the cycle invariant and collecting every target within one board lap. Eight-seed matrices require purposeful, distinct routes across solo modes; timed Rush and Canvas runs exercise Steady, Arcade, and Overdrive with the live Core, mutation, brush-length, composition, and strict 60-second Rush rules. Duel simulations run the controller against direct food-racing and pursuit policies, require seeded route variation, reject avoidable next-tick losses, retain the food target across the full search horizon, and detect regressions into short pursuit loops.
 
 Signal Codes make challenge generation equally inspectable. A six-character code is hashed once, then a tiny seeded generator chooses each gameplay-affecting random outcome. The same code, mode, pace, and player moves therefore produce the same pickup and mutation sequence—without a backend or saved server state.
 
@@ -105,7 +105,7 @@ Signal Codes also name duel rooms. `PUBLIC LIVE ROOM` reserves exactly two serve
 - `api/room.mjs` — the isolated Vercel Function entry point.
 - `server/room-core.cjs` — request validation, Redis REST client, and atomic two-slot room protocol.
 - `game-logic.test.js` — executable rule regressions using Node's built-in assertions.
-- `ai-quality.test.js` — three-seed full-board completion, routing-efficiency, safety-cycle, adversarial duel, route-diversity, and loop-recovery benchmarks.
+- `ai-quality.test.js` — three-seed full-board completion plus eight-seed, all-pace timing, routing-efficiency, safety-cycle, adversarial duel, route-diversity, and loop-recovery benchmarks.
 - `canvas-performance.test.js` — executable late-run gate for accumulated raster strokes, 2× compositing, effect retirement, and worst-shaped Autopilot planning.
 - `canvas-browser-performance.test.js` — real Chromium late-run gate that combines 1,400 rasterized glow strokes, 2× compositing, peak overlapping effects, and a worst-shaped planner decision inside the 44 ms Overdrive movement budget.
 - `control-flow.test.js` — executable ownership and explicit-start regressions.

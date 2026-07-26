@@ -109,6 +109,15 @@ const tests = [
     assert.ok(render.indexOf("advanceMovement(now)") < render.indexOf("expireCore(now)"));
     assert.ok(advance.indexOf("expireCore(stepAt)") < advance.indexOf("tick(stepAt)"));
   }],
+  ["Rush reaches its strict deadline before another movement can run", () => {
+    const render = functionBody("render");
+    const timer = functionBody("updateRushTimer");
+    assert.ok(render.indexOf("updateRushTimer(now)") < render.indexOf("advanceMovement(now)"));
+    assert.match(render, /const rushEnded = updateRushTimer\(now\);\s*if \(!rushEnded\) advanceMovement\(now\)/);
+    assert.match(timer, /rushRemaining = Math\.max\(0, rushDeadline - now\)/);
+    assert.match(timer, /if \(rushRemaining > 0\) return false;\s*endGame\("time"\);\s*return true/);
+    assert.match(source, /const PACES = Rules\.paceProfiles\(\)/);
+  }],
   ["Canvas paint cost stays constant as permanent strokes accumulate", () => {
     const draw = functionBody("drawCanvasPaint");
     const add = functionBody("addCanvasMark");
