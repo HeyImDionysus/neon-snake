@@ -73,7 +73,7 @@
     clearTimeoutImpl = root.clearTimeout,
     AbortSignalImpl = root.AbortSignal,
     AbortControllerImpl = root.AbortController,
-    requestTimeoutMs = 5_000,
+    requestTimeoutMs = 3_000,
     storage = root.sessionStorage,
   } = {}) {
     if (typeof code !== "string" || !code.trim()) {
@@ -121,7 +121,12 @@
     let active = false;
     let inFlight = false;
     let timer = null;
+    let backoffTimer = false;
     let failures = 0;
+    let stableResponses = 0;
+    let lastResponseFingerprint = "";
+    let lastRequestStartedAt = null;
+    let roster = [];
 
     try {
       session = storage?.getItem?.(sessionKey) || "";
@@ -133,6 +138,7 @@
       let response;
       let timeoutTimer = null;
       let signal;
+      if (action === "join" || action === "sync") lastRequestStartedAt = now();
       if (typeof AbortSignalImpl?.timeout === "function") {
         signal = AbortSignalImpl.timeout(requestTimeoutMs);
       } else {
@@ -202,9 +208,33 @@
       });
     }
 
+    function responseFingerprint(data) {
+      const players = Array.isArray(data.players)
+        ? data.players.map((player) => [
+          String(player?.id || ""),
+          Number.isInteger(player?.slot) ? player.slot : -1,
+          Boolean(player?.ready),
+        ])
+        : [];
+      return JSON.stringify([
+        data.role === "player" ? "player" : "spectator",
+        Number.isInteger(data.slot) ? data.slot : -1,
+        Number(data.stateRev) || 0,
+        Number(data.inputRev) || 0,
+        Number(data.countdownRev) || 0,
+        players,
+      ]);
+    }
+
     function applyResponse(data, baseline = false) {
+      const fingerprint = responseFingerprint(data);
+      stableResponses = fingerprint === lastResponseFingerprint
+        ? Math.min(stableResponses + 1, 3)
+        : 0;
+      lastResponseFingerprint = fingerprint;
       role = data.role === "player" ? "player" : "spectator";
       slot = role === "player" && Number.isInteger(data.slot) ? data.slot : -1;
+      roster = Array.isArray(data.players) ? data.players : [];
       if (role === "player" && typeof data.session === "string" && data.session) {
         session = data.session;
         try {
@@ -229,16 +259,48 @@
         state: "connected",
         role,
         slot,
-        players: Array.isArray(data.players) ? data.players : [],
+        players: roster,
       });
     }
 
-    function schedule(delay = active ? 80 : 600) {
+    function pollDelay() {
+      if (active) {
+        if (role === "player" && slot === 0) return 70;
+        if (role === "player" && slot === 1) return 90;
+        return 180;
+      }
+      if (roster.length >= 2) {
+        if (roster.every((player) => Boolean(player?.ready))) return 220;
+        return [450, 650, 900, 1_200][stableResponses];
+      }
+      return [700, 1_000, 1_500, 2_000][stableResponses];
+    }
+
+    function remainingPollDelay(delay = pollDelay()) {
+      if (!Number.isFinite(lastRequestStartedAt)) return delay;
+      return Math.max(0, delay - Math.max(0, now() - lastRequestStartedAt));
+    }
+
+    function schedule(delay = remainingPollDelay(), isBackoff = false) {
       if (closed || timer !== null) return;
+      backoffTimer = isBackoff;
       timer = setTimeoutImpl(async () => {
         timer = null;
+        backoffTimer = false;
         await sync();
       }, delay);
+    }
+
+    function reschedule(delay = pollDelay(), isBackoff = false) {
+      if (closed) return;
+      if (timer !== null) clearTimeoutImpl(timer);
+      timer = null;
+      backoffTimer = false;
+      schedule(delay, isBackoff);
+    }
+
+    function hasPendingMessages() {
+      return pendingInputs.length > 0 || pending.size > 0;
     }
 
     async function join(baseline = true) {
@@ -284,10 +346,10 @@
           ? 1_000
           : error?.retryable === false
             ? 1_000
-            : Math.min(2_500, 300 * 2 ** failures));
+            : Math.min(2_500, 300 * 2 ** failures), true);
       } finally {
         inFlight = false;
-        schedule();
+        schedule(hasPendingMessages() ? 0 : remainingPollDelay());
       }
     }
 
@@ -307,15 +369,14 @@
         } else if (message.type !== "leave") {
           pending.set(message.type, message);
         }
-        schedule(0);
+        if (!inFlight && !backoffTimer) reschedule(0);
         return true;
       },
       setActive(nextActive) {
+        const changed = active !== Boolean(nextActive);
         active = Boolean(nextActive);
-        if (active) {
-          if (timer !== null) clearTimeoutImpl(timer);
-          timer = null;
-          schedule(0);
+        if (changed && !inFlight && !backoffTimer) {
+          reschedule(active ? 0 : remainingPollDelay());
         }
       },
       close() {
@@ -323,6 +384,7 @@
         closed = true;
         if (timer !== null) clearTimeoutImpl(timer);
         timer = null;
+        backoffTimer = false;
         void fetchImpl(endpoint, {
           method: "POST",
           credentials: "same-origin",

@@ -135,7 +135,9 @@ The deployment includes the complete Autopilot duel and a Redis-backed Public Li
 
 ### Multiplayer transport boundary
 
-The live-room adapter uses same-origin short polling against `/api/room`. Each request executes one atomic Redis Lua command that cleans stale slots, refreshes presence, applies the sender's allowed update, and returns the latest room state. This avoids adding a browser package or a long-lived socket process while still working across Vercel Function instances.
+The live-room adapter uses adaptive same-origin short polling against `/api/room`. One transport-owned clock starts quickly while a room is changing, backs a one-player wait from 700 ms to a 2 second presence refresh, accelerates when the second player arrives, and polls both active roles below one 138 ms game tick. Host snapshots, guest turns, Ready changes, and countdown messages interrupt that clock and send immediately. The page does not run a second presence heartbeat.
+
+Each request executes one atomic Redis Lua command that cleans stale slots, refreshes presence, applies the sender's allowed update, and returns the latest room state. Normal polling deadlines are anchored to the preceding request's start, so a slow response consumes the idle delay instead of extending it. With the 3 second browser timeout, opposing successful network legs can account for at most 6 seconds between server observations, preserving a nominal one-second margin inside the server's 7 second player lease. This keeps the dependency-free Vercel/Redis boundary while reducing settled idle-room traffic by up to 70%. Active traffic intentionally favors control latency: the host polls at 70 ms so guest turns can arrive before the next simulation step. Retry and rate-limit backoff always outrank the normal game cadence.
 
 The server boundary enforces:
 
