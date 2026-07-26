@@ -59,7 +59,9 @@ const tests = [
   }],
   ["live-room transport is explicitly identified as a local canary", () => {
     assert.match(html, /SAME-BROWSER CANARY/);
-    assert.match(script, /new BroadcastChannel/);
+    assert.match(html, /room-transport\.js/);
+    assert.match(script, /Transports\.createBroadcastRoomTransport/);
+    assert.ok(!script.includes("new BroadcastChannel"));
   }],
   ["live countdown aborts if either player disconnects", () => {
     const body = functionBody("syncLiveRoom");

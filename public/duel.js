@@ -1,6 +1,7 @@
 "use strict";
 
 const Rules = window.SnakeRules;
+const Transports = window.NeonSnakeTransports;
 const $ = (selector) => document.querySelector(selector);
 const canvas = $("#duelCanvas");
 const context = canvas.getContext("2d");
@@ -68,7 +69,7 @@ let nextMoveAt = 0;
 let pausedMotion = 1;
 let countdownTimer = null;
 let frameHandle = null;
-let roomChannel = null;
+let roomTransport = null;
 let roomHeartbeat = null;
 let roomSweep = null;
 let roomCode = "";
@@ -566,13 +567,7 @@ function roomIdentity() {
 }
 
 function postRoomMessage(message) {
-  if (!roomChannel) return;
-  roomChannel.postMessage({
-    ...message,
-    from: clientId,
-    room: roomCode,
-    sentAt: Date.now(),
-  });
+  roomTransport?.send(message);
 }
 
 function announcePresence() {
@@ -686,8 +681,21 @@ function connectLiveRoom() {
     roomState.textContent = "ENTER A VALID 6-CHARACTER SIGNAL";
     return;
   }
-  if (!("BroadcastChannel" in window)) {
+  if (!Transports?.broadcastRoomSupported()) {
     roomState.textContent = "ROOM CANARY UNSUPPORTED IN THIS BROWSER";
+    return;
+  }
+
+  try {
+    roomTransport = Transports.createBroadcastRoomTransport({
+      code: normalized,
+      clientId,
+      onMessage: handleRoomMessage,
+    });
+  } catch (error) {
+    roomTransport = null;
+    roomState.textContent = "ROOM CANARY COULD NOT START";
+    console.warn("Room transport could not start.", error);
     return;
   }
 
@@ -696,8 +704,6 @@ function connectLiveRoom() {
   roomPeers = new Map();
   roomReady = false;
   roomConnected = true;
-  roomChannel = new BroadcastChannel(`neon-snake-duel-${roomCode}`);
-  roomChannel.addEventListener("message", handleRoomMessage);
   announcePresence();
   roomHeartbeat = setInterval(announcePresence, 850);
   roomSweep = setInterval(syncLiveRoom, 700);
@@ -711,13 +717,13 @@ function connectLiveRoom() {
 }
 
 function disconnectLiveRoom() {
-  if (roomChannel) {
+  if (roomTransport) {
     postRoomMessage({ type: "leave" });
-    roomChannel.close();
+    roomTransport.close();
   }
   clearInterval(roomHeartbeat);
   clearInterval(roomSweep);
-  roomChannel = null;
+  roomTransport = null;
   roomHeartbeat = null;
   roomSweep = null;
   roomPeers = new Map();
@@ -854,8 +860,7 @@ function applyRemoteSnapshot(message) {
   if (state.over && runState === "running") endDuel(state.winner, state.crashes);
 }
 
-function handleRoomMessage(event) {
-  const message = event.data;
+function handleRoomMessage(message) {
   if (!message || message.room !== roomCode || message.from === clientId) return;
   if (message.type === "leave") {
     roomPeers.delete(message.from);
@@ -973,8 +978,8 @@ document.querySelectorAll("[data-duel-direction]").forEach((button) => {
 });
 window.addEventListener("keydown", handleKeyboard);
 window.addEventListener("beforeunload", () => {
-  if (roomChannel) postRoomMessage({ type: "leave" });
-  roomChannel?.close();
+  if (roomTransport) postRoomMessage({ type: "leave" });
+  roomTransport?.close();
   cancelAnimationFrame(frameHandle);
 });
 if ("ResizeObserver" in window) new ResizeObserver(resizeCanvas).observe(board);

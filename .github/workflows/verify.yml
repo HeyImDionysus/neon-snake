@@ -25,6 +25,7 @@ jobs:
         run: |
           node --check public/game.js
           node --check public/game-logic.js
+          node --check public/room-transport.js
           node --check public/duel.js
           node --check public/sw.js
 
@@ -33,3 +34,4 @@ jobs:
           node game-logic.test.js
           node control-flow.test.js
           node duel-control-flow.test.js
+          node room-transport.test.js

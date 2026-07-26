@@ -79,10 +79,12 @@ Signal Codes also name duel rooms. The current live-room transport is deliberate
 - `public/game.js` — canvas rendering, input, audio, persistence, and orchestration.
 - `public/duel.html` — focused AI/live duel interface.
 - `public/duel.css` — responsive duel arena and room-state presentation.
-- `public/duel.js` — AI duel orchestration and the replaceable same-browser room transport.
+- `public/duel.js` — AI duel and room-state orchestration.
+- `public/room-transport.js` — the replaceable dependency-free same-browser room adapter.
 - `game-logic.test.js` — executable rule regressions using Node's built-in assertions.
 - `control-flow.test.js` — executable ownership and explicit-start regressions.
 - `duel-control-flow.test.js` — executable expanded-arena and room-gate regressions.
+- `room-transport.test.js` — executable transport lifecycle and envelope regressions.
 
 The environment intentionally remains plain HTML, CSS, and JavaScript so every experiment is inspectable and reversible.
 
@@ -91,7 +93,7 @@ The environment intentionally remains plain HTML, CSS, and JavaScript so every e
 The repository is intentionally deployable as a framework-free static site:
 
 1. Import the repository into Vercel.
-2. Set the project **Root Directory** to `neon-snake`.
+2. Leave **Root Directory** at the repository root.
 3. Set **Framework Preset** to **Other**.
 4. Leave the build command blank. `vercel.json` serves only the `public` output directory.
 
