@@ -158,8 +158,23 @@
           }),
           signal,
         });
+        if (!response?.ok) {
+          const error = new Error(response?.status === 429
+            ? "Room service is busy."
+            : "Room service is unavailable.");
+          error.status = response?.status;
+          error.code = `http_${Number(response?.status) || 0}`;
+          error.retryable = response?.status === 429 || response?.status >= 500;
+          throw error;
+        }
+        const data = await response.json();
+        if (!data || typeof data !== "object") {
+          throw new Error("Room service returned an invalid response.");
+        }
+        return data;
       } catch (cause) {
         const timedOut = cause?.name === "TimeoutError" || cause?.name === "AbortError";
+        if (!timedOut && response) throw cause;
         const error = new Error(timedOut
           ? "Room service request timed out."
           : "Room service could not be reached.");
@@ -169,20 +184,6 @@
       } finally {
         if (timeoutTimer !== null) clearTimeoutImpl(timeoutTimer);
       }
-      if (!response?.ok) {
-        const error = new Error(response?.status === 429
-          ? "Room service is busy."
-          : "Room service is unavailable.");
-        error.status = response?.status;
-        error.code = `http_${Number(response?.status) || 0}`;
-        error.retryable = response?.status === 429 || response?.status >= 500;
-        throw error;
-      }
-      const data = await response.json();
-      if (!data || typeof data !== "object") {
-        throw new Error("Room service returned an invalid response.");
-      }
-      return data;
     }
 
     function emitRoster(players) {

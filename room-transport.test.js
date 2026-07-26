@@ -342,6 +342,59 @@ const tests = [
     );
     assert.equal(clearedTimer, 17);
   }],
+  ["fallback timeout remains active until the response body finishes", async () => {
+    let scheduled = null;
+    let clearedTimer = null;
+    let bodyStarted;
+    const bodyReady = new Promise((resolve) => {
+      bodyStarted = resolve;
+    });
+    class BodyAbortController {
+      constructor() {
+        this.signal = {};
+      }
+
+      abort() {
+        const error = new Error("aborted");
+        error.name = "AbortError";
+        this.signal.reject?.(error);
+      }
+    }
+
+    const creating = transports.createRemoteRoomTransport({
+      code: "ABC234",
+      clientId: "client-one",
+      onMessage: () => {},
+      AbortSignalImpl: {},
+      AbortControllerImpl: BodyAbortController,
+      requestTimeoutMs: 900,
+      fetchImpl: async (_url, options) => ({
+        ok: true,
+        json: async () => new Promise((_resolve, reject) => {
+          options.signal.reject = reject;
+          bodyStarted();
+        }),
+      }),
+      setTimeoutImpl: (callback, milliseconds) => {
+        scheduled = { callback, milliseconds };
+        return 23;
+      },
+      clearTimeoutImpl: (timer) => {
+        clearedTimer = timer;
+      },
+      storage: null,
+    });
+
+    await bodyReady;
+    assert.equal(scheduled?.milliseconds, 900);
+    assert.equal(clearedTimer, null);
+    scheduled.callback();
+    await assert.rejects(
+      creating,
+      (error) => error?.code === "timeout" && error?.retryable === true,
+    );
+    assert.equal(clearedTimer, 23);
+  }],
   ["remote construction fails closed without any cancellation primitive", async () => {
     await assert.rejects(
       transports.createRemoteRoomTransport({
