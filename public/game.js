@@ -904,8 +904,8 @@ function render(now) {
   const delta = Math.min(now - lastFrame, 34);
   lastFrame = now;
   updateEffects(delta);
-  expireCore(now);
   advanceMovement(now);
+  expireCore(now);
   updateTimeSystems(now);
   pollGamepad(now);
   const overdriveActive = now < overdriveUntil;
@@ -971,6 +971,7 @@ function advanceMovement(now) {
   while (runState === "running" && nextMoveAt && now >= nextMoveAt && catchUpSteps < 3) {
     const stepAt = nextMoveAt;
     nextMoveAt = 0;
+    expireCore(stepAt);
     tick(stepAt);
     if (runState === "running" && !nextMoveAt) {
       stepDuration = getTickDelay();

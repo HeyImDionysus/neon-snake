@@ -103,9 +103,11 @@ const tests = [
     assert.match(record, /evaluatePlannerState\(effectiveMode\)/);
     assert.match(choose, /planAiMove\(\)/);
   }],
-  ["an expired Core is replaced before the next movement decision", () => {
-    const body = functionBody("render");
-    assert.ok(body.indexOf("expireCore(now)") < body.indexOf("advanceMovement(now)"));
+  ["delayed frames resolve Core expiry against each movement timestamp", () => {
+    const render = functionBody("render");
+    const advance = functionBody("advanceMovement");
+    assert.ok(render.indexOf("advanceMovement(now)") < render.indexOf("expireCore(now)"));
+    assert.ok(advance.indexOf("expireCore(stepAt)") < advance.indexOf("tick(stepAt)"));
   }],
   ["Canvas paint cost stays constant as permanent strokes accumulate", () => {
     const draw = functionBody("drawCanvasPaint");
