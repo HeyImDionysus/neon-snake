@@ -80,6 +80,14 @@ const tests = [
     assert.match(body, /READY WHEN<br><em>YOU ARE/);
     assert.match(body, /runState === "ready"/);
   }],
+  ["an active live duel replaces the stale countdown room label", () => {
+    const body = functionBody("syncLiveRoom");
+    assert.match(
+      body,
+      /phase === "countdown"\) \{\n    roomState\.textContent = runState === "running"\n      \? "LIVE DUEL ACTIVE"/,
+    );
+    assert.match(functionBody("startLiveDuel"), /roomState\.textContent = "LIVE DUEL ACTIVE"/);
+  }],
   ["AI duels expose visible desktop pause and restart controls", () => {
     assert.match(html, /id="duelPauseDesktop"/);
     assert.match(html, /id="duelRestartButton"/);

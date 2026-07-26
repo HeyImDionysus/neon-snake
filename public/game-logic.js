@@ -158,23 +158,24 @@
 
   function duelSpawns(gridSize = 30) {
     const size = Math.max(12, Math.floor(Number(gridSize) || 30));
-    const y = Math.floor(size / 2);
+    const playerY = Math.floor(size / 3);
+    const opponentY = size - playerY - 1;
     const inset = Math.max(3, Math.floor(size / 4));
     const opponentX = size - inset - 1;
     return {
       player: {
         snake: [
-          { x: inset, y },
-          { x: inset - 1, y },
-          { x: inset - 2, y },
+          { x: inset, y: playerY },
+          { x: inset - 1, y: playerY },
+          { x: inset - 2, y: playerY },
         ],
         direction: { x: 1, y: 0 },
       },
       opponent: {
         snake: [
-          { x: opponentX, y },
-          { x: opponentX + 1, y },
-          { x: opponentX + 2, y },
+          { x: opponentX, y: opponentY },
+          { x: opponentX + 1, y: opponentY },
+          { x: opponentX + 2, y: opponentY },
         ],
         direction: { x: -1, y: 0 },
       },

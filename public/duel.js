@@ -660,9 +660,15 @@ function syncLiveRoom() {
         "Both players are connected. The countdown waits for two Ready signals.",
       );
     }
-  } else if (phase === "countdown" && runState !== "running") {
-    roomState.textContent = "BOTH READY · COUNTDOWN";
-    if (!liveCountdownActive && roomPlayers[0]?.id === clientId) {
+  } else if (phase === "countdown") {
+    roomState.textContent = runState === "running"
+      ? "LIVE DUEL ACTIVE"
+      : "BOTH READY · COUNTDOWN";
+    if (
+      runState !== "running"
+      && !liveCountdownActive
+      && roomPlayers[0]?.id === clientId
+    ) {
       const startsAt = Date.now() + 3200;
       postRoomMessage({ type: "countdown", startsAt });
       beginLiveCountdown(startsAt);
@@ -812,6 +818,7 @@ function startLiveDuel() {
   lastMoveAt = performance.now();
   nextMoveAt = roomPlayers[0]?.id === clientId ? lastMoveAt + TICK_DURATION : 0;
   setRunState("running", "LIVE DUEL ACTIVE");
+  roomState.textContent = "LIVE DUEL ACTIVE";
   if (roomPlayers[0]?.id === clientId) {
     broadcastSnapshot({ crashes: { player: null, opponent: null }, over: false, winner: null });
   }

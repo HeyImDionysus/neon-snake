@@ -393,14 +393,22 @@ const tests = [
     assert.equal(rules.duelGridSize(30), 45);
     assert.deepEqual(rules.duelSpawns(30), {
       player: {
-        snake: [{ x: 7, y: 15 }, { x: 6, y: 15 }, { x: 5, y: 15 }],
+        snake: [{ x: 7, y: 10 }, { x: 6, y: 10 }, { x: 5, y: 10 }],
         direction: { x: 1, y: 0 },
       },
       opponent: {
-        snake: [{ x: 22, y: 15 }, { x: 23, y: 15 }, { x: 24, y: 15 }],
+        snake: [{ x: 22, y: 19 }, { x: 23, y: 19 }, { x: 24, y: 19 }],
         direction: { x: -1, y: 0 },
       },
     });
+    const spawns = rules.duelSpawns(30);
+    spawns.player.snake.forEach((segment, index) => {
+      assert.deepEqual(spawns.opponent.snake[index], {
+        x: 29 - segment.x,
+        y: 29 - segment.y,
+      });
+    });
+    assert.notEqual(spawns.player.snake[0].y, spawns.opponent.snake[0].y);
   }],
   ["a live room cannot count down until both connected players are ready", () => {
     assert.equal(rules.liveRoomPhase([]), "waiting");
@@ -417,6 +425,23 @@ const tests = [
       { connected: true, ready: true },
       { connected: true, ready: true },
     ]), "countdown");
+  }],
+  ["staggered duel spawns do not force an opening collision", () => {
+    const spawns = rules.duelSpawns(30);
+    let players = {
+      player: { ...spawns.player, score: 0 },
+      opponent: { ...spawns.opponent, score: 0 },
+    };
+    for (let tick = 0; tick < 20; tick += 1) {
+      const result = rules.resolveDuelTick({
+        players,
+        food: null,
+        mode: "classic",
+        gridSize: 30,
+      });
+      assert.equal(result.over, false, `Opening became forced on tick ${tick + 1}`);
+      players = result.players;
+    }
   }],
   ["duel movement resolves both snakes on the same tick", () => {
     const result = rules.resolveDuelTick({
