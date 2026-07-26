@@ -297,6 +297,66 @@ const tests = [
     assert.deepEqual(signals, [{ milliseconds: 4_200 }]);
     transport.close();
   }],
+  ["remote requests retain a real timeout when AbortSignal.timeout is unavailable", async () => {
+    let scheduled = null;
+    let clearedTimer = null;
+    class TestAbortController {
+      constructor() {
+        this.signal = {};
+      }
+
+      abort() {
+        this.signal.aborted = true;
+        const error = new Error("aborted");
+        error.name = "AbortError";
+        this.signal.reject?.(error);
+      }
+    }
+
+    const creating = transports.createRemoteRoomTransport({
+      code: "ABC234",
+      clientId: "client-one",
+      onMessage: () => {},
+      AbortSignalImpl: {},
+      AbortControllerImpl: TestAbortController,
+      requestTimeoutMs: 700,
+      fetchImpl: async (_url, options) => new Promise((_resolve, reject) => {
+        options.signal.reject = reject;
+      }),
+      setTimeoutImpl: (callback, milliseconds) => {
+        scheduled = { callback, milliseconds };
+        return 17;
+      },
+      clearTimeoutImpl: (timer) => {
+        clearedTimer = timer;
+      },
+      storage: null,
+    });
+
+    await Promise.resolve();
+    assert.equal(scheduled?.milliseconds, 700);
+    scheduled.callback();
+    await assert.rejects(
+      creating,
+      (error) => error?.code === "timeout" && error?.retryable === true,
+    );
+    assert.equal(clearedTimer, 17);
+  }],
+  ["remote construction fails closed without any cancellation primitive", async () => {
+    await assert.rejects(
+      transports.createRemoteRoomTransport({
+        code: "ABC234",
+        clientId: "client-one",
+        onMessage: () => {},
+        AbortSignalImpl: {},
+        AbortControllerImpl: null,
+        fetchImpl: async () => ({ ok: true, json: async () => ({}) }),
+        setTimeoutImpl: () => 1,
+        clearTimeoutImpl: () => {},
+      }),
+      /Request cancellation is not available/,
+    );
+  }],
   ["a rejected update is discarded instead of becoming a poison retry", async () => {
     const requests = [];
     const scheduled = [];

@@ -72,6 +72,7 @@
     setTimeoutImpl = root.setTimeout,
     clearTimeoutImpl = root.clearTimeout,
     AbortSignalImpl = root.AbortSignal,
+    AbortControllerImpl = root.AbortController,
     requestTimeoutMs = 5_000,
     storage = root.sessionStorage,
   } = {}) {
@@ -95,6 +96,12 @@
     }
     if (!Number.isFinite(requestTimeoutMs) || requestTimeoutMs < 500 || requestTimeoutMs > 30_000) {
       throw new TypeError("A request timeout between 500 and 30000 milliseconds is required.");
+    }
+    if (
+      typeof AbortSignalImpl?.timeout !== "function"
+      && typeof AbortControllerImpl !== "function"
+    ) {
+      throw new TypeError("Request cancellation is not available.");
     }
 
     const normalizedCode = code.trim().toUpperCase();
@@ -124,6 +131,15 @@
 
     async function request(action, messages = [], keepalive = false) {
       let response;
+      let timeoutTimer = null;
+      let signal;
+      if (typeof AbortSignalImpl?.timeout === "function") {
+        signal = AbortSignalImpl.timeout(requestTimeoutMs);
+      } else {
+        const controller = new AbortControllerImpl();
+        signal = controller.signal;
+        timeoutTimer = setTimeoutImpl(() => controller.abort(), requestTimeoutMs);
+      }
       try {
         response = await fetchImpl(endpoint, {
           method: "POST",
@@ -140,9 +156,7 @@
             ready,
             messages,
           }),
-          signal: typeof AbortSignalImpl?.timeout === "function"
-            ? AbortSignalImpl.timeout(requestTimeoutMs)
-            : undefined,
+          signal,
         });
       } catch (cause) {
         const timedOut = cause?.name === "TimeoutError" || cause?.name === "AbortError";
@@ -152,6 +166,8 @@
         error.code = timedOut ? "timeout" : "network";
         error.retryable = true;
         throw error;
+      } finally {
+        if (timeoutTimer !== null) clearTimeoutImpl(timeoutTimer);
       }
       if (!response?.ok) {
         const error = new Error(response?.status === 429

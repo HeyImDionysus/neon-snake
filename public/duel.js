@@ -330,11 +330,11 @@ function drawFood(now) {
 }
 
 function render(now) {
+  advanceGame(now);
   drawArena(now);
   drawFood(now);
   drawFluidSnake(playerSnake, previousPlayerSnake, playerDirection, "#adff66", now);
   drawFluidSnake(opponentSnake, previousOpponentSnake, opponentDirection, "#a98bff", now);
-  advanceGame(now);
   frameHandle = requestAnimationFrame(render);
 }
 

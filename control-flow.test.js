@@ -110,9 +110,27 @@ const tests = [
   ["Canvas paint cost stays constant as permanent strokes accumulate", () => {
     const draw = functionBody("drawCanvasPaint");
     const add = functionBody("addCanvasMark");
-    assert.match(draw, /target\.drawImage\(canvasPaintLayer, 0, 0\)/);
-    assert.match(draw, /else \{\n    canvasMarks\.forEach/);
+    assert.match(draw, /target\.drawImage\(\n    canvasPaintLayer/);
+    assert.match(draw, /canvas\.width \* scale/);
+    assert.doesNotMatch(draw, /canvasMarks\.forEach/);
     assert.match(add, /strokeCanvasMark\(canvasPaintLayerCtx, canvasMarks\.at\(-1\)\)/);
+  }],
+  ["Canvas export matches the full rasterized artwork and reports every stroke", () => {
+    const draw = functionBody("drawCanvasPaint");
+    const add = functionBody("addCanvasMark");
+    const exportArtwork = functionBody("exportCanvasArtwork");
+    assert.match(draw, /canvasPaintLayer\.width/);
+    assert.match(add, /canvasStrokeCount \+= 1/);
+    assert.match(exportArtwork, /drawCanvasPaint\(performance\.now\(\), art, scale\)/);
+    assert.match(exportArtwork, /canvasStrokeCount === 0/);
+    assert.match(exportArtwork, /\$\{canvasStrokeCount\} STROKES/);
+    assert.doesNotMatch(exportArtwork, /canvasMarks\.length/);
+  }],
+  ["Canvas keeps rasterized artwork through viewport and density changes", () => {
+    const resize = functionBody("resizeCanvas");
+    assert.match(resize, /previousPaintLayerCtx\.drawImage\(canvasPaintLayer, 0, 0\)/);
+    assert.match(resize, /canvasPaintLayerCtx\.drawImage\(\n      previousPaintLayer/);
+    assert.ok(resize.indexOf("canvasPaintLayer.width = backingSize") > resize.indexOf("previousPaintLayerCtx.drawImage"));
   }],
   ["Canvas Autopilot alternates an authored motif with signal capture", () => {
     const choose = functionBody("chooseDemoDirection");

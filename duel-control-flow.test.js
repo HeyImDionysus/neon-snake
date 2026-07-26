@@ -49,6 +49,10 @@ const tests = [
     assert.match(body, /drawFluidSnake\(opponentSnake/);
     assert.match(functionBody("drawFluidSnake"), /Rules\.fluidMotionPath/);
   }],
+  ["the renderer advances simulation before sampling interpolated motion", () => {
+    const body = functionBody("render");
+    assert.ok(body.indexOf("advanceGame(now)") < body.indexOf("drawArena(now)"));
+  }],
   ["Autopilot and live duels preserve two rapid turns in order", () => {
     const request = functionBody("requestDirection");
     assert.match(request, /Rules\.bufferDirection\(playerInputBuffer, playerDirection, next\)/);

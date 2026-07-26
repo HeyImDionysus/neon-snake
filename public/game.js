@@ -156,6 +156,7 @@ let autopilotPlan = [];
 let autopilotPlanMode = "";
 let autopilotPlanTarget = "";
 let canvasMarks = [];
+let canvasStrokeCount = 0;
 let canvasPaletteIndex = 0;
 let canvasCompositionState = null;
 let canvasCompositionBudget = 0;
@@ -334,6 +335,7 @@ function resetRun() {
   lastDecisionProfile = Rules.decisionProfile();
   decisionReport.hidden = true;
   canvasMarks = [];
+  canvasStrokeCount = 0;
   canvasPaintLayerCtx.clearRect(0, 0, canvasPaintLayer.width, canvasPaintLayer.height);
   canvasPaletteIndex = 0;
   canvasCompositionState = null;
@@ -437,6 +439,14 @@ function resizeCanvas() {
   const backingSize = Math.max(1, Math.round(cssSize * pixelRatio));
   if (canvas.width === backingSize && canvas.height === backingSize) return;
 
+  const previousPaintLayer = document.createElement("canvas");
+  previousPaintLayer.width = canvasPaintLayer.width;
+  previousPaintLayer.height = canvasPaintLayer.height;
+  const previousPaintLayerCtx = previousPaintLayer.getContext("2d");
+  if (previousPaintLayer.width && previousPaintLayer.height) {
+    previousPaintLayerCtx.drawImage(canvasPaintLayer, 0, 0);
+  }
+
   canvas.width = backingSize;
   canvas.height = backingSize;
   boardBackdrop.width = backingSize;
@@ -447,7 +457,21 @@ function resizeCanvas() {
   particles = [];
   ripples = [];
   buildBoardBackdrop();
-  rebuildCanvasPaintLayer();
+  if (canvasMarks.length && previousPaintLayer.width && previousPaintLayer.height) {
+    canvasPaintLayerCtx.drawImage(
+      previousPaintLayer,
+      0,
+      0,
+      previousPaintLayer.width,
+      previousPaintLayer.height,
+      0,
+      0,
+      backingSize,
+      backingSize,
+    );
+  } else {
+    rebuildCanvasPaintLayer();
+  }
 }
 
 function drawBoard(now) {
@@ -624,11 +648,17 @@ function rebuildCanvasPaintLayer() {
 }
 
 function drawCanvasPaint(now, target = ctx, scale = 1) {
-  if (target === ctx) {
-    target.drawImage(canvasPaintLayer, 0, 0);
-  } else {
-    canvasMarks.forEach((mark) => strokeCanvasMark(target, mark, scale));
-  }
+  target.drawImage(
+    canvasPaintLayer,
+    0,
+    0,
+    canvasPaintLayer.width,
+    canvasPaintLayer.height,
+    0,
+    0,
+    canvas.width * scale,
+    canvas.height * scale,
+  );
 
   if (target === ctx && canvasMarks.length) {
     const pulse = .08 + Math.sin(now / 250) * .025;
@@ -973,6 +1003,7 @@ function addCanvasMark(from, to, now) {
     energy: Math.min(1, combo / 5 + (now < overdriveUntil ? .35 : 0)),
   });
   strokeCanvasMark(canvasPaintLayerCtx, canvasMarks.at(-1));
+  canvasStrokeCount += 1;
   if (canvasMarks.length > CANVAS_MARK_LIMIT) {
     canvasMarks.splice(0, canvasMarks.length - CANVAS_MARK_LIMIT);
   }
@@ -1749,7 +1780,7 @@ async function shareGame() {
 }
 
 function exportCanvasArtwork() {
-  if (activeMode !== "canvas" || !canvasMarks.length) {
+  if (activeMode !== "canvas" || canvasStrokeCount === 0) {
     showPickup("NO INK YET", "PLAY CANVAS FIRST");
     announcement.textContent = "Move in Canvas mode before saving artwork.";
     return;
@@ -1801,7 +1832,7 @@ function exportCanvasArtwork() {
   art.fillText("NEON SNAKE / CANVAS STUDY", 48, 75);
   art.fillStyle = "#8b9b90";
   art.font = "700 18px Consolas, monospace";
-  art.fillText(`${formatScore(score)} POINTS  ·  ${canvasMarks.length} STROKES  ·  ${CANVAS_PALETTES[canvasPaletteIndex].name} INK`, 48, artwork.height - 38);
+  art.fillText(`${formatScore(score)} POINTS  ·  ${canvasStrokeCount} STROKES  ·  ${CANVAS_PALETTES[canvasPaletteIndex].name} INK`, 48, artwork.height - 38);
 
   const link = document.createElement("a");
   link.href = artwork.toDataURL("image/png");
