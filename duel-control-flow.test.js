@@ -100,6 +100,8 @@ const tests = [
     assert.match(status, /ROOM LINK RECONNECTING/);
     assert.match(status, /ROOM UPDATE REJECTED/);
     assert.match(status, /roomConnectionState/);
+    assert.match(status, /roomPeers = new Map\(status\.players/);
+    assert.match(status, /if \(roomTransport\) syncLiveRoom\(\)/);
     assert.match(functionBody("disconnectLiveRoom"), /roomConnectionState = "disconnected"/);
   }],
   ["live countdown aborts if either player disconnects", () => {

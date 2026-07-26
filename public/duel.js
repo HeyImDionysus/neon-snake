@@ -777,6 +777,18 @@ function handleRoomStatus(status) {
   roomConnected = true;
   roomRole = status.role === "player" ? "player" : "spectator";
   roomSlot = roomRole === "player" && Number.isInteger(status.slot) ? status.slot : -1;
+  if (Array.isArray(status.players)) {
+    roomPeers = new Map(status.players
+      .filter((player) => player?.id && player.id !== clientId)
+      .map((player) => [player.id, {
+        id: player.id,
+        connected: true,
+        ready: Boolean(player.ready),
+        slot: Number.isInteger(player.slot) ? player.slot : -1,
+        seenAt: Number.isFinite(Number(player.seenAt)) ? Number(player.seenAt) : Date.now(),
+      }]));
+    if (roomTransport) syncLiveRoom();
+  }
 }
 
 async function connectLiveRoom() {
