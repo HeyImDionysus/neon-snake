@@ -36,5 +36,6 @@ jobs:
           node control-flow.test.js
           node duel-control-flow.test.js
           node room-transport.test.js
+          node accessibility.test.js
           node service-worker.test.js
           node deployment-contract.test.js

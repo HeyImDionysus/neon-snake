@@ -48,7 +48,7 @@
       <section class="game-column" aria-label="Neon Snake game">
         <div class="game-console">
           <header class="console-hud">
-            <div class="hud-primary">
+            <div class="hud-primary" role="status" aria-atomic="true">
               <span class="hud-label">SCORE</span>
               <strong id="score">00000</strong>
             </div>
@@ -83,7 +83,8 @@
               role="img"
               aria-label="Neon Snake game board"
               aria-describedby="gameInstructions"
-            ></canvas>
+              tabindex="0"
+            >Your browser needs canvas support to render the Neon Snake board.</canvas>
             <div class="screen-vignette" aria-hidden="true"></div>
             <div class="pickup-toast" id="pickupToast" aria-hidden="true">
               <span id="pickupName">CORE ACQUIRED</span>
@@ -147,7 +148,7 @@
           </footer>
         </div>
 
-        <div class="mobile-controls" aria-label="Touch movement controls">
+        <div class="mobile-controls" role="group" aria-label="Touch movement controls">
           <span></span>
           <button class="direction-button" type="button" data-direction="up" aria-label="Move up">↑</button>
           <span></span>

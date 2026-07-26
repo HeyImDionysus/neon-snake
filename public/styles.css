@@ -789,9 +789,13 @@ kbd { padding: 2px 4px; border: 1px solid var(--line-bright); color: var(--muted
   border: 0;
 }
 
-button:focus-visible, a:focus-visible, select:focus-visible {
+button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible, canvas:focus-visible {
   outline: 2px solid var(--coral);
   outline-offset: 3px;
+}
+
+.board-wrap canvas:focus-visible {
+  outline-offset: -4px;
 }
 
 .game-console.crash { animation: crash .32s ease-out; }
@@ -853,7 +857,7 @@ body[data-mode="canvas"] .mode-chip { color: #74e1ff; border-color: #74e1ff66; }
   .console-footer { min-height: 66px; padding: 12px 13px; }
   .start-actions { grid-template-columns: 1fr; gap: 6px; width: min(100%, 250px); }
   .start-actions .primary-button,
-  .start-actions .demo-button { min-height: 42px; }
+  .start-actions .demo-button { min-height: 44px; }
   .mobile-controls { display: grid; }
   .deck-intro { display: block; }
   .deck-intro .section-kicker { margin-bottom: 14px; }
@@ -932,7 +936,7 @@ body[data-mode="canvas"] .mode-chip { color: #74e1ff; border-color: #74e1ff66; }
   }
   body[data-game-state="over"] .start-actions .primary-button,
   body[data-game-state="over"] .start-actions .demo-button {
-    min-height: 38px;
+    min-height: 44px;
     padding-inline: 10px;
   }
   body[data-game-state="over"] .start-actions .primary-button { gap: 8px; font-size: 13px; }

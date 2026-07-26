@@ -94,6 +94,8 @@ const tests = [
     const state = functionBody("setRunState");
     assert.match(state, /pauseButton\.disabled = !pausable/);
     assert.match(state, /pauseDesktop\.disabled = !pausable/);
+    assert.match(state, /aiButton\.hidden = duelType !== "ai" \|\| state !== "ready"/);
+    assert.match(state, /restartButton\.hidden = duelType !== "ai" \|\| state === "ready" \|\| state === "countdown"/);
     assert.match(script, /pauseDesktop\.addEventListener\("click", togglePause\)/);
     assert.match(script, /restartButton\.addEventListener\("click", prepareAiDuel\)/);
   }],

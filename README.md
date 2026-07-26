@@ -14,6 +14,7 @@ node ai-quality.test.js
 node control-flow.test.js
 node duel-control-flow.test.js
 node room-transport.test.js
+node accessibility.test.js
 node service-worker.test.js
 node deployment-contract.test.js
 ```
@@ -93,6 +94,7 @@ Signal Codes also name duel rooms. The current live-room transport is deliberate
 - `control-flow.test.js` — executable ownership and explicit-start regressions.
 - `duel-control-flow.test.js` — executable expanded-arena and room-gate regressions.
 - `room-transport.test.js` — executable transport lifecycle and envelope regressions.
+- `accessibility.test.js` — executable semantics, focus, touch-target, canvas-fallback, and reduced-motion regressions.
 - `service-worker.test.js` — executable install, upgrade, runtime-cache, and route-aware offline regressions.
 - `deployment-contract.test.js` — executable public-boundary, manifest, cache-shell, and hosted-verification regressions.
 

@@ -300,7 +300,7 @@
 .duel-control-row button {
   width: 100%;
   min-width: 0;
-  min-height: 42px;
+  min-height: 44px;
 }
 
 .duel-control-row .text-button {
@@ -355,6 +355,11 @@
 
 .room-code-row input:focus {
   border-color: var(--acid);
+}
+
+.room-code-row input:focus-visible {
+  outline: 2px solid var(--coral);
+  outline-offset: 3px;
 }
 
 .room-code-row input:disabled {

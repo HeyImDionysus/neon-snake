@@ -42,7 +42,7 @@
 
         <div class="duel-console">
           <header class="duel-hud">
-            <div>
+            <div role="status" aria-atomic="true">
               <span id="leftLabel">YOU</span>
               <strong id="leftScore">00</strong>
             </div>
@@ -50,7 +50,7 @@
               <span>ARENA</span>
               <strong>30 × 30</strong>
             </div>
-            <div>
+            <div role="status" aria-atomic="true">
               <span id="rightLabel">AI</span>
               <strong id="rightScore">00</strong>
             </div>
@@ -64,7 +64,8 @@
               role="img"
               aria-label="Two-snake duel arena"
               aria-describedby="duelInstructions"
-            ></canvas>
+              tabindex="0"
+            >Your browser needs canvas support to render the two-snake duel arena.</canvas>
             <div class="screen-vignette" aria-hidden="true"></div>
             <div class="duel-overlay" id="duelOverlay">
               <div>
@@ -84,7 +85,7 @@
           </footer>
         </div>
 
-        <div class="duel-mobile-controls" aria-label="Touch duel controls">
+        <div class="duel-mobile-controls" role="group" aria-label="Touch duel controls">
           <span></span>
           <button type="button" data-duel-direction="up" aria-label="Move up">↑</button>
           <span></span>
@@ -135,14 +136,14 @@
 
           <label class="room-code-label" for="roomCodeInput">ROOM SIGNAL</label>
           <div class="room-code-row">
-            <input id="roomCodeInput" maxlength="6" inputmode="text" autocomplete="off" spellcheck="false" aria-describedby="roomHelp" />
+            <input id="roomCodeInput" type="text" maxlength="6" inputmode="text" autocomplete="off" spellcheck="false" aria-describedby="roomHelp" />
             <button id="copyRoomButton" type="button">COPY LINK</button>
           </div>
           <p class="room-help" id="roomHelp">Open the copied link in a second tab on this browser to connect Player 2.</p>
 
-          <div class="room-roster" aria-label="Room players">
-            <div id="roomSlotOne"><i aria-hidden="true"></i><span>PLAYER 1</span><strong>OPEN</strong></div>
-            <div id="roomSlotTwo"><i aria-hidden="true"></i><span>PLAYER 2</span><strong>OPEN</strong></div>
+          <div class="room-roster" role="list" aria-label="Room players">
+            <div id="roomSlotOne" role="listitem"><i aria-hidden="true"></i><span>PLAYER 1</span><strong>OPEN</strong></div>
+            <div id="roomSlotTwo" role="listitem"><i aria-hidden="true"></i><span>PLAYER 2</span><strong>OPEN</strong></div>
           </div>
 
           <p class="room-state" id="roomState" aria-live="polite">NOT CONNECTED</p>

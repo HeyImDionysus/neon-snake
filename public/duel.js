@@ -98,6 +98,15 @@ function cloneSnake(source) {
   return source.map((segment) => ({ ...segment }));
 }
 
+function focusWithoutScroll(element) {
+  if (!element || element.hidden || element.disabled) return;
+  try {
+    element.focus({ preventScroll: true });
+  } catch {
+    element.focus();
+  }
+}
+
 function createSignalCode() {
   const values = new Uint32Array(6);
   try {
@@ -400,6 +409,8 @@ function setRunState(state, label) {
   pauseDesktop.querySelector("span").textContent = pauseLabel;
   pauseDesktop.setAttribute("aria-label", `${pauseLabel} AI duel`);
   pauseButton.setAttribute("aria-label", `${pauseLabel} duel`);
+  aiButton.hidden = duelType !== "ai" || state !== "ready";
+  restartButton.hidden = duelType !== "ai" || state === "ready" || state === "countdown";
 }
 
 function showOverlay(kicker, title, message, action = "") {
@@ -432,6 +443,7 @@ function prepareAiDuel() {
   resetDuel();
   beginCountdown(3);
   announcement.textContent = "AI duel countdown started.";
+  focusWithoutScroll(canvas);
 }
 
 function startAiDuel() {
@@ -441,6 +453,7 @@ function startAiDuel() {
   nextMoveAt = lastMoveAt + TICK_DURATION;
   setRunState("running", "AI DUEL ACTIVE");
   announcement.textContent = "AI duel active. First crash loses.";
+  focusWithoutScroll(canvas);
 }
 
 function endDuel(winner, crashes = {}) {
@@ -463,6 +476,7 @@ function endDuel(winner, crashes = {}) {
     : winner === "opponent"
       ? "Your rival won the duel."
       : "The duel ended in a draw.";
+  if (duelType === "ai") focusWithoutScroll(aiStartButton);
 
   if (duelType === "live") {
     roomReady = false;
@@ -517,6 +531,7 @@ function togglePause() {
     nextMoveAt = 0;
     setRunState("paused", "AI DUEL PAUSED");
     showOverlay("SYSTEM HOLD", "PAUSED", "The rival is frozen on the same tick.", "Resume duel");
+    focusWithoutScroll(aiStartButton);
     return;
   }
   if (runState === "paused") {
@@ -524,6 +539,7 @@ function togglePause() {
     lastMoveAt = performance.now() - pausedMotion * TICK_DURATION;
     nextMoveAt = performance.now() + Math.max(20, (1 - pausedMotion) * TICK_DURATION);
     setRunState("running", "AI DUEL ACTIVE");
+    focusWithoutScroll(canvas);
   }
 }
 

@@ -204,6 +204,15 @@ function formatScore(value) {
   return String(value).padStart(5, "0");
 }
 
+function focusWithoutScroll(element) {
+  if (!element || element.hidden || element.disabled) return;
+  try {
+    element.focus({ preventScroll: true });
+  } catch {
+    element.focus();
+  }
+}
+
 function selectedMode() {
   return modeInputs.find((input) => input.checked)?.value || "classic";
 }
@@ -1188,6 +1197,7 @@ function prepareDemo() {
   updateHud();
   updateActionLabels();
   announcement.textContent = `${activeMode} AI play started. Use Stop AI to return to the run choices.`;
+  focusWithoutScroll(pauseButton);
   scheduleMove();
 }
 
@@ -1224,6 +1234,7 @@ function stopDemo() {
   updateActionLabels();
   updateReadyOverlay();
   announcement.textContent = `AI stopped. Choose Play ${modeLabel()} or Watch AI play ${modeLabel()}.`;
+  focusWithoutScroll(startButton);
 }
 
 function prepareRun(initialDirection = DIRECTIONS.right) {
@@ -1241,6 +1252,7 @@ function prepareRun(initialDirection = DIRECTIONS.right) {
   pauseButton.disabled = true;
   updateActionLabels();
   beginCountdown(3);
+  focusWithoutScroll(canvas);
 }
 
 function beginCountdown(number) {
@@ -1292,6 +1304,7 @@ function startRun() {
     rushDeadline = performance.now() + rushRemaining;
   }
   announcement.textContent = `${activeMode} run started.`;
+  focusWithoutScroll(canvas);
   playTone(520, .09, "square", .035);
   if (lensEnabled) planAiMove();
   scheduleMove();
@@ -1344,6 +1357,7 @@ function endGame(reason) {
   decisionReport.hidden = false;
   updateActionLabels();
   announcement.textContent = `${title} Final score ${score}. Decision DNA: ${lastDecisionProfile.style}, ${lastDecisionProfile.alignment} percent AI match.`;
+  focusWithoutScroll(startButton);
   playCrashSound();
 }
 
@@ -1381,6 +1395,7 @@ function togglePause() {
     nextMoveAt = resumedAt + pausedStepRemaining;
   }
   updateActionLabels();
+  focusWithoutScroll(runState === "paused" ? startButton : canvas);
 }
 
 function showOverlay(kicker, title, message, buttonLabel, countdown = false) {
