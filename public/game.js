@@ -12,6 +12,10 @@ const boardBackdrop = document.createElement("canvas");
 boardBackdrop.width = canvas.width;
 boardBackdrop.height = canvas.height;
 const boardBackdropCtx = boardBackdrop.getContext("2d");
+const canvasPaintLayer = document.createElement("canvas");
+canvasPaintLayer.width = canvas.width;
+canvasPaintLayer.height = canvas.height;
+const canvasPaintLayerCtx = canvasPaintLayer.getContext("2d");
 const gameConsole = $(".game-console");
 const boardWrap = $("#boardWrap");
 const overlay = $("#overlay");
@@ -63,6 +67,7 @@ const aiLens = $("#aiLens");
 const aiLensLabel = $("#aiLensLabel");
 const aiPlan = $("#aiPlan");
 const aiReason = $("#aiReason");
+const aiEvidence = $("#aiEvidence");
 const runRank = $("#runRank");
 const rankValue = $("#rankValue");
 const decisionReport = $("#decisionReport");
@@ -143,8 +148,20 @@ let ghostStep = 0;
 let echoBeaten = false;
 let aiEvaluations = [];
 let aiChoice = null;
+let aiPlanKey = "";
+let aiPlanInsight = null;
+let aiPlanDuration = 0;
+let autopilotHistory = [];
+let autopilotPlan = [];
+let autopilotPlanMode = "";
+let autopilotPlanTarget = "";
 let canvasMarks = [];
+let canvasStrokeCount = 0;
 let canvasPaletteIndex = 0;
+let canvasCompositionState = null;
+let canvasCompositionBudget = 0;
+let canvasCompositionName = "";
+let canvasCompositionActive = false;
 let lastFrame = performance.now();
 let touchStart = null;
 let lastGamepadPoll = 0;
@@ -224,7 +241,7 @@ function modeLabel(mode = activeMode) {
 function updateStartChoices() {
   const label = modeLabel();
   startButtonLabel.textContent = activeMode === "canvas" ? "Play Canvas" : `Play ${label}`;
-  demoButtonLabel.textContent = `Watch AI play ${label}`;
+  demoButtonLabel.textContent = `Watch Autopilot play ${label}`;
 }
 
 function createSignalCode() {
@@ -307,17 +324,31 @@ function resetRun() {
   echoBeaten = false;
   aiEvaluations = [];
   aiChoice = null;
+  aiPlanKey = "";
+  aiPlanInsight = null;
+  aiPlanDuration = 0;
+  autopilotHistory = [];
+  autopilotPlan = [];
+  autopilotPlanMode = "";
+  autopilotPlanTarget = "";
   decisionStats = { decisions: 0, matches: 0, spaceRatioTotal: 0, riskTurns: 0 };
   lastDecisionProfile = Rules.decisionProfile();
   decisionReport.hidden = true;
   canvasMarks = [];
+  canvasStrokeCount = 0;
+  canvasPaintLayerCtx.clearRect(0, 0, canvasPaintLayer.width, canvasPaintLayer.height);
   canvasPaletteIndex = 0;
+  canvasCompositionState = null;
+  canvasCompositionBudget = 0;
+  canvasCompositionName = "";
+  canvasCompositionActive = false;
   gameConsole.classList.remove("overdrive", "mutation-flow", "mutation-amplify", "ai-driving");
   gameConsole.classList.toggle("canvas-mode", activeMode === "canvas");
   gameConsole.classList.toggle("ai-active", demoMode);
   aiLens.hidden = true;
   aiPlan.textContent = "SCANNING BOARD";
   aiReason.textContent = "SURVIVAL FIRST";
+  aiEvidence.textContent = "NO BOARD SAMPLE";
   placeFood(performance.now());
   updateHud();
 }
@@ -335,6 +366,10 @@ function openTiles() {
 }
 
 function placeFood(now) {
+  autopilotHistory = [];
+  autopilotPlan = [];
+  autopilotPlanMode = "";
+  autopilotPlanTarget = "";
   const available = openTiles();
   if (!available.length) {
     food = null;
@@ -349,6 +384,9 @@ function placeFood(now) {
     kind: isCore ? "core" : "signal",
     expiresAt: isCore ? now + 6500 : 0,
   };
+  if (demoMode && activeMode === "canvas") {
+    canvasCompositionBudget = 14 + (signalRandomState % 12);
+  }
   updateObjective();
 }
 
@@ -401,14 +439,39 @@ function resizeCanvas() {
   const backingSize = Math.max(1, Math.round(cssSize * pixelRatio));
   if (canvas.width === backingSize && canvas.height === backingSize) return;
 
+  const previousPaintLayer = document.createElement("canvas");
+  previousPaintLayer.width = canvasPaintLayer.width;
+  previousPaintLayer.height = canvasPaintLayer.height;
+  const previousPaintLayerCtx = previousPaintLayer.getContext("2d");
+  if (previousPaintLayer.width && previousPaintLayer.height) {
+    previousPaintLayerCtx.drawImage(canvasPaintLayer, 0, 0);
+  }
+
   canvas.width = backingSize;
   canvas.height = backingSize;
   boardBackdrop.width = backingSize;
   boardBackdrop.height = backingSize;
+  canvasPaintLayer.width = backingSize;
+  canvasPaintLayer.height = backingSize;
   TILE = backingSize / GRID;
   particles = [];
   ripples = [];
   buildBoardBackdrop();
+  if (canvasMarks.length && previousPaintLayer.width && previousPaintLayer.height) {
+    canvasPaintLayerCtx.drawImage(
+      previousPaintLayer,
+      0,
+      0,
+      previousPaintLayer.width,
+      previousPaintLayer.height,
+      0,
+      0,
+      backingSize,
+      backingSize,
+    );
+  } else {
+    rebuildCanvasPaintLayer();
+  }
 }
 
 function drawBoard(now) {
@@ -551,34 +614,51 @@ function drawAiDecision(now) {
   }
 }
 
-function drawCanvasPaint(now, target = ctx, scale = 1) {
+function strokeCanvasMark(target, mark, scale = 1) {
   target.save();
   target.lineCap = "round";
   target.lineJoin = "round";
   target.globalCompositeOperation = "lighter";
-  canvasMarks.forEach((mark) => {
-    const fromX = (mark.from.x * TILE + TILE / 2) * scale;
-    const fromY = (mark.from.y * TILE + TILE / 2) * scale;
-    const toX = (mark.to.x * TILE + TILE / 2) * scale;
-    const toY = (mark.to.y * TILE + TILE / 2) * scale;
-    target.strokeStyle = mark.color;
-    target.shadowColor = mark.glow;
-    target.shadowBlur = 13 * scale;
-    target.globalAlpha = .3 + mark.energy * .45;
-    target.lineWidth = (5 + mark.energy * 5) * scale;
-    target.beginPath();
-    if (mark.wraps) {
-      target.moveTo(fromX, fromY);
-      target.lineTo(fromX + mark.direction.x * TILE * .46 * scale, fromY + mark.direction.y * TILE * .46 * scale);
-      target.moveTo(toX - mark.direction.x * TILE * .46 * scale, toY - mark.direction.y * TILE * .46 * scale);
-      target.lineTo(toX, toY);
-    } else {
-      target.moveTo(fromX, fromY);
-      target.lineTo(toX, toY);
-    }
-    target.stroke();
-  });
+  const fromX = (mark.from.x * TILE + TILE / 2) * scale;
+  const fromY = (mark.from.y * TILE + TILE / 2) * scale;
+  const toX = (mark.to.x * TILE + TILE / 2) * scale;
+  const toY = (mark.to.y * TILE + TILE / 2) * scale;
+  target.strokeStyle = mark.color;
+  target.shadowColor = mark.glow;
+  target.shadowBlur = 13 * scale;
+  target.globalAlpha = .3 + mark.energy * .45;
+  target.lineWidth = (5 + mark.energy * 5) * scale;
+  target.beginPath();
+  if (mark.wraps) {
+    target.moveTo(fromX, fromY);
+    target.lineTo(fromX + mark.direction.x * TILE * .46 * scale, fromY + mark.direction.y * TILE * .46 * scale);
+    target.moveTo(toX - mark.direction.x * TILE * .46 * scale, toY - mark.direction.y * TILE * .46 * scale);
+    target.lineTo(toX, toY);
+  } else {
+    target.moveTo(fromX, fromY);
+    target.lineTo(toX, toY);
+  }
+  target.stroke();
   target.restore();
+}
+
+function rebuildCanvasPaintLayer() {
+  canvasPaintLayerCtx.clearRect(0, 0, canvasPaintLayer.width, canvasPaintLayer.height);
+  canvasMarks.forEach((mark) => strokeCanvasMark(canvasPaintLayerCtx, mark));
+}
+
+function drawCanvasPaint(now, target = ctx, scale = 1) {
+  target.drawImage(
+    canvasPaintLayer,
+    0,
+    0,
+    canvasPaintLayer.width,
+    canvasPaintLayer.height,
+    0,
+    0,
+    canvas.width * scale,
+    canvas.height * scale,
+  );
 
   if (target === ctx && canvasMarks.length) {
     const pulse = .08 + Math.sin(now / 250) * .025;
@@ -891,6 +971,7 @@ function advanceMovement(now) {
   while (runState === "running" && nextMoveAt && now >= nextMoveAt && catchUpSteps < 3) {
     const stepAt = nextMoveAt;
     nextMoveAt = 0;
+    expireCore(stepAt);
     tick(stepAt);
     if (runState === "running" && !nextMoveAt) {
       stepDuration = getTickDelay();
@@ -922,6 +1003,8 @@ function addCanvasMark(from, to, now) {
     wraps,
     energy: Math.min(1, combo / 5 + (now < overdriveUntil ? .35 : 0)),
   });
+  strokeCanvasMark(canvasPaintLayerCtx, canvasMarks.at(-1));
+  canvasStrokeCount += 1;
   if (canvasMarks.length > CANVAS_MARK_LIMIT) {
     canvasMarks.splice(0, canvasMarks.length - CANVAS_MARK_LIMIT);
   }
@@ -954,6 +1037,10 @@ function tick(now = performance.now()) {
   }
 
   snake.unshift(head);
+  if (demoMode) {
+    autopilotHistory.push({ ...head });
+    if (autopilotHistory.length > 256) autopilotHistory.shift();
+  }
   addCanvasMark(previousSnake[0], head, now);
   lastMoveAt = now;
   if (growing) {
@@ -977,15 +1064,8 @@ function tick(now = performance.now()) {
 }
 
 function recordDecision(effectiveMode) {
-  const evaluations = Rules.evaluateMoves({
-    snake,
-    direction,
-    food,
-    mode: effectiveMode,
-    gridSize: GRID,
-    candidates: DIRECTION_OPTIONS,
-  });
-  const comparison = Rules.compareDecision(evaluations, queuedDirection);
+  evaluatePlannerState(effectiveMode);
+  const comparison = Rules.compareDecision(aiEvaluations, queuedDirection);
   if (!comparison) return;
   decisionStats.decisions += 1;
   decisionStats.matches += comparison.matched ? 1 : 0;
@@ -1105,7 +1185,7 @@ function updateHud() {
   bestEl.textContent = formatScore(profile.best);
   totalRunsEl.textContent = String(profile.runs).padStart(3, "0");
   longestEl.textContent = String(profile.longest).padStart(3, "0");
-  modeChip.textContent = demoMode ? `${activeMode.toUpperCase()} · AI` : activeMode.toUpperCase();
+  modeChip.textContent = demoMode ? `${activeMode.toUpperCase()} · AUTO` : activeMode.toUpperCase();
   timerStat.hidden = activeMode !== "rush";
   mutationStat.hidden = !mutation.type;
   if (mutation.type) mutationName.textContent = mutation.type.toUpperCase();
@@ -1143,7 +1223,55 @@ function updateObjective() {
 }
 
 function chooseDemoDirection() {
-  if (!aiChoice) planAiMove();
+  if (activeMode === "canvas" && canvasCompositionBudget > 0) {
+    let composition = Rules.canvasCompositionMove(
+      canvasCompositionState,
+      direction,
+      Rules.signalState(runSignal),
+    );
+    if (
+      composition.direction.x === -direction.x
+      && composition.direction.y === -direction.y
+    ) {
+      canvasCompositionState = null;
+      composition = Rules.canvasCompositionMove(
+        null,
+        direction,
+        Rules.signalState(runSignal),
+      );
+    }
+    canvasCompositionState = composition.state;
+    canvasCompositionName = composition.name;
+    canvasCompositionBudget -= 1;
+    canvasCompositionActive = true;
+    return composition.direction;
+  }
+  canvasCompositionActive = false;
+  planAiMove();
+  const effectiveMode = Rules.effectiveMode(activeMode, mutation.type);
+  const target = food ? `${food.x},${food.y},${food.kind || "signal"}` : "none";
+  if (autopilotPlanMode !== effectiveMode || autopilotPlanTarget !== target) {
+    autopilotPlan = [];
+  }
+  if (autopilotPlan.length) {
+    const committed = autopilotPlan.shift();
+    const evaluation = aiEvaluations.find((candidate) =>
+      candidate.legal
+      && candidate.direction.x === committed.x
+      && candidate.direction.y === committed.y);
+    if (evaluation) {
+      aiChoice = evaluation;
+      aiPlanInsight = Rules.decisionInsight(aiEvaluations, aiChoice);
+      updateAiTelemetry();
+      return committed;
+    }
+    autopilotPlan = [];
+  }
+  if (aiChoice?.route?.length) {
+    autopilotPlanMode = effectiveMode;
+    autopilotPlanTarget = target;
+    autopilotPlan = aiChoice.route.slice(1).map((move) => ({ ...move }));
+  }
   return aiChoice?.direction || direction;
 }
 
@@ -1151,8 +1279,16 @@ function lensVisible() {
   return demoMode || (lensEnabled && runState === "running");
 }
 
-function planAiMove() {
-  const effectiveMode = Rules.effectiveMode(activeMode, mutation.type);
+function plannerStateKey(effectiveMode) {
+  const body = snake.map((segment) => `${segment.x},${segment.y}`).join(";");
+  const target = food ? `${food.x},${food.y},${food.kind || "signal"}` : "none";
+  return `${effectiveMode}|${direction.x},${direction.y}|${target}|${body}`;
+}
+
+function evaluatePlannerState(effectiveMode = Rules.effectiveMode(activeMode, mutation.type)) {
+  const nextKey = plannerStateKey(effectiveMode);
+  if (nextKey === aiPlanKey) return;
+  const startedAt = performance.now();
   aiEvaluations = Rules.evaluateMoves({
     snake,
     direction,
@@ -1160,8 +1296,16 @@ function planAiMove() {
     mode: effectiveMode,
     gridSize: GRID,
     candidates: DIRECTION_OPTIONS,
+    recentHeads: demoMode ? autopilotHistory : [],
   });
   aiChoice = Rules.chooseBestMove(aiEvaluations);
+  aiPlanInsight = Rules.decisionInsight(aiEvaluations, aiChoice);
+  aiPlanDuration = Math.max(0, performance.now() - startedAt);
+  aiPlanKey = nextKey;
+}
+
+function planAiMove() {
+  evaluatePlannerState();
   updateAiTelemetry();
 }
 
@@ -1172,16 +1316,27 @@ function updateAiTelemetry() {
   gameConsole.classList.toggle("ai-active", visible);
   gameConsole.classList.toggle("ai-driving", demoMode && visible);
   aiLensLabel.textContent = demoMode
-    ? `AI CONTROL · ${modeLabel().toUpperCase()}`
-    : "AI HINT · YOU DRIVE";
+    ? `AUTOPILOT · ${modeLabel().toUpperCase()}`
+    : "DECISION LENS · YOU DRIVE";
+  if (visible && demoMode && activeMode === "canvas" && canvasCompositionActive) {
+    aiPlan.textContent = `COMPOSE ${canvasCompositionName}`;
+    aiReason.textContent = `GENERATIVE MOTIF · ${canvasCompositionBudget} STROKES TO CAPTURE`;
+    aiEvidence.textContent = `SIGNAL ${runSignal} · PLOTTER PHASE · INK ${CANVAS_PALETTES[canvasPaletteIndex].name}`;
+    return;
+  }
   if (!visible || !aiChoice) {
     aiPlan.textContent = "SCANNING BOARD";
     aiReason.textContent = "SURVIVAL FIRST";
+    aiEvidence.textContent = "NO BOARD SAMPLE";
     return;
   }
-  const insight = Rules.decisionInsight(aiEvaluations, aiChoice);
+  const insight = aiPlanInsight || Rules.decisionInsight(aiEvaluations, aiChoice);
   aiPlan.textContent = `${demoMode ? "TURN" : "SAFEST"} ${aiChoice.name.toUpperCase()}`;
   aiReason.textContent = `${insight.confidence} · ${insight.reason}`;
+  const margin = Number.isFinite(insight.margin) ? `Δ${Math.round(insight.margin)}` : "NO ALTERNATE";
+  const runnerUp = insight.runnerUp ? `VS ${insight.runnerUp.toUpperCase()}` : "FORCED LINE";
+  const commitment = autopilotPlan.length ? ` · LOCK ${autopilotPlan.length}` : "";
+  aiEvidence.textContent = `${runnerUp} · ${margin} · ${aiChoice.horizon} TURN FORECAST${commitment} · ${aiPlanDuration.toFixed(1)}MS`;
 }
 
 function prepareDemo() {
@@ -1198,10 +1353,10 @@ function prepareDemo() {
   overlay.hidden = true;
   pauseButton.disabled = false;
   setSetupDisabled(true);
-  setState("running", `${activeMode.toUpperCase()} AI PLAY`);
+  setState("running", `${activeMode.toUpperCase()} AUTOPILOT`);
   updateHud();
   updateActionLabels();
-  announcement.textContent = `${activeMode} AI play started. Use Stop AI to return to the run choices.`;
+  announcement.textContent = `${activeMode} Autopilot started. Use Stop Autopilot to return to the run choices.`;
   focusWithoutScroll(pauseButton);
   scheduleMove();
 }
@@ -1217,7 +1372,7 @@ function restartDemo() {
   if (activeMode === "rush") rushDeadline = performance.now() + rushRemaining;
   planAiMove();
   pauseButton.disabled = false;
-  setState("running", `${activeMode.toUpperCase()} AI PLAY`);
+  setState("running", `${activeMode.toUpperCase()} AUTOPILOT`);
   updateHud();
   updateActionLabels();
   scheduleMove();
@@ -1238,7 +1393,7 @@ function stopDemo() {
   updateHud();
   updateActionLabels();
   updateReadyOverlay();
-  announcement.textContent = `AI stopped. Choose Play ${modeLabel()} or Watch AI play ${modeLabel()}.`;
+  announcement.textContent = `Autopilot stopped. Choose Play ${modeLabel()} or Watch Autopilot play ${modeLabel()}.`;
   focusWithoutScroll(startButton);
 }
 
@@ -1352,7 +1507,7 @@ function endGame(reason) {
       ? "Every tile claimed. The board is yours."
       : `${score} points · ${foodCount} signals · level ${level}`;
   showOverlay(`${modeLabel().toUpperCase()} RUN REPORT`, title, message, "Run it back");
-  demoButtonLabel.textContent = "Watch AI";
+  demoButtonLabel.textContent = "Watch Autopilot";
   rankValue.textContent = rank;
   runRank.hidden = false;
   decisionStyle.textContent = lastDecisionProfile.style;
@@ -1362,7 +1517,7 @@ function endGame(reason) {
   decisionSummary.textContent = lastDecisionProfile.summary;
   decisionReport.hidden = false;
   updateActionLabels();
-  announcement.textContent = `${title} Final score ${score}. Decision DNA: ${lastDecisionProfile.style}, ${lastDecisionProfile.alignment} percent AI match.`;
+  announcement.textContent = `${title} Final score ${score}. Decision DNA: ${lastDecisionProfile.style}, ${lastDecisionProfile.alignment} percent engine match.`;
   focusWithoutScroll(startButton);
   playCrashSound();
 }
@@ -1414,9 +1569,9 @@ function showOverlay(kicker, title, message, buttonLabel, countdown = false) {
   startButton.hidden = countdown;
   demoButton.hidden = countdown || runState === "paused";
   overlayHint.hidden = countdown || runState === "paused";
-  if (!countdown && runState !== "paused") overlayHint.textContent = "CHOOSE PLAYER OR AI";
+  if (!countdown && runState !== "paused") overlayHint.textContent = "CHOOSE PLAYER OR AUTOPILOT";
   if (!countdown) startButtonLabel.textContent = buttonLabel;
-  if (!countdown) demoButtonLabel.textContent = `Watch AI play ${modeLabel()}`;
+  if (!countdown) demoButtonLabel.textContent = `Watch Autopilot play ${modeLabel()}`;
   overlay.hidden = false;
 }
 
@@ -1437,23 +1592,23 @@ function updateActionLabels() {
   const canPause = runState === "running" || paused;
   pauseButton.disabled = !canPause;
   mobilePause.disabled = !canPause;
-  pauseButtonLabel.textContent = aiPlaying ? "Stop AI" : paused ? "Resume" : "Pause";
+  pauseButtonLabel.textContent = aiPlaying ? "Stop Autopilot" : paused ? "Resume" : "Pause";
   pauseButton.lastElementChild.textContent = aiPlaying ? "■" : paused ? "▶" : "Ⅱ";
   lensButton.hidden = aiPlaying;
   mobilePause.textContent = aiPlaying ? "STOP" : paused ? "▶" : "●";
   mobilePause.classList.toggle("stop-ai", aiPlaying);
-  mobilePause.setAttribute("aria-label", aiPlaying ? "Stop AI play" : paused ? "Resume game" : "Pause game");
-  restartButton.firstChild.textContent = demoMode ? "Restart AI run " : "Restart current run ";
+  mobilePause.setAttribute("aria-label", aiPlaying ? "Stop Autopilot" : paused ? "Resume game" : "Pause game");
+  restartButton.firstChild.textContent = demoMode ? "Restart Autopilot run " : "Restart current run ";
   restartButton.hidden = runState === "ready" || runState === "countdown";
 }
 
 function requestDirection(next) {
   if (demoMode) {
-    announcement.textContent = "The AI is playing. Use Stop AI, then choose Play to take control.";
+    announcement.textContent = "The Autopilot is driving. Stop it, then choose Play to take control.";
     return;
   }
   if (runState === "ready" || runState === "over") {
-    announcement.textContent = `Choose Play ${modeLabel()} or Watch AI play ${modeLabel()} before moving.`;
+    announcement.textContent = `Choose Play ${modeLabel()} or Watch Autopilot play ${modeLabel()} before moving.`;
     return;
   }
   if (runState === "countdown") {
@@ -1572,8 +1727,8 @@ function updateLensControl() {
 
 function toggleLens() {
   if (demoMode) {
-    showPickup("AI LENS", "ALWAYS ON IN DEMO");
-    announcement.textContent = "The AI Lens is always visible during AI play.";
+    showPickup("DECISION LENS", "ALWAYS ON IN AUTOPILOT");
+    announcement.textContent = "The Decision Lens is always visible while Autopilot drives.";
     return;
   }
   lensEnabled = !lensEnabled;
@@ -1584,22 +1739,24 @@ function toggleLens() {
   } else {
     aiEvaluations = [];
     aiChoice = null;
+    aiPlanKey = "";
+    aiPlanInsight = null;
     updateAiTelemetry();
   }
-  showPickup("AI LENS", lensEnabled ? "LIVE GUIDANCE ON" : "GUIDANCE OFF");
-  announcement.textContent = `AI Lens ${lensEnabled ? "enabled" : "disabled"}. Gameplay and scoring are unchanged.`;
+  showPickup("DECISION LENS", lensEnabled ? "LIVE GUIDANCE ON" : "GUIDANCE OFF");
+  announcement.textContent = `Decision Lens ${lensEnabled ? "enabled" : "disabled"}. Gameplay and scoring are unchanged.`;
 }
 
 async function shareGame() {
   const url = challengeUrl();
   const dna = runState === "over"
-    ? ` Decision DNA: ${lastDecisionProfile.style} (${lastDecisionProfile.alignment}% AI match).`
+    ? ` Decision DNA: ${lastDecisionProfile.style} (${lastDecisionProfile.alignment}% engine match).`
     : "";
   const text = score > 0
     ? `I scored ${score} in ${activeMode.toUpperCase()} mode on Neon Snake.${dna} Beat Signal ${runSignal}.`
     : `Play Neon Snake Signal ${runSignal}—the same code means the same challenge.`;
   const data = {
-    title: "Neon Snake — A Browser AI Lab",
+    title: "Neon Snake — An AI-Built Systems Experiment",
     text,
     url: url.toString(),
   };
@@ -1624,7 +1781,7 @@ async function shareGame() {
 }
 
 function exportCanvasArtwork() {
-  if (activeMode !== "canvas" || !canvasMarks.length) {
+  if (activeMode !== "canvas" || canvasStrokeCount === 0) {
     showPickup("NO INK YET", "PLAY CANVAS FIRST");
     announcement.textContent = "Move in Canvas mode before saving artwork.";
     return;
@@ -1676,7 +1833,7 @@ function exportCanvasArtwork() {
   art.fillText("NEON SNAKE / CANVAS STUDY", 48, 75);
   art.fillStyle = "#8b9b90";
   art.font = "700 18px Consolas, monospace";
-  art.fillText(`${formatScore(score)} POINTS  ·  ${canvasMarks.length} STROKES  ·  ${CANVAS_PALETTES[canvasPaletteIndex].name} INK`, 48, artwork.height - 38);
+  art.fillText(`${formatScore(score)} POINTS  ·  ${canvasStrokeCount} STROKES  ·  ${CANVAS_PALETTES[canvasPaletteIndex].name} INK`, 48, artwork.height - 38);
 
   const link = document.createElement("a");
   link.href = artwork.toDataURL("image/png");
@@ -1706,7 +1863,7 @@ function updateReadyOverlay() {
   overlayKicker.textContent = `${activeMode.toUpperCase()} READY`;
   overlayTitle.innerHTML = canvasMode ? "DRAW.<br /><em>FOREVER.</em>" : "NEON<br /><em>SNAKE</em>";
   overlayTitle.classList.remove("countdown-number");
-  overlayMessage.textContent = `${descriptions[activeMode]} Choose whether you play or the AI plays.`;
+  overlayMessage.textContent = `${descriptions[activeMode]} Choose whether you drive or the Autopilot drives.`;
   updateStartChoices();
   startButton.hidden = false;
   demoButton.hidden = false;
@@ -1743,7 +1900,7 @@ function handleKeyboard(event) {
       if (demoMode) restartDemo();
       else prepareRun();
     } else if (runState === "ready") {
-      announcement.textContent = `Choose Play ${modeLabel()} or Watch AI play ${modeLabel()} first.`;
+      announcement.textContent = `Choose Play ${modeLabel()} or Watch Autopilot play ${modeLabel()} first.`;
     }
   } else if (key === "l") {
     event.preventDefault();
@@ -1798,7 +1955,7 @@ function pollGamepad(now) {
   const pausePressed = Boolean(pad.buttons[9]?.pressed);
   if (pausePressed && !gamepadPausePressed) {
     if (runState === "ready" || runState === "over") {
-      announcement.textContent = `Choose Play ${modeLabel()} or Watch AI play ${modeLabel()} first.`;
+      announcement.textContent = `Choose Play ${modeLabel()} or Watch Autopilot play ${modeLabel()} first.`;
     } else {
       togglePause();
     }

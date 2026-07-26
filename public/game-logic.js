@@ -126,6 +126,53 @@
     return { state: next.state, index: Math.floor(next.value * length) };
   }
 
+  function canvasCompositionMove(state, currentDirection, seed = 0) {
+    const currentIndex = CARDINAL_DIRECTIONS.findIndex((move) =>
+      move.x === currentDirection?.x && move.y === currentDirection?.y);
+    const source = state && typeof state === "object" ? state : {};
+    let directionIndex = Number.isInteger(source.directionIndex)
+      ? ((source.directionIndex % 4) + 4) % 4
+      : Math.max(0, currentIndex);
+    let turnSign = source.turnSign === -1 || source.turnSign === 1
+      ? source.turnSign
+      : (Number(seed) >>> 0) % 2 ? -1 : 1;
+    let legLength = Math.max(
+      2,
+      Math.min(9, Math.floor(Number(source.legLength) || (2 + ((Number(seed) >>> 3) % 3)))),
+    );
+    let legProgress = Math.max(0, Math.floor(Number(source.legProgress) || 0));
+    let pairedLegs = Math.max(0, Math.floor(Number(source.pairedLegs) || 0)) % 2;
+    let turns = Math.max(0, Math.floor(Number(source.turns) || 0));
+    const maxLeg = 6 + ((Number(seed) >>> 6) % 4);
+
+    if (legProgress >= legLength) {
+      directionIndex = (directionIndex + turnSign + 4) % 4;
+      legProgress = 0;
+      pairedLegs += 1;
+      turns += 1;
+      if (pairedLegs >= 2) {
+        pairedLegs = 0;
+        legLength = legLength >= maxLeg
+          ? 2 + ((Number(seed) >>> 3) % 3)
+          : legLength + 1;
+      }
+      if (turns % 10 === 0) turnSign *= -1;
+    }
+
+    return {
+      direction: { ...CARDINAL_DIRECTIONS[directionIndex] },
+      name: turnSign > 0 ? "ORBIT WEAVE" : "MIRROR WEAVE",
+      state: {
+        directionIndex,
+        turnSign,
+        legLength,
+        legProgress: legProgress + 1,
+        pairedLegs,
+        turns,
+      },
+    };
+  }
+
   function modeWraps(mode) {
     return mode === "portal" || mode === "canvas";
   }
@@ -409,6 +456,7 @@
     { x: -1, y: 0 },
   ];
   const PLANNER_HORIZON = 6;
+  const HAMILTONIAN_CACHE = new Map();
 
   function gridDistance(from, to, mode, gridSize) {
     if (!from || !to) return 0;
@@ -424,6 +472,7 @@
   function hamiltonianCycle(gridSize = 20) {
     const size = Math.floor(Number(gridSize) || 0);
     if (size < 4 || size % 2 !== 0) return [];
+    if (HAMILTONIAN_CACHE.has(size)) return HAMILTONIAN_CACHE.get(size).cycle;
 
     const cycle = [];
     for (let x = 0; x < size; x += 1) cycle.push({ x, y: 0 });
@@ -436,15 +485,22 @@
     }
     cycle.push({ x: 0, y: size - 1 });
     for (let y = size - 2; y >= 1; y -= 1) cycle.push({ x: 0, y });
-    return cycle;
+    const frozenCycle = Object.freeze(
+      cycle.map((point) => Object.freeze({ ...point })),
+    );
+    HAMILTONIAN_CACHE.set(size, {
+      cycle: frozenCycle,
+      indexes: new Map(frozenCycle.map((point, index) => [`${point.x},${point.y}`, index])),
+    });
+    return frozenCycle;
   }
 
   function cyclePlannerState(snake, food, mode, gridSize) {
-    if (mode === "canvas" || !Array.isArray(snake) || snake.length < 2) return null;
+    if (mode !== "classic" || !Array.isArray(snake) || snake.length < 2) return null;
     const cycle = hamiltonianCycle(gridSize);
     if (!cycle.length) return null;
 
-    const indexes = new Map(cycle.map((point, index) => [`${point.x},${point.y}`, index]));
+    const indexes = HAMILTONIAN_CACHE.get(Math.floor(Number(gridSize) || 0)).indexes;
     const snakeIndexes = snake.map((point) => indexes.get(`${point.x},${point.y}`));
     if (snakeIndexes.some((index) => !Number.isInteger(index))) return null;
     if (new Set(snakeIndexes).size !== snakeIndexes.length) return null;
@@ -639,9 +695,14 @@
     return escapeSpace >= result.snake.length || remainsCycleOrdered;
   }
 
-  function dynamicSafeFoodRoute(snake, direction, food, mode, gridSize) {
-    const beamWidth = 16;
-    const maxDepth = Math.min(48, gridSize * 3);
+  function dynamicSafeFoodRoute(
+    snake,
+    direction,
+    food,
+    mode,
+    gridSize,
+    { beamWidth = 16, maxDepth = Math.min(48, gridSize * 3) } = {},
+  ) {
     let frontier = [{
       snake: snake.map((segment) => ({ ...segment })),
       direction: { ...direction },
@@ -805,23 +866,114 @@
         ...(Array.isArray(ownSnake) ? ownSnake.slice(1) : []),
         ...(Array.isArray(opponentSnake) ? opponentSnake : []),
       ];
-    const blocked = new Set(bodies.map((segment) => `${segment.x},${segment.y}`));
-    const seen = new Set([`${start.x},${start.y}`]);
-    const queue = [{ x: start.x, y: start.y }];
+    const cellCount = gridSize * gridSize;
+    const blocked = new Uint8Array(cellCount);
+    const seen = new Uint8Array(cellCount);
+    const queue = new Int32Array(cellCount);
+    bodies.forEach((segment) => {
+      if (
+        segment.x >= 0
+        && segment.x < gridSize
+        && segment.y >= 0
+        && segment.y < gridSize
+      ) blocked[segment.y * gridSize + segment.x] = 1;
+    });
 
-    for (let index = 0; index < queue.length; index += 1) {
-      const point = queue[index];
-      CARDINAL_DIRECTIONS.forEach((move) => {
-        const next = nextHead(point, move, mode, gridSize);
-        const outside = next.x < 0 || next.x >= gridSize || next.y < 0 || next.y >= gridSize;
-        if (outside) return;
-        const key = `${next.x},${next.y}`;
-        if (blocked.has(key) || seen.has(key)) return;
-        seen.add(key);
-        queue.push(next);
+    const startIndex = start.y * gridSize + start.x;
+    blocked[startIndex] = 0;
+    seen[startIndex] = 1;
+    queue[0] = startIndex;
+    let cursor = 0;
+    let end = 1;
+    while (cursor < end) {
+      const index = queue[cursor];
+      cursor += 1;
+      const x = index % gridSize;
+      const y = Math.floor(index / gridSize);
+      for (const move of CARDINAL_DIRECTIONS) {
+        let nextX = x + move.x;
+        let nextY = y + move.y;
+        if (modeWraps(mode)) {
+          nextX = wrapCoordinate(nextX, gridSize);
+          nextY = wrapCoordinate(nextY, gridSize);
+        }
+        if (nextX < 0 || nextX >= gridSize || nextY < 0 || nextY >= gridSize) continue;
+        const nextIndex = nextY * gridSize + nextX;
+        if (blocked[nextIndex] || seen[nextIndex]) continue;
+        seen[nextIndex] = 1;
+        queue[end] = nextIndex;
+        end += 1;
+      }
+    }
+    return end;
+  }
+
+  function duelTerritoryBalance(snake, opponentSnake, mode, gridSize) {
+    const cellCount = gridSize * gridSize;
+    const blocked = new Uint8Array(cellCount);
+    if (mode !== "canvas") {
+      [...snake.slice(1), ...opponentSnake.slice(1)].forEach((segment) => {
+        if (
+          segment.x >= 0
+          && segment.x < gridSize
+          && segment.y >= 0
+          && segment.y < gridSize
+        ) blocked[segment.y * gridSize + segment.x] = 1;
       });
     }
-    return seen.size;
+
+    function distancesFrom(start) {
+      const distances = new Int16Array(cellCount);
+      distances.fill(-1);
+      const queue = new Int32Array(cellCount);
+      const startIndex = start.y * gridSize + start.x;
+      distances[startIndex] = 0;
+      queue[0] = startIndex;
+      let cursor = 0;
+      let end = 1;
+      while (cursor < end) {
+        const index = queue[cursor];
+        cursor += 1;
+        const x = index % gridSize;
+        const y = Math.floor(index / gridSize);
+        const distance = distances[index] + 1;
+        for (const move of CARDINAL_DIRECTIONS) {
+          let nextX = x + move.x;
+          let nextY = y + move.y;
+          if (modeWraps(mode)) {
+            nextX = wrapCoordinate(nextX, gridSize);
+            nextY = wrapCoordinate(nextY, gridSize);
+          }
+          if (nextX < 0 || nextX >= gridSize || nextY < 0 || nextY >= gridSize) continue;
+          const nextIndex = nextY * gridSize + nextX;
+          if (blocked[nextIndex] || distances[nextIndex] !== -1) continue;
+          distances[nextIndex] = distance;
+          queue[end] = nextIndex;
+          end += 1;
+        }
+      }
+      return distances;
+    }
+
+    const ownDistances = distancesFrom(snake[0]);
+    const rivalDistances = distancesFrom(opponentSnake[0]);
+    let own = 0;
+    let rival = 0;
+    let contested = 0;
+    for (let index = 0; index < cellCount; index += 1) {
+      if (blocked[index]) continue;
+      const ownDistance = ownDistances[index];
+      const rivalDistance = rivalDistances[index];
+      if (ownDistance < 0 && rivalDistance < 0) continue;
+      if (rivalDistance < 0 || (ownDistance >= 0 && ownDistance < rivalDistance)) {
+        own += 1;
+      } else if (ownDistance < 0 || rivalDistance < ownDistance) {
+        rival += 1;
+      } else {
+        contested += 1;
+      }
+    }
+    return { own, rival, contested };
   }
 
   function duelSurvivalForecast(
@@ -882,6 +1034,153 @@
     return best;
   }
 
+  function legalDuelDirections(direction) {
+    return CARDINAL_DIRECTIONS.filter((move) =>
+      move.x !== -direction.x || move.y !== -direction.y);
+  }
+
+  function duelSearchHeuristic({
+    snake,
+    direction,
+    opponentSnake,
+    opponentDirection,
+    food,
+    mode,
+    gridSize,
+    score = 0,
+    opponentScore = 0,
+  }) {
+    const territory = duelTerritoryBalance(snake, opponentSnake, mode, gridSize);
+    const ownExits = legalDuelDirections(direction).filter((move) => {
+      const head = nextHead(snake[0], move, mode, gridSize);
+      return !duelCollisionType(head, snake, opponentSnake, samePoint(head, food), false, mode, gridSize);
+    }).length;
+    const rivalExits = legalDuelDirections(opponentDirection).filter((move) => {
+      const head = nextHead(opponentSnake[0], move, mode, gridSize);
+      return !duelCollisionType(head, opponentSnake, snake, samePoint(head, food), false, mode, gridSize);
+    }).length;
+    const ownDistance = food ? gridDistance(snake[0], food, mode, gridSize) : 0;
+    const rivalDistance = food ? gridDistance(opponentSnake[0], food, mode, gridSize) : 0;
+    const scoreDeficit = Math.max(-4, Math.min(4, opponentScore - score));
+    const foodPressure = 80 + scoreDeficit * 10;
+    return (
+      (territory.own - territory.rival) * 2
+      + (ownExits - rivalExits) * 120
+      + (rivalDistance - ownDistance) * foodPressure
+      + (score - opponentScore) * 1_200
+      + (snake.length - opponentSnake.length) * 90
+    );
+  }
+
+  function duelTerminalValue(result, depth) {
+    if (!result.over) return null;
+    if (result.winner === "player") return 1_000_000 + depth * 10_000;
+    if (result.winner === "opponent") return -1_000_000 - depth * 10_000;
+    return -15_000;
+  }
+
+  function duelSearchKey(state, depth) {
+    const snakeKey = state.snake.map((point) => `${point.x},${point.y}`).join(";");
+    const opponentKey = state.opponentSnake.map((point) => `${point.x},${point.y}`).join(";");
+    const foodKey = state.food ? `${state.food.x},${state.food.y}` : "-";
+    return `${depth}|${state.score || 0},${state.opponentScore || 0}|${state.direction.x},${state.direction.y}|${state.opponentDirection.x},${state.opponentDirection.y}|${foodKey}|${snakeKey}|${opponentKey}`;
+  }
+
+  function duelSearchValue(state, depth, cache, stats, alpha = -Infinity) {
+    if (depth <= 0) return duelSearchHeuristic(state);
+    const key = duelSearchKey(state, depth);
+    if (cache.has(key)) {
+      stats.cacheHits += 1;
+      return cache.get(key);
+    }
+
+    let best = -Infinity;
+    let fullyEvaluated = true;
+    for (const move of legalDuelDirections(state.direction)) {
+      let worstReply = Infinity;
+      for (const reply of legalDuelDirections(state.opponentDirection)) {
+        const result = resolveDuelTick({
+          players: {
+            player: { snake: state.snake, direction: move, score: state.score || 0 },
+            opponent: {
+              snake: state.opponentSnake,
+              direction: reply,
+              score: state.opponentScore || 0,
+            },
+          },
+          food: state.food,
+          mode: state.mode,
+          gridSize: state.gridSize,
+        });
+        stats.nodes += 1;
+        const terminal = duelTerminalValue(result, depth);
+        const value = terminal ?? duelSearchValue({
+          snake: result.players.player.snake,
+          direction: result.players.player.direction,
+          opponentSnake: result.players.opponent.snake,
+          opponentDirection: result.players.opponent.direction,
+          food: result.foodEatenBy ? null : state.food,
+          mode: state.mode,
+          gridSize: state.gridSize,
+          score: result.players.player.score,
+          opponentScore: result.players.opponent.score,
+        }, depth - 1, cache, stats, alpha);
+        worstReply = Math.min(worstReply, value);
+        if (worstReply <= alpha) {
+          fullyEvaluated = false;
+          break;
+        }
+      }
+      best = Math.max(best, worstReply);
+      alpha = Math.max(alpha, best);
+    }
+    if (fullyEvaluated) cache.set(key, best);
+    return best;
+  }
+
+  function evaluateDuelContinuation(state, move, depth = 2, context = null) {
+    const cache = context?.cache || new Map();
+    const stats = context?.stats || { nodes: 0, cacheHits: 0 };
+    const startingNodes = stats.nodes;
+    const startingCacheHits = stats.cacheHits;
+    let worstReply = Infinity;
+    for (const reply of legalDuelDirections(state.opponentDirection)) {
+      const result = resolveDuelTick({
+        players: {
+          player: { snake: state.snake, direction: move, score: state.score || 0 },
+          opponent: {
+            snake: state.opponentSnake,
+            direction: reply,
+            score: state.opponentScore || 0,
+          },
+        },
+        food: state.food,
+        mode: state.mode,
+        gridSize: state.gridSize,
+      });
+      stats.nodes += 1;
+      const terminal = duelTerminalValue(result, depth);
+      const value = terminal ?? duelSearchValue({
+        snake: result.players.player.snake,
+        direction: result.players.player.direction,
+        opponentSnake: result.players.opponent.snake,
+        opponentDirection: result.players.opponent.direction,
+        food: result.foodEatenBy ? null : state.food,
+        mode: state.mode,
+        gridSize: state.gridSize,
+        score: result.players.player.score,
+        opponentScore: result.players.opponent.score,
+      }, depth - 1, cache, stats);
+      worstReply = Math.min(worstReply, value);
+    }
+    return {
+      value: worstReply,
+      depth,
+      nodes: stats.nodes - startingNodes,
+      cacheHits: stats.cacheHits - startingCacheHits,
+    };
+  }
+
   function evaluateDuelMoves({
     snake,
     direction,
@@ -891,6 +1190,8 @@
     mode,
     gridSize,
     candidates,
+    seed = 0,
+    recentHeads = [],
   }) {
     if (
       !Array.isArray(snake)
@@ -911,7 +1212,9 @@
     );
     const opponentReplies = CARDINAL_DIRECTIONS.filter((reply) =>
       reply.x !== -inferredOpponentDirection.x || reply.y !== -inferredOpponentDirection.y);
+    const historyWindow = (Array.isArray(recentHeads) ? recentHeads : []).slice(-160);
 
+    const searchContext = { cache: new Map(), stats: { nodes: 0, cacheHits: 0 } };
     return candidates.map((candidate, order) => {
       const move = { x: Number(candidate.x) || 0, y: Number(candidate.y) || 0 };
       const name = String(candidate.name || order);
@@ -1012,13 +1315,34 @@
         : drawingReplies
           ? -12_000
           : forcedWin ? 40_000 : 0;
+      const search = evaluateDuelContinuation({
+        snake,
+        direction,
+        opponentSnake,
+        opponentDirection: inferredOpponentDirection,
+        food,
+        mode,
+        gridSize,
+      }, move, 2, searchContext);
+      const seedBias = (
+        Math.imul((Number(seed) >>> 0) ^ ((head.x + 1) * 73856093), 16777619)
+        ^ Math.imul((head.y + 1) * 19349663, order + 1)
+      ) >>> 30;
+      const revisitCount = historyWindow.reduce(
+        (count, previous) => count + Number(samePoint(previous, head)),
+        0,
+      );
+      const loopPenalty = revisitCount * (160 + snake.length * 6);
       const score = Math.round(
-        space * 8
-        + exits * 6
-        + horizon * 24
-        - distance * 3
-        + (growing ? 24 : 0)
-        + tacticalScore,
+        space
+        + exits * 12
+        + horizon * 30
+        - distance * 30
+        + (growing ? 200 : 0)
+        + tacticalScore
+        + search.value
+        + seedBias
+        - loopPenalty,
       );
       return {
         name,
@@ -1037,6 +1361,13 @@
         winningReplies,
         openReplies,
         forcedWin,
+        searchDepth: search.depth,
+        searchNodes: search.nodes,
+        searchCacheHits: search.cacheHits,
+        searchValue: search.value,
+        seedBias,
+        revisitCount,
+        loopPenalty,
         strategy: losingReplies
           ? "THREATENED"
           : drawingReplies
@@ -1049,11 +1380,45 @@
     });
   }
 
-  function evaluateMoves({ snake, direction, food, mode, gridSize, candidates }) {
+  function evaluateMoves({
+    snake,
+    direction,
+    food,
+    mode,
+    gridSize,
+    candidates,
+    recentHeads = [],
+  }) {
     if (!Array.isArray(snake) || !snake.length || !direction || !Array.isArray(candidates)) return [];
     const cycleState = cyclePlannerState(snake, food, mode, gridSize);
-    const foodRoute = safeFoodRoute(snake, direction, food, mode, gridSize);
-    const tailRoute = foodRoute ? null : tailChaseRoute(snake, direction, mode, gridSize);
+    const historyWindow = (Array.isArray(recentHeads) ? recentHeads : []).slice(-192);
+    const distinctHistoryCells = new Set(
+      historyWindow
+        .filter((point) => point && Number.isInteger(point.x) && Number.isInteger(point.y))
+        .map((point) => `${point.x},${point.y}`),
+    ).size;
+    const repeatedSteps = historyWindow.length - distinctHistoryCells;
+    const stagnating = !cycleState && historyWindow.length >= 128 && repeatedSteps >= 12;
+    let foodRoute = cycleState
+      ? null
+      : safeFoodRoute(snake, direction, food, mode, gridSize);
+    let recoveryRoute = false;
+    if (!foodRoute && stagnating) {
+      foodRoute = dynamicSafeFoodRoute(snake, direction, food, mode, gridSize, {
+        beamWidth: 48,
+        maxDepth: Math.min(160, gridSize * 8),
+      });
+      recoveryRoute = Boolean(foodRoute);
+    }
+    const tailRoute = foodRoute || cycleState
+      ? null
+      : tailChaseRoute(snake, direction, mode, gridSize);
+    const recentVisits = new Map();
+    (Array.isArray(recentHeads) ? recentHeads : []).slice(-256).forEach((point) => {
+      if (!point || !Number.isInteger(point.x) || !Number.isInteger(point.y)) return;
+      const key = `${point.x},${point.y}`;
+      recentVisits.set(key, (recentVisits.get(key) || 0) + 1);
+    });
     return candidates.map((candidate, order) => {
       const move = { x: Number(candidate.x) || 0, y: Number(candidate.y) || 0 };
       const name = String(candidate.name || order);
@@ -1071,14 +1436,16 @@
 
       const nextSnake = [head, ...snake.map((segment) => ({ x: segment.x, y: segment.y }))];
       if (!growing) nextSnake.pop();
-      const space = reachableArea(head, nextSnake, mode, gridSize);
+      const cyclePlan = cycleMovePlan(cycleState, head, growing);
+      const space = cyclePlan?.safe
+        ? Math.max(1, gridSize * gridSize - nextSnake.length + 1)
+        : reachableArea(head, nextSnake, mode, gridSize);
       const distance = gridDistance(head, food, mode, gridSize);
       const exits = CARDINAL_DIRECTIONS.filter((nextDirection) => {
         if (nextDirection.x === -move.x && nextDirection.y === -move.y) return false;
         const futureHead = nextHead(head, nextDirection, mode, gridSize);
         return !collisionType(futureHead, nextSnake, false, mode, gridSize);
       }).length;
-      const cyclePlan = cycleMovePlan(cycleState, head, growing);
       const followsFoodRoute = Boolean(
         foodRoute?.length
         && move.x === foodRoute[0].direction.x
@@ -1118,18 +1485,21 @@
         )];
       }
       const horizon = forecast.length;
+      const revisitCount = recentVisits.get(`${head.x},${head.y}`) || 0;
+      const loopPenalty = revisitCount * 12;
       const localScore = Math.round(
         space * 8
         + exits * 6
         + horizon * 24
         - distance * 3
-        + (growing ? 18 : 0),
+        + (growing ? 18 : 0)
+        - loopPenalty,
       );
       let score = localScore;
       let strategy = "SURVIVAL SEARCH";
       if (followsFoodRoute) {
         score = 3_000_000 - foodRoute.length * 1_000 + localScore;
-        strategy = "SAFE FOOD ROUTE";
+        strategy = recoveryRoute ? "LOOP BREAK ROUTE" : "SAFE FOOD ROUTE";
       } else if (followsTailRoute) {
         score = 2_000_000 - tailRoute.length * 100 + localScore;
         strategy = "TAIL CHASE";
@@ -1158,9 +1528,16 @@
         cycleAdvance: cyclePlan?.advance ?? null,
         cycleSafe: cyclePlan?.safe ?? null,
         cycleFoodDistance: cyclePlan?.remainingToFood ?? null,
+        revisitCount,
+        loopPenalty,
         routeDistance: followsFoodRoute
           ? foodRoute.length
           : followsTailRoute ? tailRoute.length : null,
+        route: followsFoodRoute
+          ? foodRoute.map((step) => ({ ...step.direction }))
+          : [],
+        stagnating,
+        repeatedSteps,
         strategy,
         score,
       };
@@ -1202,6 +1579,15 @@
       return {
         confidence: "ROUTE",
         reason: remaining === 1 ? "SIGNAL CAPTURE · EXIT PROVEN" : `SAFE PATH · ${remaining} TO SIGNAL`,
+        margin: Math.max(0, selected.score - runnerUp.score),
+        runnerUp: runnerUp.name,
+      };
+    }
+    if (selected.strategy === "LOOP BREAK ROUTE") {
+      const remaining = Math.max(0, Number(selected.routeDistance) || 0);
+      return {
+        confidence: "RECOVER",
+        reason: `REPEAT DETECTED · ${remaining} TO SIGNAL`,
         margin: Math.max(0, selected.score - runnerUp.score),
         runnerUp: runnerUp.name,
       };
@@ -1357,6 +1743,7 @@
 
   const api = {
     bufferDirection,
+    canvasCompositionMove,
     chooseBestMove,
     collisionType,
     compareDecision,

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#070b09" />
     <meta name="color-scheme" content="dark" />
-    <meta name="description" content="Neon Snake Duel Lab: battle the survival AI or challenge another player across devices in a shared live room." />
+    <meta name="description" content="Neon Snake Duel Lab: battle a deterministic autonomous controller or challenge another player through a temporary live room." />
     <meta name="robots" content="index,follow" />
     <title>Neon Snake — Duel Lab</title>
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
@@ -52,7 +52,7 @@
               <strong>30 × 30</strong>
             </div>
             <div role="status" aria-atomic="true">
-              <span id="rightLabel">AI</span>
+              <span id="rightLabel">AUTOPILOT</span>
               <strong id="rightScore">00</strong>
             </div>
           </header>
@@ -71,10 +71,10 @@
             <div class="duel-overlay" id="duelOverlay">
               <div>
                 <p class="overlay-kicker" id="duelKicker">DUEL PROTOCOL</p>
-                <h2 id="duelOverlayTitle">FACE THE<br /><em>PLANNER</em></h2>
-                <p id="duelMessage">You steer the acid signal. The violet rival uses the same visible survival logic.</p>
+                <h2 id="duelOverlayTitle">FACE THE<br /><em>ENGINE</em></h2>
+                <p id="duelMessage">You steer the acid signal. The violet rival is deterministic code built to read, predict, and survive.</p>
                 <button class="primary-button" id="aiStartButton" type="button">
-                  <span>Play vs AI</span><span aria-hidden="true">⚔</span>
+                  <span>Play vs Autopilot</span><span aria-hidden="true">⚔</span>
                 </button>
               </div>
             </div>
@@ -101,21 +101,38 @@
 
       <aside class="duel-deck">
         <div class="duel-type-tabs" role="tablist" aria-label="Duel type">
-          <button id="aiTab" type="button" role="tab" aria-selected="true" aria-controls="aiPanel">VS AI</button>
+          <button id="aiTab" type="button" role="tab" aria-selected="true" aria-controls="aiPanel">VS AUTOPILOT</button>
           <button id="liveTab" type="button" role="tab" aria-selected="false" aria-controls="livePanel" tabindex="-1">LIVE ROOM</button>
         </div>
 
         <section class="duel-panel" id="aiPanel" role="tabpanel" aria-labelledby="aiTab">
-          <p class="section-kicker">LOCAL INTELLIGENCE</p>
-          <h2>Outlive the planner.</h2>
-          <p>The rival evaluates both bodies, tests every move against every legal reply on the next tick, then searches ahead. It cannot see your next input.</p>
+          <p class="section-kicker">AUTONOMOUS CONTROLLER</p>
+          <h2>Outlive the engine.</h2>
+          <p>This deterministic decision system runs entirely in your browser. It rejects collisions, compares your legal replies, measures future space, and commits to the strongest bounded line it can find.</p>
+          <section class="system-trace ai-system-trace" aria-labelledby="aiTraceTitle">
+            <header>
+              <span id="aiTraceTitle">DECISION TRACE</span>
+              <strong>LOCAL / DETERMINISTIC</strong>
+            </header>
+            <div class="trace-flow" aria-label="Planner stages">
+              <span>READ BOTH BODIES</span><i aria-hidden="true">→</i>
+              <span>BRANCH REPLIES</span><i aria-hidden="true">→</i>
+              <span>SCORE SPACE</span><i aria-hidden="true">→</i>
+              <span>COMMIT</span>
+            </div>
+            <dl class="trace-readout">
+              <div><dt>MOVE</dt><dd id="aiTraceMove">WAITING</dd></div>
+              <div><dt>COUNTER RISK</dt><dd id="aiTraceRisk">NOT SAMPLED</dd></div>
+              <div><dt>FORECAST</dt><dd id="aiTraceDepth">0 TURNS</dd></div>
+            </dl>
+          </section>
           <dl class="duel-facts">
             <div><dt>FIELD</dt><dd>30 × 30</dd></div>
             <div><dt>BOUNDARY</dt><dd>LETHAL</dd></div>
             <div><dt>WIN</dt><dd>LAST ALIVE</dd></div>
           </dl>
           <button class="secondary-button duel-action" id="aiButton" type="button">
-            <span>Start AI duel</span><span aria-hidden="true">◎</span>
+            <span>Start Autopilot duel</span><span aria-hidden="true">◎</span>
           </button>
           <div class="duel-control-row">
             <button class="secondary-button" id="duelPauseDesktop" type="button" disabled>
@@ -134,6 +151,19 @@
           </div>
           <h2>Wait for your rival.</h2>
           <p>Share one Signal Code across phones, tablets, or computers. The room reserves two player slots and stops the duel if either rival disconnects.</p>
+          <section class="system-trace room-system-trace" aria-labelledby="roomTraceTitle">
+            <header>
+              <span id="roomTraceTitle">ROOM ARCHITECTURE</span>
+              <strong>CASUAL / HOST-AUTHORITATIVE</strong>
+            </header>
+            <div class="trace-flow" aria-label="Live room data path">
+              <span>P2 INPUT</span><i aria-hidden="true">→</i>
+              <span>VERCEL VALIDATION</span><i aria-hidden="true">→</i>
+              <span>REDIS QUEUE</span><i aria-hidden="true">→</i>
+              <span>P1 SNAPSHOT</span>
+            </div>
+            <p>Player 1's browser runs the match. The server validates message shape and player-slot permissions, but does not verify moves or outcomes. Anyone with the code can enter; idle room data expires automatically.</p>
+          </section>
 
           <label class="room-code-label" for="roomCodeInput">ROOM SIGNAL</label>
           <div class="room-code-row">
@@ -159,14 +189,14 @@
         </section>
 
         <section class="duel-method">
-          <p class="section-kicker">SHARED RULE</p>
-          <h3>No one moves early.</h3>
-          <p>AI duels wait for your click. Live rooms require two connected players and two Ready signals before the countdown can exist.</p>
+          <p class="section-kicker">HONEST BOUNDARY</p>
+          <h3>Local engine. Temporary relay.</h3>
+          <p>The snake planners stay on-device. Only Public Live Rooms use the backend, and they require two connected players plus two Ready signals before countdown.</p>
         </section>
 
         <div class="instructions duel-instructions" id="duelInstructions">
           <span><kbd>↑↓←→</kbd> or <kbd>WASD</kbd> move</span>
-          <span><kbd>SPACE</kbd> pause AI duel</span>
+          <span><kbd>SPACE</kbd> pause Autopilot duel</span>
           <span><kbd>R</kbd> restart current duel</span>
         </div>
       </aside>

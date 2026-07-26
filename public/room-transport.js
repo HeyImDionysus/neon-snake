@@ -71,6 +71,9 @@
     now = () => Date.now(),
     setTimeoutImpl = root.setTimeout,
     clearTimeoutImpl = root.clearTimeout,
+    AbortSignalImpl = root.AbortSignal,
+    AbortControllerImpl = root.AbortController,
+    requestTimeoutMs = 5_000,
     storage = root.sessionStorage,
   } = {}) {
     if (typeof code !== "string" || !code.trim()) {
@@ -90,6 +93,15 @@
     }
     if (typeof setTimeoutImpl !== "function" || typeof clearTimeoutImpl !== "function") {
       throw new TypeError("Timer functions are required.");
+    }
+    if (!Number.isFinite(requestTimeoutMs) || requestTimeoutMs < 500 || requestTimeoutMs > 30_000) {
+      throw new TypeError("A request timeout between 500 and 30000 milliseconds is required.");
+    }
+    if (
+      typeof AbortSignalImpl?.timeout !== "function"
+      && typeof AbortControllerImpl !== "function"
+    ) {
+      throw new TypeError("Request cancellation is not available.");
     }
 
     const normalizedCode = code.trim().toUpperCase();
@@ -118,34 +130,60 @@
     }
 
     async function request(action, messages = [], keepalive = false) {
-      const response = await fetchImpl(endpoint, {
-        method: "POST",
-        credentials: "same-origin",
-        keepalive,
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action,
-          room: normalizedCode,
-          clientId,
-          session,
-          ready,
-          messages,
-        }),
-      });
-      if (!response?.ok) {
-        const error = new Error(response?.status === 429
-          ? "Room service is busy."
-          : "Room service is unavailable.");
-        error.status = response?.status;
+      let response;
+      let timeoutTimer = null;
+      let signal;
+      if (typeof AbortSignalImpl?.timeout === "function") {
+        signal = AbortSignalImpl.timeout(requestTimeoutMs);
+      } else {
+        const controller = new AbortControllerImpl();
+        signal = controller.signal;
+        timeoutTimer = setTimeoutImpl(() => controller.abort(), requestTimeoutMs);
+      }
+      try {
+        response = await fetchImpl(endpoint, {
+          method: "POST",
+          credentials: "same-origin",
+          keepalive,
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action,
+            room: normalizedCode,
+            clientId,
+            session,
+            ready,
+            messages,
+          }),
+          signal,
+        });
+        if (!response?.ok) {
+          const error = new Error(response?.status === 429
+            ? "Room service is busy."
+            : "Room service is unavailable.");
+          error.status = response?.status;
+          error.code = `http_${Number(response?.status) || 0}`;
+          error.retryable = response?.status === 429 || response?.status >= 500;
+          throw error;
+        }
+        const data = await response.json();
+        if (!data || typeof data !== "object") {
+          throw new Error("Room service returned an invalid response.");
+        }
+        return data;
+      } catch (cause) {
+        const timedOut = cause?.name === "TimeoutError" || cause?.name === "AbortError";
+        if (!timedOut && response) throw cause;
+        const error = new Error(timedOut
+          ? "Room service request timed out."
+          : "Room service could not be reached.");
+        error.code = timedOut ? "timeout" : "network";
+        error.retryable = true;
         throw error;
+      } finally {
+        if (timeoutTimer !== null) clearTimeoutImpl(timeoutTimer);
       }
-      const data = await response.json();
-      if (!data || typeof data !== "object") {
-        throw new Error("Room service returned an invalid response.");
-      }
-      return data;
     }
 
     function emitRoster(players) {
@@ -224,22 +262,29 @@
           applyResponse(data);
         }
       } catch (error) {
-        const existingInputSequences = new Set(pendingInputs.map((message) => message.sequence));
-        const retryInputs = outgoing.filter((message) => (
-          message.type === "input" && !existingInputSequences.has(message.sequence)
-        ));
-        pendingInputs = [...retryInputs, ...pendingInputs];
-        outgoing.filter((message) => message.type !== "input").forEach((message) => {
-          if (!pending.has(message.type)) pending.set(message.type, message);
-        });
+        if (error?.retryable !== false) {
+          const existingInputSequences = new Set(pendingInputs.map((message) => message.sequence));
+          const retryInputs = outgoing.filter((message) => (
+            message.type === "input" && !existingInputSequences.has(message.sequence)
+          ));
+          pendingInputs = [...retryInputs, ...pendingInputs];
+          outgoing.filter((message) => message.type !== "input").forEach((message) => {
+            if (!pending.has(message.type)) pending.set(message.type, message);
+          });
+        }
         failures += 1;
         onStatus({
-          state: "reconnecting",
+          state: error?.retryable === false ? "rejected" : "reconnecting",
           role,
           slot,
           failures,
+          code: error?.code || "unknown",
         });
-        schedule(error?.status === 429 ? 1_000 : Math.min(2_500, 300 * 2 ** failures));
+        schedule(error?.status === 429
+          ? 1_000
+          : error?.retryable === false
+            ? 1_000
+            : Math.min(2_500, 300 * 2 ** failures));
       } finally {
         inFlight = false;
         schedule();

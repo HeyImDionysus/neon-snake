@@ -33,12 +33,12 @@ const tests = [
     assert.match(html, /30 × 30/);
     assert.match(styles, /\.duel-board/);
   }],
-  ["AI duel starts only from an explicit player action", () => {
+  ["Autopilot duel starts only from an explicit player action", () => {
     assert.match(script, /aiButton\.addEventListener\("click", prepareAiDuel\)/);
     assert.ok(!script.slice(script.lastIndexOf("hydrateRoomCode()")).includes("prepareAiDuel()"));
     assert.match(functionBody("prepareAiDuel"), /beginCountdown/);
   }],
-  ["AI decisions account for both snakes", () => {
+  ["Autopilot decisions account for both snakes", () => {
     const body = functionBody("chooseAiDirection");
     assert.match(body, /Rules\.evaluateDuelMoves/);
     assert.match(body, /opponentSnake: playerSnake/);
@@ -49,7 +49,11 @@ const tests = [
     assert.match(body, /drawFluidSnake\(opponentSnake/);
     assert.match(functionBody("drawFluidSnake"), /Rules\.fluidMotionPath/);
   }],
-  ["AI and live duels preserve two rapid turns in order", () => {
+  ["the renderer advances simulation before sampling interpolated motion", () => {
+    const body = functionBody("render");
+    assert.ok(body.indexOf("advanceGame(now)") < body.indexOf("drawArena(now)"));
+  }],
+  ["Autopilot and live duels preserve two rapid turns in order", () => {
     const request = functionBody("requestDirection");
     assert.match(request, /Rules\.bufferDirection\(playerInputBuffer, playerDirection, next\)/);
     assert.match(request, /Rules\.bufferDirection\(opponentInputBuffer, opponentDirection, next\)/);
@@ -94,6 +98,7 @@ const tests = [
     const status = functionBody("handleRoomStatus");
     assert.match(status, /reconnecting/);
     assert.match(status, /ROOM LINK RECONNECTING/);
+    assert.match(status, /ROOM UPDATE REJECTED/);
     assert.match(status, /roomConnectionState/);
     assert.match(functionBody("disconnectLiveRoom"), /roomConnectionState = "disconnected"/);
   }],
@@ -122,7 +127,7 @@ const tests = [
     );
     assert.match(functionBody("startLiveDuel"), /roomState\.textContent = "LIVE DUEL ACTIVE"/);
   }],
-  ["AI duels expose visible desktop pause and restart controls", () => {
+  ["Autopilot duels expose visible desktop pause and restart controls", () => {
     assert.match(html, /id="duelPauseDesktop"/);
     assert.match(html, /id="duelRestartButton"/);
     const state = functionBody("setRunState");

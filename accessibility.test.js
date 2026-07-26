@@ -67,6 +67,14 @@ const tests = [
     assert.match(soloHtml, /class="hud-primary" role="status" aria-atomic="true"/);
     assert.equal((duelHtml.match(/role="status" aria-atomic="true"/g) || []).length, 2);
   }],
+  ["rapid AI telemetry remains inspectable without becoming a live announcement stream", () => {
+    assert.match(soloHtml, /class="ai-lens" id="aiLens" role="region" aria-labelledby="aiLensLabel"/);
+    assert.doesNotMatch(soloHtml, /id="aiLens"[^>]*(?:role="status"|aria-live)/);
+    assert.match(duelHtml, /<dl class="trace-readout">/);
+    assert.doesNotMatch(duelHtml, /class="trace-readout"[^>]*aria-live/);
+    assert.match(soloHtml, /id="gameAnnouncement" aria-live="assertive"/);
+    assert.match(duelHtml, /id="duelAnnouncement" aria-live="assertive"/);
+  }],
   ["touch controls and room participants use named semantic groups", () => {
     assert.match(soloHtml, /class="mobile-controls" role="group" aria-label="Touch movement controls"/);
     assert.match(duelHtml, /class="duel-mobile-controls" role="group" aria-label="Touch duel controls"/);

@@ -108,6 +108,27 @@ const tests = [
     assert.equal(rules.collisionType({ x: 0, y: 1 }, snake, true, "canvas", 20), null);
     assert.equal(rules.modeWraps("canvas"), true);
   }],
+  ["Canvas composition is deterministic, seed-specific, and never reverses", () => {
+    function trace(seed) {
+      let state = null;
+      let direction = { x: 1, y: 0 };
+      const moves = [];
+      for (let step = 0; step < 80; step += 1) {
+        const result = rules.canvasCompositionMove(state, direction, seed);
+        assert.equal(Math.abs(result.direction.x) + Math.abs(result.direction.y), 1);
+        assert.ok(
+          result.direction.x !== -direction.x || result.direction.y !== -direction.y,
+          `reversal at ${step}`,
+        );
+        moves.push(`${result.direction.x},${result.direction.y}`);
+        direction = result.direction;
+        state = result.state;
+      }
+      return moves.join("|");
+    }
+    assert.equal(trace(42), trace(42));
+    assert.notEqual(trace(42), trace(314159));
+  }],
   ["classic detects walls", () => {
     assert.equal(rules.collisionType({ x: -1, y: 5 }, [{ x: 0, y: 5 }], false, "classic", 20), "wall");
   }],

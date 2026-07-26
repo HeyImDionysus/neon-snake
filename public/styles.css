@@ -480,6 +480,18 @@ body[data-game-state="over"] .overlay:has(.decision-report:not([hidden])) #overl
 .ai-lens strong { color: var(--paper); font: 700 13px var(--mono); letter-spacing: .06em; }
 .ai-lens small { margin-top: 6px; color: var(--muted); font: 700 8px var(--mono); letter-spacing: .08em; }
 
+.ai-evidence {
+  position: relative;
+  z-index: 1;
+  display: block;
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid #ffffff12;
+  color: var(--dim);
+  font: 700 6px/1.45 var(--mono);
+  letter-spacing: .08em;
+}
+
 .ai-lens.driver {
   border-color: #adff6677;
   color: var(--acid);
