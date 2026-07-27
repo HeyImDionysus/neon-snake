@@ -685,6 +685,22 @@ function reconcileLocalRoomReady(players) {
   roomReadyConfirmed = authoritativeReady;
 }
 
+function applyAuthoritativeRoomRoster(players) {
+  if (!Array.isArray(players)) return;
+  reconcileLocalRoomReady(players);
+  roomPeers = new Map(players
+    .filter((player) => player?.id && player.id !== clientId)
+    .map((player) => [player.id, {
+      id: player.id,
+      connected: true,
+      ready: Boolean(player.ready),
+      slot: Number.isInteger(player.slot) ? player.slot : -1,
+      seenAt: Number.isFinite(Number(player.seenAt)) ? Number(player.seenAt) : Date.now(),
+      profile: player.profile && typeof player.profile === "object" ? player.profile : null,
+    }]));
+  roomPlayers = activeRoomRoster().slice(0, 2);
+}
+
 function setRoomReadyIntent(nextReady, pending = true) {
   roomReadyDesired = Boolean(nextReady);
   roomReady = roomReadyDesired;
@@ -822,6 +838,7 @@ function syncLiveRoom() {
 function handleRoomStatus(status) {
   if (!status || typeof status !== "object") return;
   if (status.state === "synchronized") {
+    applyAuthoritativeRoomRoster(status.players);
     if (roomTransport) syncLiveRoom();
     return;
   }
@@ -853,20 +870,7 @@ function handleRoomStatus(status) {
   roomConnected = true;
   roomRole = status.role === "player" ? "player" : "spectator";
   roomSlot = roomRole === "player" && Number.isInteger(status.slot) ? status.slot : -1;
-  if (Array.isArray(status.players)) {
-    reconcileLocalRoomReady(status.players);
-    roomPeers = new Map(status.players
-      .filter((player) => player?.id && player.id !== clientId)
-      .map((player) => [player.id, {
-        id: player.id,
-        connected: true,
-        ready: Boolean(player.ready),
-        slot: Number.isInteger(player.slot) ? player.slot : -1,
-        seenAt: Number.isFinite(Number(player.seenAt)) ? Number(player.seenAt) : Date.now(),
-        profile: player.profile && typeof player.profile === "object" ? player.profile : null,
-      }]));
-    roomPlayers = activeRoomRoster().slice(0, 2);
-  }
+  applyAuthoritativeRoomRoster(status.players);
   if (roomTransport) syncLiveRoom();
 }
 
