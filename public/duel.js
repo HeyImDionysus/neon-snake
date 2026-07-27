@@ -92,6 +92,7 @@ let roomSlot = -1;
 let roomConnectionState = "disconnected";
 let roomPlayers = [];
 let roomPeers = new Map();
+let authoritativeDeparturePending = false;
 let liveCountdownTimer = null;
 let liveCountdownActive = false;
 let liveRoundId = 0;
@@ -688,6 +689,10 @@ function reconcileLocalRoomReady(players) {
 
 function applyAuthoritativeRoomRoster(players) {
   if (!Array.isArray(players)) return;
+  const previousPlayerCount = (roomRole === "player" ? 1 : 0)
+    + [...roomPeers.values()].filter((player) => player.slot === 0 || player.slot === 1).length;
+  const nextPlayerCount = players.filter((player) => player?.slot === 0 || player?.slot === 1).length;
+  authoritativeDeparturePending = previousPlayerCount >= 2 && nextPlayerCount < 2;
   reconcileLocalRoomReady(players);
   roomPeers = new Map(players
     .filter((player) => player?.id && player.id !== clientId)
@@ -745,6 +750,8 @@ function activeRoomRoster() {
 }
 
 function syncLiveRoom() {
+  const authoritativeDeparture = authoritativeDeparturePending;
+  authoritativeDeparturePending = false;
   const roomRoster = activeRoomRoster();
   roomPlayers = roomRoster.slice(0, 2);
   updateRosterSlot(roomSlotOne, roomPlayers[0], 0);
@@ -781,7 +788,7 @@ function syncLiveRoom() {
   if (phase === "waiting") {
     roomState.textContent = roomConnected ? "WAITING FOR PLAYER 2" : "NOT CONNECTED";
     if (liveCountdownActive) abortLiveCountdown();
-    if (runState === "ready" || runState === "over") {
+    if (runState === "ready" || (runState === "over" && authoritativeDeparture)) {
       setRunState("ready", roomConnected ? "WAITING FOR PLAYER 2" : "LIVE ROOM STANDBY");
       showOverlay(
         "LIVE ROOM",
@@ -897,6 +904,7 @@ async function connectLiveRoom() {
   roomState.textContent = "CONNECTING TO LIVE ROOM";
   roomLatency.textContent = "REALTIME PING · OPENING LINK";
   roomPeers = new Map();
+  authoritativeDeparturePending = false;
   setRoomReadyIntent(false);
   roomRole = "disconnected";
   roomSlot = -1;

@@ -351,9 +351,11 @@ const tests = [
     assert.match(body, /liveCountdownActive/);
     assert.match(
       body,
-      /runState === "ready" \|\| runState === "over"/,
-      "A disconnected post-round room must replace the stale result overlay",
+      /runState === "over" && authoritativeDeparture/,
+      "Only an authoritative departure may replace a completed-round result",
     );
+    const roster = functionBody("applyAuthoritativeRoomRoster");
+    assert.match(roster, /previousPlayerCount >= 2 && nextPlayerCount < 2/);
     const handler = functionBody("handleRoomMessage");
     assert.match(handler, /message\.type === "countdown-cancel"/);
     assert.match(handler, /cancelLiveRound\(message\)/);
