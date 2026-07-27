@@ -26,14 +26,25 @@
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-html { min-width: 320px; }
+html {
+  min-width: 320px;
+  min-height: 100%;
+  overflow-x: clip;
+  overflow-y: scroll;
+  scrollbar-color: var(--line-bright) var(--ink);
+  scrollbar-width: thin;
+}
+
+html::-webkit-scrollbar { width: 10px; }
+html::-webkit-scrollbar-track { background: var(--ink); }
+html::-webkit-scrollbar-thumb { border: 3px solid var(--ink); background: var(--line-bright); }
 
 body {
   position: relative;
   isolation: isolate;
   margin: 0;
   min-height: 100vh;
-  overflow-x: hidden;
+  overflow-x: clip;
   color: var(--paper);
   background:
     radial-gradient(circle at 12% 8%, #18322099 0, transparent 34rem),
@@ -1371,7 +1382,7 @@ kbd { padding: 2px 4px; border: 1px solid var(--line-bright); color: var(--muted
 
 .mobile-controls {
   display: none;
-  grid-template-columns: repeat(3, 54px);
+  grid-template-columns: repeat(3, 62px);
   justify-content: center;
   gap: 7px;
   margin-top: 16px;
@@ -1380,13 +1391,15 @@ kbd { padding: 2px 4px; border: 1px solid var(--line-bright); color: var(--muted
 .direction-button {
   display: grid;
   place-items: center;
-  width: 54px;
-  height: 54px;
+  width: 62px;
+  height: 58px;
   border: 1px solid var(--line-bright);
   color: var(--acid);
   background: var(--panel);
   font: 18px var(--mono);
   cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
 }
 
 .direction-button:hover { background: var(--panel-hover); }

@@ -1317,9 +1317,15 @@ copyRoomButton.addEventListener("click", copyRoomLink);
 roomCodeInput.addEventListener("input", () => {
   roomCodeInput.value = roomCodeInput.value.toUpperCase().replace(/[^23456789A-HJ-NP-Z]/g, "").slice(0, 6);
 });
-document.querySelectorAll("[data-duel-direction]").forEach((button) => {
-  button.addEventListener("click", () => requestDirection(DIRECTIONS[button.dataset.duelDirection]));
-});
+globalThis.NeonSnakeTouchControls.bindSwipe(
+  board,
+  (name) => requestDirection(DIRECTIONS[name]),
+);
+globalThis.NeonSnakeTouchControls.bindDirectionButtons(
+  document,
+  "[data-duel-direction]",
+  (name) => requestDirection(DIRECTIONS[name]),
+);
 window.addEventListener("keydown", handleKeyboard);
 window.addEventListener("beforeunload", () => {
   if (roomTransport) postRoomMessage({ type: "leave" });

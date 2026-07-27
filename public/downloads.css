@@ -129,6 +129,17 @@
 
 .download-button span:last-child { font: 700 8px var(--mono); letter-spacing: .1em; }
 .download-button:hover { filter: brightness(1.1); transform: translateY(-2px); }
+.download-button:focus-visible { outline: 3px solid var(--paper); outline-offset: 4px; }
+.download-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 10px;
+  color: var(--dim);
+  font: 700 7px var(--mono);
+  letter-spacing: .11em;
+}
+.download-meta span:last-child { color: var(--paper); text-align: right; }
 .android-download { background: linear-gradient(145deg, rgba(169,139,255,.06), transparent 42%), rgba(8, 14, 10, .9); }
 .android-download .platform-mark,
 .android-download header p { color: var(--violet); }
@@ -161,5 +172,8 @@
   .downloads-hero h1 { font-size: clamp(3rem, 18vw, 5.5rem); }
   .wallpaper-preview { min-height: 500px; }
   .download-platform { min-height: 0; }
+  .download-meta { align-items: flex-start; flex-direction: column; }
+  .download-meta span:last-child { text-align: left; }
+  .download-button { align-items: flex-start; flex-direction: column; justify-content: center; gap: 7px; padding-block: 12px; }
   .download-proof a { width: 100%; margin-left: 0; }
 }

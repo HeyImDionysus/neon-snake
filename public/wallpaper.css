@@ -11,7 +11,7 @@
   box-sizing: border-box;
 }
 
-html,
+html.wallpaper-runtime,
 body.wallpaper-runtime {
   width: 100%;
   height: 100%;

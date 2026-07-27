@@ -49,7 +49,7 @@ assert.doesNotMatch(homeHtml, /href="wallpaper\.html"/);
 assert.match(homeHtml, /WINDOWS LIVELY · ANDROID LIVE WALLPAPER/);
 assert.match(downloadsHtml, /Neon-Snake-Android-v1\.1\.0\.apk/);
 assert.match(downloadsHtml, /Neon-Snake-Lively-v1\.1\.0\.zip/);
-assert.equal((downloadsHtml.match(/ download href=/g) || []).length, 2);
+assert.equal((downloadsHtml.match(/<a class="download-button"[^>]*\bdownload="/g) || []).length, 2);
 assert.match(downloadsHtml, /Download for Android/);
 assert.match(downloadsHtml, /Download for Windows/);
 assert.match(wallpaperHtml, /game-logic\.js/);

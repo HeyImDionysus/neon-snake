@@ -97,9 +97,9 @@ const tests = [
   ["mobile actions preserve the 44-pixel minimum target", () => {
     assert.match(soloStyles, /\.start-actions \.demo-button \{ min-height: 44px; \}/);
     assert.match(soloStyles, /body\[data-game-state="over"\][^]*?\.start-actions \.demo-button \{\s*min-height: 44px;/);
-    assert.match(soloStyles, /\.direction-button \{[^]*?width: 54px;[^]*?height: 54px;/);
+    assert.match(soloStyles, /\.direction-button \{[^]*?width: 62px;[^]*?height: 58px;/);
     assert.match(duelStyles, /\.duel-control-row button \{[^]*?min-height: 44px;/);
-    assert.match(duelStyles, /\.duel-mobile-controls button \{[^]*?width: 54px;[^]*?height: 45px;/);
+    assert.match(duelStyles, /\.duel-mobile-controls button \{[^]*?width: 62px;[^]*?height: 54px;/);
   }],
   ["run ownership transitions move focus to the board or next action", () => {
     assert.match(functionBody(soloScript, "prepareRun"), /focusWithoutScroll\(canvas\)/);

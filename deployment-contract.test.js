@@ -82,6 +82,11 @@ const tests = [
       const htmlFile = path.join(publicRoot, name);
       localReferences(htmlFile).forEach((reference) => {
         const urlPath = new URL(reference, `https://neon-snake.invalid/${name}`).pathname;
+        if (urlPath.startsWith("/downloads/")) {
+          assert.equal(fs.existsSync(publicPath(urlPath)), true, `Missing direct download: ${reference}`);
+          assert.equal(urls.includes(urlPath), false, `Large download must not enter the offline shell: ${reference}`);
+          return;
+        }
         assert.ok(urls.includes(urlPath), `Offline shell omits ${reference} from ${name}`);
       });
     });
