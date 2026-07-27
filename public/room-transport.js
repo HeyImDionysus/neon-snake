@@ -244,6 +244,12 @@
         }
       }
 
+      onStatus({
+        state: "connected",
+        role,
+        slot,
+        players: roster,
+      });
       emitRoster(data.players);
       ["state", "input", "countdown"].forEach((type) => {
         const revision = Number(data[`${type}Rev`]) || 0;
@@ -254,12 +260,6 @@
           onMessage(data[type]);
         }
         revisions[type] = Math.max(revisions[type], revision);
-      });
-      onStatus({
-        state: "connected",
-        role,
-        slot,
-        players: roster,
       });
     }
 

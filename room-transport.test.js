@@ -159,6 +159,7 @@ const tests = [
     const scheduled = [];
     const received = [];
     const statuses = [];
+    const eventOrder = [];
     let syncCount = 0;
     const fetchImpl = async (_url, options) => {
       const body = JSON.parse(options.body);
@@ -214,8 +215,14 @@ const tests = [
     const transport = await transports.createRemoteRoomTransport({
       code: "ABC234",
       clientId: "client-one",
-      onMessage: (message) => received.push(message),
-      onStatus: (status) => statuses.push(status),
+      onMessage: (message) => {
+        received.push(message);
+        eventOrder.push(`message:${message.type}`);
+      },
+      onStatus: (status) => {
+        statuses.push(status);
+        eventOrder.push(`status:${status.state}`);
+      },
       fetchImpl,
       setTimeoutImpl: (callback) => {
         scheduled.push(callback);
@@ -229,6 +236,10 @@ const tests = [
     assert.equal(requests[0].options.credentials, "same-origin");
     assert.equal(statuses.at(-1).role, "player");
     assert.equal(statuses.at(-1).slot, 0);
+    assert.ok(
+      eventOrder.indexOf("status:connected") < eventOrder.indexOf("message:presence"),
+      JSON.stringify(eventOrder),
+    );
     assert.ok(received.some((message) => (
       message.type === "presence"
       && message.from === "client-two"

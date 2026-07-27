@@ -142,10 +142,12 @@ const tests = [
   }],
   ["hosted verification includes the deterministic AI quality benchmark", () => {
     assert.match(workflow, /node ai-quality\.test\.js/);
+    assert.match(workflow, /node duel-quality\.test\.js/);
     assert.match(workflow, /node accessibility\.test\.js/);
     assert.match(workflow, /node service-worker\.test\.js/);
     assert.match(workflow, /node room-api\.test\.js/);
     assert.match(readme, /ai-quality\.test\.js/);
+    assert.match(readme, /duel-quality\.test\.js/);
     assert.match(readme, /accessibility\.test\.js/);
     assert.match(readme, /service-worker\.test\.js/);
     assert.match(readme, /room-api\.test\.js/);

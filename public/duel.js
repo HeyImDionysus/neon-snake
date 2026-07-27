@@ -82,6 +82,7 @@ let roomTransport = null;
 let roomSweep = null;
 let roomCode = "";
 let roomReady = false;
+let roomReadyConfirmed = false;
 let roomConnected = false;
 let roomRole = "disconnected";
 let roomSlot = -1;
@@ -343,6 +344,8 @@ function chooseAiDirection() {
     direction: opponentDirection,
     opponentSnake: playerSnake,
     opponentDirection: playerDirection,
+    score: opponentScore,
+    opponentScore: playerScore,
     food,
     mode: "classic",
     gridSize: DUEL_GRID,
@@ -528,6 +531,7 @@ function endDuel(winner, crashes = {}) {
 
   if (duelType === "live") {
     roomReady = false;
+    roomReadyConfirmed = false;
     postRoomMessage({ type: "ready", ready: false });
     syncLiveRoom();
   }
@@ -632,10 +636,28 @@ function roomIdentity() {
   return {
     id: clientId,
     connected: roomConnected,
-    ready: roomReady,
+    ready: roomReadyConfirmed,
     slot: roomSlot,
     seenAt: Date.now(),
   };
+}
+
+function liveRoomGateOpen(players = roomPlayers) {
+  if (!roomConnected || roomConnectionState !== "connected") return false;
+  const participants = players.map((player) => ({
+    connected: true,
+    ready: Boolean(player.ready),
+  }));
+  return Rules.liveRoomPhase(participants) === "countdown";
+}
+
+function reconcileLocalRoomReady(players) {
+  const local = Array.isArray(players)
+    ? players.find((player) => player?.id === clientId)
+    : null;
+  const authoritativeReady = roomRole === "player" && Boolean(local?.ready);
+  roomReady = authoritativeReady;
+  roomReadyConfirmed = authoritativeReady;
 }
 
 function postRoomMessage(message) {
@@ -736,11 +758,17 @@ function syncLiveRoom() {
       );
     }
   } else if (phase === "countdown") {
-    roomState.textContent = runState === "running"
-      ? "LIVE DUEL ACTIVE"
-      : "BOTH READY · COUNTDOWN";
-    if (
-      runState !== "running"
+    const gateOpen = liveRoomGateOpen();
+    roomState.textContent = !gateOpen
+      ? "ROOM LINK RECONNECTING"
+      : runState === "running"
+        ? "LIVE DUEL ACTIVE"
+        : "BOTH READY · COUNTDOWN";
+    if (!gateOpen && liveCountdownActive) {
+      abortLiveCountdown();
+    } else if (
+      gateOpen
+      && runState !== "running"
       && !liveCountdownActive
       && roomPlayers[0]?.id === clientId
     ) {
@@ -760,6 +788,7 @@ function handleRoomStatus(status) {
   if (!status || typeof status !== "object") return;
   if (status.state === "reconnecting") {
     roomConnectionState = "reconnecting";
+    if (liveCountdownActive) abortLiveCountdown();
     roomState.textContent = "ROOM LINK RECONNECTING";
     announcement.textContent = status.code === "timeout"
       ? "Room request timed out. Reconnecting."
@@ -768,6 +797,7 @@ function handleRoomStatus(status) {
   }
   if (status.state === "rejected") {
     roomConnectionState = "degraded";
+    if (liveCountdownActive) abortLiveCountdown();
     roomState.textContent = "ROOM UPDATE REJECTED · RETRYING";
     announcement.textContent = "The room service rejected one update. It was discarded instead of retrying forever.";
     return;
@@ -778,6 +808,7 @@ function handleRoomStatus(status) {
   roomRole = status.role === "player" ? "player" : "spectator";
   roomSlot = roomRole === "player" && Number.isInteger(status.slot) ? status.slot : -1;
   if (Array.isArray(status.players)) {
+    reconcileLocalRoomReady(status.players);
     roomPeers = new Map(status.players
       .filter((player) => player?.id && player.id !== clientId)
       .map((player) => [player.id, {
@@ -813,6 +844,7 @@ async function connectLiveRoom() {
   roomState.textContent = "CONNECTING TO LIVE ROOM";
   roomPeers = new Map();
   roomReady = false;
+  roomReadyConfirmed = false;
   roomRole = "disconnected";
   roomSlot = -1;
   roomConnectionState = "connecting";
@@ -863,6 +895,7 @@ function disconnectLiveRoom() {
   roomPeers = new Map();
   roomPlayers = [];
   roomReady = false;
+  roomReadyConfirmed = false;
   roomConnected = false;
   roomRole = "disconnected";
   roomSlot = -1;
@@ -882,6 +915,7 @@ function disconnectLiveRoom() {
 function toggleRoomReady() {
   if (!roomConnected || !roomPlayers.some((player) => player.id === clientId)) return;
   roomReady = !roomReady;
+  if (!roomReady) roomReadyConfirmed = false;
   postRoomMessage({ type: "ready", ready: roomReady });
   syncLiveRoom();
 }
@@ -889,6 +923,7 @@ function toggleRoomReady() {
 function beginLiveCountdown(startsAt, round) {
   if (!Number.isSafeInteger(round) || round < 1) return;
   if (round <= liveRoundId || runState === "running") return;
+  if (!liveRoomGateOpen()) return;
   if (liveCountdownActive) {
     clearInterval(liveCountdownTimer);
     liveCountdownTimer = null;
@@ -901,11 +936,7 @@ function beginLiveCountdown(startsAt, round) {
   aiStartButton.hidden = true;
 
   const update = () => {
-    const phase = Rules.liveRoomPhase(roomPlayers.map((player) => ({
-      connected: true,
-      ready: Boolean(player.ready),
-    })));
-    if (phase !== "countdown") {
+    if (!liveRoomGateOpen()) {
       abortLiveCountdown();
       return;
     }
@@ -942,11 +973,7 @@ function abortLiveCountdown() {
 }
 
 function startLiveDuel() {
-  const phase = Rules.liveRoomPhase(roomPlayers.map((player) => ({
-    connected: true,
-    ready: Boolean(player.ready),
-  })));
-  if (phase !== "countdown" || roomPlayers.length !== 2) {
+  if (!liveRoomGateOpen()) {
     abortLiveCountdown();
     return;
   }
@@ -1102,6 +1129,7 @@ function handleKeyboard(event) {
     if (duelType === "ai") prepareAiDuel();
     else if (roomConnected) {
       roomReady = false;
+      roomReadyConfirmed = false;
       postRoomMessage({ type: "ready", ready: false });
       syncLiveRoom();
     }

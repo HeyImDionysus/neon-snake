@@ -17,6 +17,7 @@ node canvas-performance.test.js
 node canvas-browser-performance.test.js
 node control-flow.test.js
 node duel-control-flow.test.js
+node duel-quality.test.js
 node room-transport.test.js
 node room-api.test.js
 node identity-system.test.js
@@ -61,13 +62,13 @@ The optional live Decision Lens uses that identical calculation as a co-pilot. P
 
 In the Duel Lab, `Play vs Autopilot` is a true two-snake match rather than an advice mode. The violet rival treats your body as occupied space and performs a deterministic two-ply simultaneous-move search: every candidate move is tested against your worst legal reply, then against the next exchange. Terminal wins and losses dominate the score; surviving lines compare future territory, exits, food-race pressure, score, and body length. Recent head history penalizes repeated circuits, while a small Signal-derived tie break varies equivalent safe lines without overriding tactics. It cannot see your next input and does not claim to solve the full game.
 
-The executable quality suite proves more than isolated fixtures. Classic Autopilot fills all 400 cells—397 collected growth pickups after the opening length—on three distinct public Signal Codes while preserving the cycle invariant. Timed Cores can expire and reseed, so the completion gate bounds every active objective to one board traversal and reports actual capture droughts separately instead of claiming every transient Core is collected. Eight-seed matrices require purposeful, distinct routes across solo modes; timed Rush and Canvas runs exercise Steady, Arcade, and Overdrive with the live Core, mutation, brush-length, composition, and strict 60-second Rush rules. Duel simulations run the controller against direct food-racing and pursuit policies, require seeded route variation, reject avoidable next-tick losses, retain the food target across the full search horizon, and detect regressions into short pursuit loops.
+The executable quality suite proves more than isolated fixtures. Classic Autopilot fills all 400 cells—397 collected growth pickups after the opening length—on three distinct public Signal Codes while preserving the cycle invariant. Timed Cores can expire and reseed, so the completion gate bounds every active objective to one board traversal and reports actual capture droughts separately instead of claiming every transient Core is collected. Eight-seed matrices require purposeful, distinct routes across solo modes; timed Rush and Canvas runs exercise Steady, Arcade, and Overdrive with the live Core, mutation, brush-length, composition, and strict 60-second Rush rules. Duel simulations run the controller from both spawn roles against food-racing, pursuit, and evasion policies, carry the live score into future-state values, require seeded route variation, reject avoidable next-tick losses, retain the food target across the full search horizon, and detect regressions into short pursuit loops. A separate symmetry gate swaps player order across 1,200 simultaneous states and requires identical outcomes.
 
 Signal Codes make challenge generation equally inspectable. A six-character code is hashed once, then a tiny seeded generator chooses each gameplay-affecting random outcome. The same code, mode, pace, and player moves therefore produce the same pickup and mutation sequence—without a backend or saved server state.
 
 That code also drives the site's Signal Cartography identity. A separate deterministic renderer turns the current Signal and protocol into flowing currents, contour fields, and orbiting nodes behind the interface. It is capped at 24 frames per second, pauses drawing in hidden tabs, becomes static when reduced motion is requested, and never participates in game state. The custom signal-serpent mark, protocol glyphs, and curved run trace carry the same visual grammar through solo and Duel surfaces without adding a framework or image payload.
 
-Signal Codes also name duel rooms. `PUBLIC LIVE ROOM` reserves exactly two server-assigned player slots in Redis, while additional visitors become read-only spectators. These are casual, host-authoritative matches: Player 1's browser owns the deterministic simulation and publishes schema-validated snapshots; Player 2 publishes an ordered, acknowledged direction queue. The Vercel Function validates message shape and player-slot permissions, but it does not verify legal moves, scores, or outcomes. Anyone with the Signal Code can enter the room. Countdown requires two connected, Ready players, and idle data expires automatically.
+Signal Codes also name duel rooms. `PUBLIC LIVE ROOM` reserves exactly two server-assigned player slots in Redis, while additional visitors become read-only spectators. These are casual, host-authoritative matches: Player 1's browser owns the deterministic simulation and publishes schema-validated snapshots; Player 2 publishes an ordered, acknowledged direction queue. The Vercel Function validates message shape and player-slot permissions, but it does not verify legal moves, scores, or outcomes. Anyone with the Signal Code can enter the room. Countdown requires a healthy room link plus two server-roster-confirmed Ready players, and idle data expires automatically.
 
 ## Current rule set
 
@@ -110,6 +111,7 @@ Signal Codes also name duel rooms. `PUBLIC LIVE ROOM` reserves exactly two serve
 - `canvas-browser-performance.test.js` — real Chromium late-run gate that combines 1,400 rasterized glow strokes, 2× compositing, peak overlapping effects, and a worst-shaped planner decision inside the 44 ms Overdrive movement budget.
 - `control-flow.test.js` — executable ownership and explicit-start regressions.
 - `duel-control-flow.test.js` — executable expanded-arena and room-gate regressions.
+- `duel-quality.test.js` — executable 1,200-state simultaneous-resolution symmetry gate plus a 36-run, both-spawn adversarial planner matrix.
 - `room-transport.test.js` — executable transport lifecycle and envelope regressions.
 - `room-api.test.js` — executable origin, validation, role, rate, expiry, and configuration regressions.
 - `identity-system.test.js` — executable identity, deterministic field, protocol-glyph, cache, and motion-budget regressions.

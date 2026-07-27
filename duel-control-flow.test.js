@@ -3,6 +3,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const vm = require("node:vm");
 
 const root = __dirname;
 const html = fs.readFileSync(path.join(root, "public", "duel.html"), "utf8");
@@ -20,6 +21,28 @@ function functionBody(name) {
     if (depth === 0) return script.slice(brace + 1, index);
   }
   throw new Error(`Unclosed function ${name}`);
+}
+
+function functionSource(name) {
+  const start = script.indexOf(`function ${name}(`);
+  assert.ok(start >= 0, `Expected function ${name}`);
+  const brace = script.indexOf("{", start);
+  let depth = 0;
+  for (let index = brace; index < script.length; index += 1) {
+    if (script[index] === "{") depth += 1;
+    if (script[index] === "}") depth -= 1;
+    if (depth === 0) return script.slice(start, index + 1);
+  }
+  throw new Error(`Unclosed function ${name}`);
+}
+
+function installFunctions(names, context) {
+  vm.runInNewContext(
+    `${names.map(functionSource).join("\n")}
+this.exports = { ${names.join(", ")} };`,
+    context,
+  );
+  return context.exports;
 }
 
 const tests = [
@@ -42,6 +65,8 @@ const tests = [
     const body = functionBody("chooseAiDirection");
     assert.match(body, /Rules\.evaluateDuelMoves/);
     assert.match(body, /opponentSnake: playerSnake/);
+    assert.match(body, /score: opponentScore/);
+    assert.match(body, /opponentScore: playerScore/);
   }],
   ["the renderer draws both fluid snakes", () => {
     const body = functionBody("render");
@@ -76,6 +101,62 @@ const tests = [
     const countdown = functionBody("beginLiveCountdown");
     assert.match(countdown, /round <= liveRoundId/);
     assert.match(countdown, /clearInterval\(liveCountdownTimer\)/);
+  }],
+  ["live countdown requires an authoritative healthy-room gate", () => {
+    const context = {
+      roomConnected: true,
+      roomConnectionState: "connected",
+      roomPlayers: [
+        { connected: true, ready: true },
+        { connected: true, ready: true },
+      ],
+      Rules: {
+        liveRoomPhase(participants) {
+          if (participants.length !== 2) return "waiting";
+          return participants.every((participant) => participant.ready)
+            ? "countdown"
+            : "ready";
+        },
+      },
+    };
+    const { liveRoomGateOpen } = installFunctions(["liveRoomGateOpen"], context);
+    assert.equal(liveRoomGateOpen(), true);
+    context.roomConnectionState = "reconnecting";
+    assert.equal(liveRoomGateOpen(), false);
+    context.roomConnectionState = "connected";
+    context.roomPlayers[1].ready = false;
+    assert.equal(liveRoomGateOpen(), false);
+    context.roomPlayers[1].ready = true;
+    context.roomConnected = false;
+    assert.equal(liveRoomGateOpen(), false);
+
+    assert.match(functionBody("syncLiveRoom"), /liveRoomGateOpen\(\)/);
+    assert.match(functionBody("beginLiveCountdown"), /liveRoomGateOpen\(\)/);
+    assert.match(functionBody("startLiveDuel"), /liveRoomGateOpen\(\)/);
+  }],
+  ["server roster responses reconcile the local Ready signal", () => {
+    const context = {
+      clientId: "local-player",
+      roomReady: true,
+      roomReadyConfirmed: true,
+      roomRole: "player",
+    };
+    const { reconcileLocalRoomReady } = installFunctions(
+      ["reconcileLocalRoomReady"],
+      context,
+    );
+    reconcileLocalRoomReady([
+      { id: "local-player", ready: false },
+      { id: "remote-player", ready: true },
+    ]);
+    assert.equal(context.roomReady, false);
+    assert.equal(context.roomReadyConfirmed, false);
+    context.roomRole = "spectator";
+    reconcileLocalRoomReady([{ id: "local-player", ready: true }]);
+    assert.equal(context.roomReady, false);
+    assert.equal(context.roomReadyConfirmed, false);
+    assert.match(functionBody("roomIdentity"), /ready: roomReadyConfirmed/);
+    assert.match(functionBody("handleRoomStatus"), /reconcileLocalRoomReady\(status\.players\)/);
   }],
   ["live-room transport is explicitly identified as public cross-device play", () => {
     assert.match(html, /PUBLIC LIVE ROOM/);
@@ -126,7 +207,7 @@ const tests = [
     const body = functionBody("syncLiveRoom");
     assert.match(
       body,
-      /phase === "countdown"\) \{\n    roomState\.textContent = runState === "running"\n      \? "LIVE DUEL ACTIVE"/,
+      /phase === "countdown"\)[\s\S]*runState === "running"[\s\S]*\? "LIVE DUEL ACTIVE"/,
     );
     assert.match(functionBody("startLiveDuel"), /roomState\.textContent = "LIVE DUEL ACTIVE"/);
   }],
