@@ -1121,8 +1121,7 @@ function cancelLiveRound(message) {
     roomPeers = new Map([...roomPeers].filter(([, peer]) => peer.slot !== departedSlot));
   }
   const wasActive = liveCountdownActive || runState === "countdown" || runState === "running";
-  setRoomReadyIntent(false);
-  postRoomMessage({ type: "ready", ready: false });
+  setRoomReadyIntent(false, false);
   if (liveCountdownActive) abortLiveCountdown();
   nextMoveAt = 0;
   syncLiveRoom();

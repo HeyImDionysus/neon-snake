@@ -290,11 +290,15 @@
         return true;
       },
       setActive(nextActive, round = null) {
+        const wasActive = active;
+        const previousRound = activeRound;
         active = Boolean(nextActive);
         activeRound = active && Number.isSafeInteger(Number(round))
           ? Number(round)
           : null;
-        armStateWatchdog();
+        if (!active) armStateWatchdog();
+        else if (!wasActive || previousRound !== activeRound) armStateWatchdog();
+        else if (stateTimer === null) armStateWatchdog(3_000);
         scheduleHeartbeat();
       },
       close() {

@@ -381,6 +381,12 @@ const tests = [
     });
     const watchdog = [...timers.entries()].find(([, timer]) => timer.delay === 3_000);
     assert.ok(watchdog, "A server snapshot must arm the authoritative state watchdog");
+    transport.setActive(true, 1_000);
+    assert.equal(
+      timers.get(watchdog[0]),
+      watchdog[1],
+      "Starting the accepted round must preserve its three-second watchdog",
+    );
     timers.delete(watchdog[0]);
     timestamp += watchdog[1].delay;
     watchdog[1].callback();

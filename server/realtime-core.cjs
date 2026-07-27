@@ -28,6 +28,7 @@ if (!Rules?.resolveDuelTick) throw new Error("Shared duel rules are unavailable.
 const PRESENCE_SCRIPT = String.raw`
 local presenceKey = KEYS[1]
 local metadataKey = KEYS[2]
+local generationKey = KEYS[3]
 local now = tonumber(ARGV[1])
 local action = ARGV[2]
 local clientId = ARGV[3]
@@ -50,6 +51,7 @@ end
 
 local current = read(clientId)
 if action == "join" then
+  local generation = redis.call("INCR", generationKey)
   if not current and redis.call("ZCARD", presenceKey) >= ${MAX_CONNECTIONS} then
     return cjson.encode({ error = "room_full" })
   end
@@ -67,7 +69,8 @@ if action == "join" then
     connectionId = connectionId,
     slot = slot,
     ready = false,
-    readyAt = 0,
+    readyEpoch = 0,
+    joinEpoch = generation,
     seenAt = now,
     userId = userId,
     displayName = displayName,
@@ -80,11 +83,19 @@ elseif current and current["connectionId"] == connectionId then
     redis.call("ZREM", presenceKey, clientId)
     redis.call("HDEL", metadataKey, clientId)
     current = nil
+    for _, id in ipairs(redis.call("ZRANGE", presenceKey, 0, -1)) do
+      local item = read(id)
+      if item then
+        item["ready"] = false
+        item["readyEpoch"] = 0
+        redis.call("HSET", metadataKey, id, cjson.encode(item))
+      end
+    end
   else
     current["seenAt"] = now
     if action == "ready" and tonumber(current["slot"]) >= 0 then
       current["ready"] = ready
-      current["readyAt"] = ready and now or 0
+      current["readyEpoch"] = ready and tonumber(redis.call("GET", generationKey) or "0") or 0
     elseif action == "authenticate" and userId ~= "" then
       current["userId"] = userId
       current["displayName"] = displayName
@@ -97,6 +108,7 @@ end
 
 redis.call("EXPIRE", presenceKey, ${ROOM_TTL_SECONDS})
 redis.call("EXPIRE", metadataKey, ${ROOM_TTL_SECONDS})
+redis.call("EXPIRE", generationKey, ${ROOM_TTL_SECONDS})
 
 local players = {}
 for _, id in ipairs(redis.call("ZRANGE", presenceKey, 0, -1)) do
@@ -109,6 +121,7 @@ return cjson.encode({
   active = current ~= nil and current["connectionId"] == connectionId,
   role = current and tonumber(current["slot"]) >= 0 and "player" or "spectator",
   slot = current and tonumber(current["slot"]) or -1,
+  joinEpoch = current and tonumber(current["joinEpoch"]) or 0,
   players = players
 })
 `;
@@ -210,7 +223,7 @@ function requestIsSameOrigin(request) {
 
 function roomKeys(room) {
   const tag = `{neon-snake:realtime:${room}}`;
-  return [`${tag}:presence`, `${tag}:metadata`];
+  return [`${tag}:presence`, `${tag}:metadata`, `${tag}:generation`];
 }
 
 function roomChannel(room) {
@@ -661,10 +674,10 @@ function createRealtimeHub({
     });
   }
 
-  function roomAllReady(room, minimumReadyAt = 0) {
+  function roomAllReady(room, minimumReadyEpoch = 0) {
     const players = stateFor(room).players;
     return players.length === 2 && players.every((player) => (
-      player.ready && Number(player.readyAt) >= minimumReadyAt
+      player.ready && Number(player.readyEpoch) >= minimumReadyEpoch
     ));
   }
 
@@ -726,7 +739,7 @@ function createRealtimeHub({
     const result = await runRedis([
       "EVAL",
       PRESENCE_SCRIPT,
-      "2",
+      "3",
       ...roomKeys(connection.room),
       String(now()),
       action,
@@ -933,15 +946,20 @@ function createRealtimeHub({
       return;
     }
     if (message.type === "ready") {
+      const wasReady = stateFor(connection.room).players.some((player) => (
+        player.connectionId === connection.connectionId && player.ready
+      ));
       const result = await refresh(connection, "ready", { ready: message.ready });
-      if (!message.ready && result.active) await publish(connection.room, { kind: "cancel" });
+      if (!message.ready && wasReady && result.active) {
+        await publish(connection.room, { kind: "cancel" });
+      }
       return;
     }
     if (message.type === "countdown") {
       const result = await refresh(connection, "touch");
       setRoster(connection.room, result.players || []);
       if (
-        !roomAllReady(connection.room, connection.joinedAt)
+        !roomAllReady(connection.room, connection.joinEpoch)
         || !connectionOwnsSlot(connection.room, connection.connectionId, 0)
       ) {
         send(connection, { type: "rejected", code: "room_not_ready" });
@@ -1025,7 +1043,7 @@ function createRealtimeHub({
       room,
       clientId,
       connectionId: uuid(),
-      joinedAt: now(),
+      joinEpoch: 0,
       slot: -1,
       profile: null,
       rateWindow: 0,
@@ -1046,6 +1064,7 @@ function createRealtimeHub({
         return;
       }
       connection.slot = Number(result.slot);
+      connection.joinEpoch = Number(result.joinEpoch) || 0;
       stateFor(room).players = result.players || [];
       send(connection, {
         type: "welcome",

@@ -354,8 +354,8 @@ const tests = [
     assert.match(handler, /cancelLiveRound\(message\)/);
     const cancellation = functionBody("cancelLiveRound");
     assert.match(cancellation, /peer\.slot !== departedSlot/);
-    assert.match(cancellation, /setRoomReadyIntent\(false\)/);
-    assert.match(cancellation, /postRoomMessage\(\{ type: "ready", ready: false \}\)/);
+    assert.match(cancellation, /setRoomReadyIntent\(false, false\)/);
+    assert.doesNotMatch(cancellation, /postRoomMessage/);
     assert.match(cancellation, /nextMoveAt = 0/);
     assert.match(cancellation, /setRunState\("ready", "RIVAL DISCONNECTED"\)/);
     assert.match(cancellation, /syncLiveRoom\(\)/);
