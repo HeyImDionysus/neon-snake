@@ -119,8 +119,8 @@ async function main() {
   });
   process.stdout.write("PASS install primes the complete versioned app shell\n");
 
-  assert.match(source, /neon-snake-shell-v65/);
-  process.stdout.write("PASS production live-room fixes ship behind a fresh shell cache version\n");
+  assert.match(source, /neon-snake-shell-v69/);
+  process.stdout.write("PASS disconnect-cancellation fixes ship behind a fresh shell cache version\n");
 
   stores.set("neon-snake-shell-stale", new Map());
   await dispatchWaitUntil("activate");

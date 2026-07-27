@@ -50,6 +50,7 @@ function request(room, clientId) {
 
 function createFakeRedis() {
   const roomState = new Map();
+  const roomGeneration = new Map();
   return async function redisCommand(command) {
     assert.equal(command[0], "EVAL");
     assert.equal(command[1], PRESENCE_SCRIPT);
@@ -57,18 +58,20 @@ function createFakeRedis() {
     assert.ok(room);
     if (!roomState.has(room)) roomState.set(room, new Map());
     const players = roomState.get(room);
-    const timestamp = Number(command[5]);
-    const action = command[6];
-    const clientId = command[7];
-    const connectionId = command[8];
-    const ready = command[9] === "1";
+    const timestamp = Number(command[6]);
+    const action = command[7];
+    const clientId = command[8];
+    const connectionId = command[9];
+    const ready = command[10] === "1";
     const profile = {
-      userId: command[10],
-      displayName: command[11],
-      avatar: command[12],
+      userId: command[11],
+      displayName: command[12],
+      avatar: command[13],
     };
     let current = players.get(clientId);
     if (action === "join") {
+      const generation = (roomGeneration.get(room) || 0) + 1;
+      roomGeneration.set(room, generation);
       const used = new Set([...players.values()].filter((item) => item.slot >= 0).map((item) => item.slot));
       const slot = current?.slot ?? (!used.has(0) ? 0 : !used.has(1) ? 1 : -1);
       current = {
@@ -76,6 +79,8 @@ function createFakeRedis() {
         connectionId,
         slot,
         ready: false,
+        readyEpoch: 0,
+        joinEpoch: generation,
         seenAt: timestamp,
         ...profile,
       };
@@ -84,9 +89,22 @@ function createFakeRedis() {
       if (action === "leave") {
         players.delete(clientId);
         current = null;
+        players.forEach((player) => {
+          player.ready = false;
+          player.readyEpoch = 0;
+        });
       } else {
         current.seenAt = timestamp;
-        if (action === "ready" && current.slot >= 0) current.ready = ready;
+        if (action === "ready" && current.slot >= 0) {
+          current.ready = ready;
+          current.readyEpoch = ready ? roomGeneration.get(room) || 0 : 0;
+          if (!ready) {
+            players.forEach((player) => {
+              player.ready = false;
+              player.readyEpoch = 0;
+            });
+          }
+        }
       }
     }
     const roster = [...players.values()]
@@ -96,6 +114,7 @@ function createFakeRedis() {
       active: Boolean(current && current.connectionId === connectionId),
       role: current?.slot >= 0 ? "player" : "spectator",
       slot: current?.slot ?? -1,
+      joinEpoch: current?.joinEpoch ?? 0,
       players: roster,
     });
   };
@@ -103,13 +122,37 @@ function createFakeRedis() {
 
 function createFakeBus() {
   const listeners = new Map();
+  const published = [];
+  let publishError = null;
+  let stateGate = null;
   return {
+    published,
+    failPublishing(error) {
+      publishError = error;
+    },
+    deferNextState() {
+      let resolve;
+      let reject;
+      const promise = new Promise((onResolve, onReject) => {
+        resolve = onResolve;
+        reject = onReject;
+      });
+      stateGate = { promise, resolve, reject };
+      return stateGate;
+    },
     async subscribe(room, handler) {
       if (!listeners.has(room)) listeners.set(room, new Set());
       listeners.get(room).add(handler);
       return () => listeners.get(room)?.delete(handler);
     },
     async publish(room, payload) {
+      if (payload.kind === "state" && stateGate) {
+        const gate = stateGate;
+        stateGate = null;
+        await gate.promise;
+      }
+      if (publishError) throw publishError;
+      published.push({ room, payload });
       listeners.get(room)?.forEach((handler) => handler(payload));
     },
     close() {},
@@ -200,7 +243,12 @@ async function flush() {
   stopRelay();
   relay.close();
 
-  const redisCommand = createFakeRedis();
+  const healthyRedis = createFakeRedis();
+  let redisError = null;
+  const redisCommand = async (command) => {
+    if (redisError) throw redisError;
+    return healthyRedis(command);
+  };
   const bus = createFakeBus();
   let hubNumber = 0;
   const createHub = () => createRealtimeHub({
@@ -254,6 +302,180 @@ async function flush() {
   assert.ok(first.messages.some((message) => (
     message.type === "rejected" && message.code === "server_authoritative"
   )));
+
+  const delayedState = bus.deferNextState();
+  clearTimeout(simulation.tickTimer);
+  simulation.tickTimer = null;
+  const oldTick = simulation.tick();
+  await flush();
+  const replacementRound = round + 1;
+  first.message({
+    type: "countdown",
+    round: replacementRound,
+    startsAt: replacementRound + 5_000,
+  });
+  await flush();
+  const replacementSimulation = firstHub._state.rooms.get("ABC234").simulation;
+  assert.notEqual(replacementSimulation, simulation);
+  delayedState.reject(Object.assign(new Error("Old relay publish timed out."), {
+    name: "TimeoutError",
+  }));
+  await oldTick;
+  assert.equal(
+    firstHub._state.rooms.get("ABC234").simulation,
+    replacementSimulation,
+    "A late rejection from an obsolete simulation must not cancel its replacement",
+  );
+
+  const relayOutage = new Error("Redis relay timed out.");
+  relayOutage.name = "TimeoutError";
+  redisError = relayOutage;
+  bus.failPublishing(relayOutage);
+  second.emit("close");
+  await flush();
+  clearTimeout(replacementSimulation.tickTimer);
+  replacementSimulation.tickTimer = null;
+  await replacementSimulation.tick();
+  assert.equal(
+    firstHub._state.rooms.get("ABC234").simulation,
+    null,
+    "The authoritative instance must stop its cached simulation when the shared relay fails",
+  );
+  assert.ok(first.messages.some((message) => (
+    message.type === "countdown-cancel"
+    && message.reason === "relay_unavailable"
+  )), "The authority-side survivor must be cancelled when cross-instance Redis delivery is unavailable");
+  assert.ok(first.closeCalls.some(({ code, reason }) => (
+    code === 1012 && reason === "Realtime relay unavailable"
+  )), "The authority socket must reconnect so a recovered Redis join clears stale Ready state");
+  redisError = null;
+
+  const cleanupRedis = createFakeRedis();
+  const cleanupBus = createFakeBus();
+  const cleanupErrors = [];
+  const cleanupHub = createRealtimeHub({
+    redisCommand: async (command) => {
+      if (command[7] === "leave") {
+        const error = new Error("Redis cleanup timed out.");
+        error.name = "TimeoutError";
+        throw error;
+      }
+      return cleanupRedis(command);
+    },
+    bus: cleanupBus,
+    sessionReader: async () => null,
+    recordMatch: async () => true,
+    uuid: () => `cleanup-${++hubNumber}`,
+    logger: {
+      error(message, details) {
+        cleanupErrors.push({ message, details });
+      },
+    },
+  });
+  const cleanupSocket = new FakeSocket();
+  const cleanupPeer = new FakeSocket();
+  await cleanupHub.connect(cleanupSocket, request("DEF567", "cleanup-client"));
+  await cleanupHub.connect(cleanupPeer, request("DEF567", "cleanup-peer"));
+  cleanupSocket.emit("close");
+  await flush();
+  assert.ok(cleanupBus.published.some(({ room, payload }) => (
+    room === "DEF567" && payload.kind === "cancel" && payload.slot === 0
+  )), "A timed-out presence cleanup must not suppress the room cancellation");
+  assert.ok(cleanupPeer.messages.some((message) => (
+    message.type === "countdown-cancel" && message.slot === 0
+  )), "The surviving client must receive the departed slot without waiting for a fresh roster");
+  assert.deepEqual(cleanupErrors, [{
+    message: "Realtime disconnect cleanup failed.",
+    details: { stage: "presence", name: "TimeoutError" },
+  }]);
+  cleanupHub.close();
+
+  let reconnectNow = 10_000;
+  const reconnectRedis = createFakeRedis();
+  let failReconnectLeave = false;
+  const reconnectHub = createRealtimeHub({
+    redisCommand: async (command) => {
+      if (failReconnectLeave && command[7] === "leave") {
+        throw Object.assign(new Error("Redis leave timed out."), {
+          name: "TimeoutError",
+        });
+      }
+      return reconnectRedis(command);
+    },
+    bus: createFakeBus(),
+    sessionReader: async () => null,
+    recordMatch: async () => true,
+    now: () => {
+      reconnectNow += 1;
+      return reconnectNow;
+    },
+    uuid: () => `reconnect-${++hubNumber}`,
+    logger: { error() {} },
+  });
+  const originalHost = new FakeSocket();
+  const reconnectGuest = new FakeSocket();
+  await reconnectHub.connect(originalHost, request("GHJ678", "reconnect-host"));
+  await reconnectHub.connect(reconnectGuest, request("GHJ678", "reconnect-guest"));
+  originalHost.message({ type: "ready", ready: true });
+  reconnectGuest.message({ type: "ready", ready: true });
+  await flush();
+  failReconnectLeave = true;
+  originalHost.emit("close");
+  await flush();
+  failReconnectLeave = false;
+  const replacementHost = new FakeSocket();
+  await reconnectHub.connect(replacementHost, request("GHJ678", "reconnect-host"));
+  replacementHost.message({ type: "ready", ready: true });
+  await flush();
+  replacementHost.message({
+    type: "countdown",
+    round: reconnectNow,
+    startsAt: reconnectNow + 3_200,
+  });
+  await flush();
+  assert.ok(replacementHost.messages.some((message) => (
+    message.type === "rejected" && message.code === "room_not_ready"
+  )), "A reconnected authority must require the remote player to opt in again after its join");
+  reconnectHub.close();
+
+  const echoBus = createFakeBus();
+  const echoHub = createRealtimeHub({
+    redisCommand: createFakeRedis(),
+    bus: echoBus,
+    sessionReader: async () => null,
+    recordMatch: async () => true,
+    uuid: () => `echo-${++hubNumber}`,
+    logger: { error() {} },
+  });
+  const echoHost = new FakeSocket();
+  const echoGuest = new FakeSocket();
+  await echoHub.connect(echoHost, request("KLM789", "echo-host"));
+  await echoHub.connect(echoGuest, request("KLM789", "echo-guest"));
+  echoHost.message({ type: "ready", ready: true });
+  echoGuest.message({ type: "ready", ready: true });
+  await flush();
+  echoHost.message({ type: "ready", ready: false });
+  await flush();
+  assert.equal(
+    echoHub.roomAllReady("KLM789"),
+    false,
+    "One Not Ready action must atomically reset both players",
+  );
+  assert.ok(echoGuest.messages.some((message) => (
+    message.type === "roster"
+    && message.players.length === 2
+    && message.players.every((player) => !player.ready)
+  )), "The remote player must receive the authoritative all-not-ready roster");
+  const firstCancelCount = echoBus.published.filter(({ payload }) => payload.kind === "cancel").length;
+  assert.equal(firstCancelCount, 1);
+  echoHost.message({ type: "ready", ready: false });
+  await flush();
+  assert.equal(
+    echoBus.published.filter(({ payload }) => payload.kind === "cancel").length,
+    firstCancelCount,
+    "Repeating an already-false Ready update must not republish cancellation",
+  );
+  echoHub.close();
 
   const unitSimulation = new RoomSimulation({
     publish: async () => {},

@@ -273,6 +273,17 @@ const tests = [
       state: { round: 4 },
       room: "ABC234",
     });
+    socket.message({
+      type: "countdown-cancel",
+      slot: 1,
+      sentAt: 1_025,
+    });
+    assert.deepEqual(received.at(-1), {
+      type: "countdown-cancel",
+      room: "ABC234",
+      slot: 1,
+      sentAt: 1_025,
+    });
     transport.close();
     assert.deepEqual(socket.closeCalls.at(-1), { code: 1000, reason: "Client left room" });
     assert.equal(scheduled.size, 0);
@@ -310,6 +321,140 @@ const tests = [
     timers.delete(reconnect[0]);
     await reconnect[1].callback();
     assert.equal(FakeWebSocket.instances.length, 2);
+    transport.close();
+    assert.equal(timers.size, 0);
+  }],
+  ["the realtime adapter cancels a stale authoritative round when the shared relay is unavailable", async () => {
+    FakeWebSocket.instances.length = 0;
+    const received = [];
+    const statuses = [];
+    const timers = new Map();
+    let timerId = 0;
+    let timestamp = 1_000;
+    const transport = await transports.createWebSocketRoomTransport({
+      code: "ABC234",
+      clientId: "client-one",
+      endpoint: "wss://neon.example.test",
+      onMessage: (message) => received.push(message),
+      onStatus: (status) => statuses.push(status),
+      WebSocketImpl: FakeWebSocket,
+      now: () => timestamp,
+      setTimeoutImpl: (callback, delay) => {
+        timerId += 1;
+        timers.set(timerId, { callback, delay });
+        return timerId;
+      },
+      clearTimeoutImpl: (id) => timers.delete(id),
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.emit("open");
+    socket.message({
+      type: "welcome",
+      role: "player",
+      slot: 1,
+      players: [
+        { id: "client-host", slot: 0, ready: true, seenAt: 950 },
+        { id: "client-one", slot: 1, ready: true, seenAt: 950 },
+      ],
+    });
+    transport.setActive(true, 1_000);
+    socket.message({
+      type: "countdown",
+      round: 1_000,
+      startsAt: 4_200,
+    });
+    assert.ok([...timers.values()].some((timer) => timer.delay === 6_200));
+    socket.message({
+      type: "state",
+      sequence: 1,
+      state: { round: 999 },
+    });
+    assert.equal(
+      [...timers.values()].some((timer) => timer.delay === 3_000),
+      false,
+      "A snapshot for another round must not mask a stalled active round",
+    );
+    socket.message({
+      type: "state",
+      sequence: 2,
+      state: { round: 1_000 },
+    });
+    const watchdog = [...timers.entries()].find(([, timer]) => timer.delay === 3_000);
+    assert.ok(watchdog, "A server snapshot must arm the authoritative state watchdog");
+    transport.setActive(true, 1_000);
+    assert.equal(
+      timers.get(watchdog[0]),
+      watchdog[1],
+      "Starting the accepted round must preserve its three-second watchdog",
+    );
+    timers.delete(watchdog[0]);
+    timestamp += watchdog[1].delay;
+    watchdog[1].callback();
+    assert.equal(statuses.at(-1).state, "authoritative-timeout");
+    assert.deepEqual(received.at(-1), {
+      type: "countdown-cancel",
+      room: "ABC234",
+      slot: -1,
+      reason: "state_timeout",
+      sentAt: 4_000,
+    });
+    assert.deepEqual(socket.closeCalls.at(-1), {
+      code: 1012,
+      reason: "Authoritative state timed out",
+    });
+    transport.close();
+    assert.equal(timers.size, 0);
+  }],
+  ["an active realtime reconnect rearms the authoritative state watchdog", async () => {
+    FakeWebSocket.instances.length = 0;
+    const timers = new Map();
+    let timerId = 0;
+    const transport = await transports.createWebSocketRoomTransport({
+      code: "ABC234",
+      clientId: "client-one",
+      endpoint: "wss://neon.example.test",
+      onMessage: () => {},
+      onStatus: () => {},
+      WebSocketImpl: FakeWebSocket,
+      setTimeoutImpl: (callback, delay) => {
+        timerId += 1;
+        timers.set(timerId, { callback, delay });
+        return timerId;
+      },
+      clearTimeoutImpl: (id) => timers.delete(id),
+    });
+    const first = FakeWebSocket.instances[0];
+    first.emit("open");
+    first.message({
+      type: "welcome",
+      role: "player",
+      slot: 1,
+      players: [
+        { id: "client-host", slot: 0, ready: true },
+        { id: "client-one", slot: 1, ready: true },
+      ],
+    });
+    transport.setActive(true, 1_000);
+    first.emit("close");
+    const reconnect = [...timers.entries()].find(([, timer]) => timer.delay === 250);
+    assert.ok(reconnect);
+    timers.delete(reconnect[0]);
+    await reconnect[1].callback();
+    const second = FakeWebSocket.instances[1];
+    second.emit("open");
+    second.message({
+      type: "welcome",
+      role: "player",
+      slot: 1,
+      players: [
+        { id: "client-host", slot: 0, ready: true },
+        { id: "client-one", slot: 1, ready: true },
+      ],
+    });
+    assert.ok(
+      [...timers.values()].some((timer) => timer.delay === 3_000),
+      "Welcome on an active replacement socket must rearm the state watchdog",
+    );
     transport.close();
     assert.equal(timers.size, 0);
   }],

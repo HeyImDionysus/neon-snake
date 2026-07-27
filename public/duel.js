@@ -464,6 +464,7 @@ function setRunState(state, label) {
   restartButton.hidden = duelType !== "ai" || state === "ready" || state === "countdown";
   roomTransport?.setActive?.(
     duelType === "live" && (state === "countdown" || state === "running"),
+    liveRoundId,
   );
 }
 
@@ -1114,9 +1115,34 @@ function applyRemoteSnapshot(message) {
   if (state.over && runState === "running") endDuel(state.winner, state.crashes);
 }
 
+function cancelLiveRound(message) {
+  const departedSlot = Number(message?.slot);
+  if (departedSlot === 0 || departedSlot === 1) {
+    roomPeers = new Map([...roomPeers].filter(([, peer]) => peer.slot !== departedSlot));
+  }
+  const wasActive = liveCountdownActive || runState === "countdown" || runState === "running";
+  setRoomReadyIntent(false, false);
+  if (liveCountdownActive) abortLiveCountdown();
+  nextMoveAt = 0;
+  syncLiveRoom();
+  if (!wasActive || duelType !== "live") return;
+  setRunState("ready", "RIVAL DISCONNECTED");
+  roomState.textContent = "ROUND CANCELLED · WAITING FOR PLAYER";
+  showOverlay(
+    "CONNECTION LOST",
+    "LIVE ROUND<br><em>CANCELLED</em>",
+    "The server stopped the duel immediately. The room must synchronize both players before another round.",
+  );
+  announcement.textContent = "Live duel cancelled because a player disconnected.";
+}
+
 function handleRoomMessage(message) {
   if (!message || message.room !== roomCode) return;
   if (message.from === clientId && message.type !== "countdown") return;
+  if (message.type === "countdown-cancel") {
+    cancelLiveRound(message);
+    return;
+  }
   if (message.type === "leave") {
     roomPeers.delete(message.from);
     syncLiveRoom();
