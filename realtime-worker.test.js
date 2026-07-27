@@ -8,6 +8,7 @@ const {
   PRESENCE_SCRIPT,
   RoomSimulation,
   createRealtimeHub,
+  createRedisRestBus,
   decodeSseEvent,
   requestIsSameOrigin,
   validateRealtimeMessage,
@@ -162,6 +163,42 @@ async function flush() {
     decodeSseEvent('data: message,neon-snake:realtime:ABC234:events,{"kind":"input","sequence":2}\n\n'),
     { type: "message", payload: { kind: "input", sequence: 2 } },
   );
+
+  let relayAttempts = 0;
+  let relayErrors = 0;
+  const relayEvents = [];
+  const relay = createRedisRestBus({
+    environment: {
+      STORAGE_KV_REST_API_URL: "https://redis.example",
+      STORAGE_KV_REST_API_TOKEN: "test-token",
+    },
+    redisCommand: async () => 1,
+    fetchImpl: async () => {
+      relayAttempts += 1;
+      return {
+        ok: true,
+        body: {
+          getReader() {
+            return {
+              read: relayAttempts === 1
+                ? async () => ({ done: true })
+                : async () => new Promise(() => {}),
+            };
+          },
+        },
+      };
+    },
+    onError() {
+      relayErrors += 1;
+    },
+  });
+  const stopRelay = await relay.subscribe("ABC234", (event) => relayEvents.push(event));
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.ok(relayAttempts >= 2);
+  assert.ok(relayErrors >= 1);
+  assert.deepEqual(relayEvents, []);
+  stopRelay();
+  relay.close();
 
   const redisCommand = createFakeRedis();
   const bus = createFakeBus();
