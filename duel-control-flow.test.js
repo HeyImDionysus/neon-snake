@@ -194,6 +194,8 @@ const tests = [
       clientId: "local-player",
       roomReady: true,
       roomReadyConfirmed: true,
+      roomReadyDesired: true,
+      roomReadyUpdatePending: false,
       roomRole: "player",
     };
     const { reconcileLocalRoomReady } = installFunctions(
@@ -212,6 +214,39 @@ const tests = [
     assert.equal(context.roomReadyConfirmed, false);
     assert.match(functionBody("roomIdentity"), /ready: roomReadyConfirmed/);
     assert.match(functionBody("handleRoomStatus"), /reconcileLocalRoomReady\(status\.players\)/);
+  }],
+  ["newer local Ready intent wins over stale authoritative responses", () => {
+    const context = {
+      clientId: "local-player",
+      roomReady: false,
+      roomReadyConfirmed: false,
+      roomReadyDesired: false,
+      roomReadyUpdatePending: true,
+      roomRole: "player",
+    };
+    const { reconcileLocalRoomReady } = installFunctions(
+      ["reconcileLocalRoomReady"],
+      context,
+    );
+    reconcileLocalRoomReady([{ id: "local-player", ready: true }]);
+    assert.equal(context.roomReady, false);
+    assert.equal(context.roomReadyConfirmed, false);
+    assert.equal(context.roomReadyUpdatePending, true);
+    reconcileLocalRoomReady([{ id: "local-player", ready: false }]);
+    assert.equal(context.roomReady, false);
+    assert.equal(context.roomReadyConfirmed, false);
+    assert.equal(context.roomReadyUpdatePending, false);
+
+    context.roomReadyDesired = true;
+    context.roomReadyUpdatePending = true;
+    reconcileLocalRoomReady([{ id: "local-player", ready: false }]);
+    assert.equal(context.roomReady, true);
+    assert.equal(context.roomReadyConfirmed, false);
+    assert.equal(context.roomReadyUpdatePending, true);
+    reconcileLocalRoomReady([{ id: "local-player", ready: true }]);
+    assert.equal(context.roomReady, true);
+    assert.equal(context.roomReadyConfirmed, true);
+    assert.equal(context.roomReadyUpdatePending, false);
   }],
   ["live-room transport is explicitly identified as public cross-device play", () => {
     assert.match(html, /PUBLIC LIVE ROOM/);
@@ -238,14 +273,23 @@ const tests = [
     assert.match(status, /roomConnectionState/);
     assert.match(status, /roomPeers = new Map\(status\.players/);
     assert.match(status, /roomPlayers = activeRoomRoster\(\)\.slice\(0, 2\)/);
+    assert.match(status, /status\.state === "synchronized"/);
+    assert.match(status, /if \(roomTransport\) syncLiveRoom\(\)/);
     assert.match(functionBody("disconnectLiveRoom"), /roomConnectionState = "disconnected"/);
+  }],
+  ["each authoritative roster response synchronizes immediately after transport events", () => {
+    const status = functionBody("handleRoomStatus");
+    assert.ok(
+      status.indexOf('status.state === "synchronized"')
+        < status.indexOf('status.state === "reconnecting"'),
+    );
+    assert.match(status, /status\.state === "synchronized"[\s\S]*syncLiveRoom\(\)/);
   }],
   ["initial roster callbacks cannot start a round before transport installation", () => {
     const body = functionBody("handleRoomMessage");
     const branch = body.match(/if \(message\.type === "presence" \|\| message\.type === "ready"\) \{([^]*?)\n  \}/);
     assert.ok(branch, "Expected a presence/ready branch");
     assert.match(branch[1], /if \(roomTransport\) syncLiveRoom\(\)/);
-    assert.ok(!functionBody("handleRoomStatus").includes("syncLiveRoom()"));
     assert.match(functionBody("connectLiveRoom"), /roomTransport = await Transports\.createRemoteRoomTransport/);
     assert.ok(
       functionBody("connectLiveRoom").indexOf("roomTransport = await Transports.createRemoteRoomTransport")

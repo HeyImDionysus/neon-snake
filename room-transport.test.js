@@ -240,6 +240,10 @@ const tests = [
       eventOrder.indexOf("status:connected") < eventOrder.indexOf("message:presence"),
       JSON.stringify(eventOrder),
     );
+    assert.ok(
+      eventOrder.indexOf("message:presence") < eventOrder.indexOf("status:synchronized"),
+      JSON.stringify(eventOrder),
+    );
     assert.ok(received.some((message) => (
       message.type === "presence"
       && message.from === "client-two"
@@ -292,10 +296,18 @@ const tests = [
               { id: "client-one", slot: 0, ready: true },
               { id: "client-two", slot: 1, ready: true },
             ],
-            stateRev: 0,
             inputRev: 0,
+            stateRev: requestCount === 1 ? 4 : 5,
             countdownRev: 4,
             countdown,
+            state: {
+              type: "state",
+              sequence: 9,
+              state: { round: 42, playerSnake: [{ x: 1, y: 1 }] },
+              from: "client-one",
+              room: "ABC234",
+              sentAt: 1_100,
+            },
           };
         },
       };
@@ -326,7 +338,9 @@ const tests = [
       "status:reconnecting",
       "status:connected",
       "message:countdown",
+      "message:state",
       "message:presence",
+      "status:synchronized",
     ]);
     transport.close();
   }],

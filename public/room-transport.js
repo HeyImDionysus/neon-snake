@@ -250,7 +250,7 @@
         slot,
         players: roster,
       });
-      ["state", "input", "countdown"].forEach((type) => {
+      ["countdown", "input", "state"].forEach((type) => {
         const revision = Number(data[`${type}Rev`]) || 0;
         const shouldResynchronize = resynchronize && type === "countdown";
         const shouldEmit = (
@@ -264,6 +264,12 @@
         revisions[type] = Math.max(revisions[type], revision);
       });
       emitRoster(data.players);
+      onStatus({
+        state: "synchronized",
+        role,
+        slot,
+        players: roster,
+      });
     }
 
     function pollDelay() {

@@ -83,6 +83,8 @@ let roomSweep = null;
 let roomCode = "";
 let roomReady = false;
 let roomReadyConfirmed = false;
+let roomReadyDesired = false;
+let roomReadyUpdatePending = false;
 let roomConnected = false;
 let roomRole = "disconnected";
 let roomSlot = -1;
@@ -530,8 +532,7 @@ function endDuel(winner, crashes = {}) {
   if (duelType === "ai") focusWithoutScroll(aiStartButton);
 
   if (duelType === "live") {
-    roomReady = false;
-    roomReadyConfirmed = false;
+    setRoomReadyIntent(false);
     postRoomMessage({ type: "ready", ready: false });
     syncLiveRoom();
   }
@@ -656,8 +657,22 @@ function reconcileLocalRoomReady(players) {
     ? players.find((player) => player?.id === clientId)
     : null;
   const authoritativeReady = roomRole === "player" && Boolean(local?.ready);
+  if (roomReadyUpdatePending) {
+    if (authoritativeReady === roomReadyDesired) roomReadyUpdatePending = false;
+    roomReady = roomReadyDesired;
+    roomReadyConfirmed = roomReadyUpdatePending ? false : authoritativeReady;
+    return;
+  }
+  roomReadyDesired = authoritativeReady;
   roomReady = authoritativeReady;
   roomReadyConfirmed = authoritativeReady;
+}
+
+function setRoomReadyIntent(nextReady, pending = true) {
+  roomReadyDesired = Boolean(nextReady);
+  roomReady = roomReadyDesired;
+  roomReadyUpdatePending = Boolean(pending);
+  if (!roomReadyDesired) roomReadyConfirmed = false;
 }
 
 function postRoomMessage(message) {
@@ -786,6 +801,10 @@ function syncLiveRoom() {
 
 function handleRoomStatus(status) {
   if (!status || typeof status !== "object") return;
+  if (status.state === "synchronized") {
+    if (roomTransport) syncLiveRoom();
+    return;
+  }
   if (status.state === "reconnecting") {
     roomConnectionState = "reconnecting";
     if (liveCountdownActive) abortLiveCountdown();
@@ -843,8 +862,7 @@ async function connectLiveRoom() {
   connectRoomButton.disabled = true;
   roomState.textContent = "CONNECTING TO LIVE ROOM";
   roomPeers = new Map();
-  roomReady = false;
-  roomReadyConfirmed = false;
+  setRoomReadyIntent(false, false);
   roomRole = "disconnected";
   roomSlot = -1;
   roomConnectionState = "connecting";
@@ -894,8 +912,7 @@ function disconnectLiveRoom() {
   roomSweep = null;
   roomPeers = new Map();
   roomPlayers = [];
-  roomReady = false;
-  roomReadyConfirmed = false;
+  setRoomReadyIntent(false, false);
   roomConnected = false;
   roomRole = "disconnected";
   roomSlot = -1;
@@ -914,8 +931,7 @@ function disconnectLiveRoom() {
 
 function toggleRoomReady() {
   if (!roomConnected || !roomPlayers.some((player) => player.id === clientId)) return;
-  roomReady = !roomReady;
-  if (!roomReady) roomReadyConfirmed = false;
+  setRoomReadyIntent(!roomReadyDesired);
   postRoomMessage({ type: "ready", ready: roomReady });
   syncLiveRoom();
 }
@@ -1132,8 +1148,7 @@ function handleKeyboard(event) {
     event.preventDefault();
     if (duelType === "ai") prepareAiDuel();
     else if (roomConnected) {
-      roomReady = false;
-      roomReadyConfirmed = false;
+      setRoomReadyIntent(false);
       postRoomMessage({ type: "ready", ready: false });
       syncLiveRoom();
     }
