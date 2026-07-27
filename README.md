@@ -119,7 +119,7 @@ Discord sign-in is optional for play and required only for a verified profile or
 - `public/duel.js` — autonomous duel and room-state orchestration.
 - `public/room-transport.js` — same-origin Vercel WebSocket transport with bounded reconnect/heartbeat handling plus the legacy HTTP fallback.
 - `activity/entry.js`, `public/activity-sdk.js` — official Discord Embedded App SDK source and its pinned, reproducible browser bundle.
-- `api/activity-token.mjs` — origin-bound Activity code exchange and partitioned session entry point.
+- `api/activity/token.mjs` — origin-bound Activity code exchange and partitioned session entry point.
 - `public/account.js` — safe Discord profile and verified-leaderboard rendering.
 - `public/profile.html`, `public/profile.js`, `public/profile.css` — dedicated public-player surface and authenticated profile customization.
 - `public/downloads.html`, `public/downloads.css` — direct Windows/Android downloads plus the live wallpaper preview.

@@ -12,6 +12,7 @@ const { requestIsAllowedOrigin } = require("./server/realtime-core.cjs");
 const root = __dirname;
 const read = (...segments) => fs.readFileSync(path.join(root, ...segments), "utf8");
 const entry = read("activity", "entry.js");
+const activityTokenApi = read("api", "activity", "token.mjs");
 const redirect = read("public", "activity-redirect.js");
 const duel = read("public", "duel.js");
 const duelHtml = read("public", "duel.html");
@@ -56,6 +57,9 @@ function request(url, {
   assert.equal(manifest.devDependencies["@discord/embedded-app-sdk"], "2.5.0");
   assert.equal(manifest.devDependencies.esbuild, "0.25.12");
   assert.match(entry, /new DiscordSDK\(CLIENT_ID\)/);
+  assert.match(activityTokenApi, /from "\.\.\/\.\.\/server\/account-core\.cjs"/);
+  assert.match(activityTokenApi, /request\.url = "\/api\/activity\/token"/);
+  assert.equal(fs.existsSync(path.join(root, "api", "activity-token.mjs")), false);
   assert.match(entry, /scope: \["identify"\]/);
   assert.match(entry, /commands\.authenticate/);
   assert.match(entry, /commands\.openInviteDialog/);
