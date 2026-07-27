@@ -6,7 +6,7 @@ These are permanent, versioned autonomous-wallpaper builds from the verified rep
 
 Download `Neon-Snake-Lively-v1.0.0.zip`, open Lively Wallpaper, choose **Add Wallpaper**, and select the ZIP. The package runs the autonomous Neon Snake wallpaper locally.
 
-SHA-256: `eccbf9efaa214d6ad2b06ade98b429a2810510e58aa1fddc3b90b470607590ca`
+SHA-256: `4f1dc62cfddea2f28ae3cc099e1f0323ddd1ef4ecb5e8c08c2cf1623cd2dc38c`
 
 ## Android
 

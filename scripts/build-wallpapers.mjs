@@ -35,6 +35,7 @@ const archive = path.join(outputRoot, "Neon-Snake-Lively.zip");
 const zip = spawnSync("zip", ["-q", "-X", archive, ...packageFiles], {
   cwd: windowsRoot,
   encoding: "utf8",
+  env: { ...process.env, TZ: "UTC" },
 });
 if (zip.status !== 0) {
   throw new Error(`Could not build the Lively archive: ${zip.stderr || "zip failed"}`);

@@ -69,6 +69,7 @@ assert.match(wallpaperEngine, /type: "eat"/);
 assert.match(wallpaperBuilder, /readdir\(windowsRoot\)\)\.sort\(\)/);
 assert.match(wallpaperBuilder, /reproducibleTimestamp/);
 assert.match(wallpaperBuilder, /\["-q", "-X", archive, \.\.\.packageFiles\]/);
+assert.match(wallpaperBuilder, /TZ: "UTC"/);
 
 const sandbox = {
   globalThis: {},
