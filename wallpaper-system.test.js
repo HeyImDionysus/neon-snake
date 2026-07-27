@@ -13,6 +13,7 @@ const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex"
 const wallpaperHtml = read("public", "wallpaper.html");
 const wallpaperScript = read("public", "wallpaper.js");
 const wallpaperEngine = read("public", "wallpaper-engine.js");
+const wallpaperBuilder = read("scripts", "build-wallpapers.mjs");
 const homeHtml = read("public", "index.html");
 const downloadsHtml = read("public", "downloads.html");
 const livelyInfo = JSON.parse(read("wallpaper", "windows", "LivelyInfo.json"));
@@ -65,6 +66,9 @@ assert.match(wallpaperScript, /drawPickupEffects/);
 assert.match(wallpaperScript, /wallpaperScore/);
 assert.match(wallpaperEngine, /createWallpaperEngine/);
 assert.match(wallpaperEngine, /type: "eat"/);
+assert.match(wallpaperBuilder, /readdir\(windowsRoot\)\)\.sort\(\)/);
+assert.match(wallpaperBuilder, /reproducibleTimestamp/);
+assert.match(wallpaperBuilder, /\["-q", "-X", archive, \.\.\.packageFiles\]/);
 
 const sandbox = {
   globalThis: {},
