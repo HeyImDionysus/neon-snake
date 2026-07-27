@@ -92,6 +92,7 @@ let roomSlot = -1;
 let roomConnectionState = "disconnected";
 let roomPlayers = [];
 let roomPeers = new Map();
+let authoritativeDeparturePending = false;
 let liveCountdownTimer = null;
 let liveCountdownActive = false;
 let liveRoundId = 0;
@@ -688,6 +689,10 @@ function reconcileLocalRoomReady(players) {
 
 function applyAuthoritativeRoomRoster(players) {
   if (!Array.isArray(players)) return;
+  const previousPlayerCount = (roomRole === "player" ? 1 : 0)
+    + [...roomPeers.values()].filter((player) => player.slot === 0 || player.slot === 1).length;
+  const nextPlayerCount = players.filter((player) => player?.slot === 0 || player?.slot === 1).length;
+  authoritativeDeparturePending = previousPlayerCount >= 2 && nextPlayerCount < 2;
   reconcileLocalRoomReady(players);
   roomPeers = new Map(players
     .filter((player) => player?.id && player.id !== clientId)
@@ -745,6 +750,8 @@ function activeRoomRoster() {
 }
 
 function syncLiveRoom() {
+  const authoritativeDeparture = authoritativeDeparturePending;
+  authoritativeDeparturePending = false;
   const roomRoster = activeRoomRoster();
   roomPlayers = roomRoster.slice(0, 2);
   updateRosterSlot(roomSlotOne, roomPlayers[0], 0);
@@ -781,7 +788,7 @@ function syncLiveRoom() {
   if (phase === "waiting") {
     roomState.textContent = roomConnected ? "WAITING FOR PLAYER 2" : "NOT CONNECTED";
     if (liveCountdownActive) abortLiveCountdown();
-    if (runState === "ready") {
+    if (runState === "ready" || (runState === "over" && authoritativeDeparture)) {
       setRunState("ready", roomConnected ? "WAITING FOR PLAYER 2" : "LIVE ROOM STANDBY");
       showOverlay(
         "LIVE ROOM",
@@ -897,6 +904,7 @@ async function connectLiveRoom() {
   roomState.textContent = "CONNECTING TO LIVE ROOM";
   roomLatency.textContent = "REALTIME PING · OPENING LINK";
   roomPeers = new Map();
+  authoritativeDeparturePending = false;
   setRoomReadyIntent(false);
   roomRole = "disconnected";
   roomSlot = -1;
@@ -1116,15 +1124,27 @@ function applyRemoteSnapshot(message) {
 }
 
 function cancelLiveRound(message) {
-  const departedSlot = Number(message?.slot);
-  if (departedSlot === 0 || departedSlot === 1) {
+  const departedSlot = Number.isInteger(message?.slot) ? message.slot : -1;
+  const authoritativeDeparture = departedSlot === 0 || departedSlot === 1;
+  if (authoritativeDeparture) {
     roomPeers = new Map([...roomPeers].filter(([, peer]) => peer.slot !== departedSlot));
   }
   const wasActive = liveCountdownActive || runState === "countdown" || runState === "running";
+  const completedDeparture = runState === "over" && authoritativeDeparture;
   setRoomReadyIntent(false, false);
   if (liveCountdownActive) abortLiveCountdown();
   nextMoveAt = 0;
   syncLiveRoom();
+  if (completedDeparture && duelType === "live") {
+    setRunState("ready", "WAITING FOR PLAYER 2");
+    showOverlay(
+      "LIVE ROOM",
+      "WAITING FOR<br><em>PLAYER 2</em>",
+      "The previous rival disconnected. The completed result was cleared for the next room.",
+    );
+    announcement.textContent = "The previous rival disconnected. Waiting for Player 2.";
+    return;
+  }
   if (!wasActive || duelType !== "live") return;
   setRunState("ready", "RIVAL DISCONNECTED");
   roomState.textContent = "ROUND CANCELLED · WAITING FOR PLAYER";
