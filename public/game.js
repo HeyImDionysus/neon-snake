@@ -166,7 +166,6 @@ let canvasCompositionBudget = 0;
 let canvasCompositionName = "";
 let canvasCompositionActive = false;
 let lastFrame = performance.now();
-let touchStart = null;
 let lastGamepadPoll = 0;
 let gamepadDirection = "";
 let gamepadPausePressed = false;
@@ -1996,23 +1995,6 @@ function handleKeyboard(event) {
   }
 }
 
-function handleTouchStart(event) {
-  const touch = event.changedTouches[0];
-  touchStart = { x: touch.clientX, y: touch.clientY };
-}
-
-function handleTouchEnd(event) {
-  if (!touchStart) return;
-  const touch = event.changedTouches[0];
-  const dx = touch.clientX - touchStart.x;
-  const dy = touch.clientY - touchStart.y;
-  touchStart = null;
-  if (Math.max(Math.abs(dx), Math.abs(dy)) < 22) return;
-  requestDirection(Math.abs(dx) > Math.abs(dy)
-    ? (dx > 0 ? DIRECTIONS.right : DIRECTIONS.left)
-      : (dy > 0 ? DIRECTIONS.down : DIRECTIONS.up));
-}
-
 function handleVisibilityChange() {
   if (document.hidden) {
     if (runState === "running" && !demoMode) togglePause();
@@ -2102,11 +2084,15 @@ difficultySelect.addEventListener("change", () => {
 });
 modeInputs.forEach((input) => input.addEventListener("change", handleModeChange));
 document.addEventListener("keydown", handleKeyboard);
-boardWrap.addEventListener("touchstart", handleTouchStart, { passive: true });
-boardWrap.addEventListener("touchend", handleTouchEnd, { passive: true });
-document.querySelectorAll("[data-direction]").forEach((button) => {
-  button.addEventListener("click", () => requestDirection(DIRECTIONS[button.dataset.direction]));
-});
+globalThis.NeonSnakeTouchControls.bindSwipe(
+  boardWrap,
+  (name) => requestDirection(DIRECTIONS[name]),
+);
+globalThis.NeonSnakeTouchControls.bindDirectionButtons(
+  document,
+  "[data-direction]",
+  (name) => requestDirection(DIRECTIONS[name]),
+);
 document.addEventListener("visibilitychange", handleVisibilityChange);
 window.addEventListener("gamepadconnected", () => {
   announcement.textContent = "Gamepad connected.";

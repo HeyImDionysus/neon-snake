@@ -13,6 +13,9 @@ const downloads = read("public", "downloads.html");
 const account = read("public", "account.js");
 const styles = read("public", "styles.css");
 const profileScript = read("public", "profile.js");
+const wallpaperStyles = read("public", "wallpaper.css");
+const wallpaperPage = read("public", "wallpaper.html");
+const vercel = read("vercel.json");
 
 for (const [name, html] of pages) {
   assert.match(html, /class="site-header product-header/);
@@ -37,12 +40,20 @@ assert.match(downloads, /Download for Windows/);
 assert.match(downloads, /Download for Android/);
 assert.match(downloads, /class="wallpaper-surface"/);
 assert.match(downloads, /same autonomous snake from the game/i);
+assert.match(downloads, /href="\/downloads\/v1\.1\.0\/Neon-Snake-Lively-v1\.1\.0\.zip"/);
+assert.match(downloads, /href="\/downloads\/v1\.1\.0\/Neon-Snake-Android-v1\.1\.0\.apk"/);
+assert.doesNotMatch(downloads, /github\.com\/HeyImDionysus\/neon-snake\/raw/);
+assert.equal(fs.existsSync(path.join(__dirname, "public", "downloads", "v1.1.0", "Neon-Snake-Lively-v1.1.0.zip")), true);
+assert.equal(fs.existsSync(path.join(__dirname, "public", "downloads", "v1.1.0", "Neon-Snake-Android-v1.1.0.apk")), true);
+assert.match(vercel, /Content-Disposition/);
 process.stdout.write("PASS downloads provide direct platform actions and a live truthful preview\n");
 
-["callsignInput", "bioInput", "favoriteModeInput", "snakeStyleInput"].forEach((id) => {
+["callsignInput", "bioInput", "profileDraftState", "profilePreviewCallsign"].forEach((id) => {
   assert.match(profile, new RegExp(`id="${id}"`));
 });
 assert.equal((profile.match(/name="accent"/g) || []).length, 5);
+assert.equal((profile.match(/name="favoriteMode"/g) || []).length, 5);
+assert.equal((profile.match(/name="snakeStyle"/g) || []).length, 4);
 assert.match(profile, /id="profileWins"/);
 assert.match(profile, /id="profileLosses"/);
 assert.match(profile, /id="profileDraws"/);
@@ -63,3 +74,9 @@ assert.match(styles, /\.site-nav/);
 assert.match(styles, /overflow-x: auto/);
 assert.match(styles, /\.public-board/);
 process.stdout.write("PASS the header and leaderboard reflow as product-level responsive surfaces\n");
+
+assert.match(wallpaperPage, /<html[^>]*class="wallpaper-runtime"/);
+assert.match(wallpaperStyles, /html\.wallpaper-runtime,\s*body\.wallpaper-runtime/);
+assert.doesNotMatch(wallpaperStyles, /html,\s*body\.wallpaper-runtime/);
+assert.match(styles, /overflow-y: scroll/);
+process.stdout.write("PASS normal product pages retain document scrolling while the wallpaper runtime stays fullscreen\n");

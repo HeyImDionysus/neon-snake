@@ -1,16 +1,21 @@
 (function initializeProfilePage() {
   "use strict";
 
+  const Config = globalThis.NeonSnakeProfileConfig;
   const loading = document.querySelector("#profileLoading");
   const error = document.querySelector("#profileError");
   const card = document.querySelector("#profileCard");
-  const editor = document.querySelector("#profileEditor");
   const form = document.querySelector("#profileEditor");
   const logout = document.querySelector("#logoutProfileButton");
   const copy = document.querySelector("#copyProfileButton");
+  const save = form.querySelector("button[type=submit]");
+  const reset = form.querySelector("button[type=reset]");
   const saveStatus = document.querySelector("#profileSaveStatus");
+  const draftState = document.querySelector("#profileDraftState");
   const requestedUser = new URLSearchParams(location.search).get("user") || "";
   let currentProfile = null;
+  let persistedDraft = Config.normalizeDraft();
+  let saving = false;
 
   const fields = {
     avatar: document.querySelector("#profileAvatar"),
@@ -25,46 +30,98 @@
     snakeStyle: document.querySelector("#profileSnakeStyle"),
     favoriteMode: document.querySelector("#profileFavoriteMode"),
     accent: document.querySelector("#profileAccent"),
+    previewCallsign: document.querySelector("#profilePreviewCallsign"),
+    previewUsername: document.querySelector("#profilePreviewUsername"),
+    previewBio: document.querySelector("#profilePreviewBio"),
     callsignInput: document.querySelector("#callsignInput"),
     bioInput: document.querySelector("#bioInput"),
-    favoriteModeInput: document.querySelector("#favoriteModeInput"),
-    snakeStyleInput: document.querySelector("#snakeStyleInput"),
+    callsignCount: document.querySelector("#callsignCount"),
+    bioCount: document.querySelector("#bioCount"),
   };
 
   function setText(node, value) {
     if (node) node.textContent = String(value ?? "");
   }
 
-  function selectedAccent(value) {
-    const input = document.querySelector(`input[name="accent"][value="${value}"]`);
+  function selectedValue(name, fallback) {
+    return form.querySelector(`input[name="${name}"]:checked`)?.value || fallback;
+  }
+
+  function selectValue(name, value) {
+    const input = form.querySelector(`input[name="${name}"][value="${value}"]`);
     if (input) input.checked = true;
+  }
+
+  function draftFromControls() {
+    return Config.normalizeDraft({
+      callsign: fields.callsignInput.value,
+      bio: fields.bioInput.value,
+      accent: selectedValue("accent", "acid"),
+      favoriteMode: selectedValue("favoriteMode", "classic"),
+      snakeStyle: selectedValue("snakeStyle", "signal"),
+    });
+  }
+
+  function writeControls(draft) {
+    fields.callsignInput.value = draft.callsign;
+    fields.bioInput.value = draft.bio;
+    selectValue("accent", draft.accent);
+    selectValue("favoriteMode", draft.favoriteMode);
+    selectValue("snakeStyle", draft.snakeStyle);
+  }
+
+  function updateCounts() {
+    setText(fields.callsignCount, `${fields.callsignInput.value.length} / 24`);
+    setText(fields.bioCount, `${fields.bioInput.value.length} / 120`);
+  }
+
+  function applyDraftPreview(draft, {
+    updateState = true,
+  } = {}) {
+    const displayCallsign = draft.callsign || currentProfile?.displayName || "Discord Player";
+    const displayBio = draft.bio || "No player bio yet.";
+    document.body.dataset.profileAccent = draft.accent;
+    document.body.dataset.snakeStyle = draft.snakeStyle;
+    setText(fields.callsign, displayCallsign);
+    setText(fields.bio, displayBio);
+    setText(fields.previewCallsign, displayCallsign);
+    setText(fields.previewUsername, `@${currentProfile?.username || "player"}`);
+    setText(fields.previewBio, displayBio);
+    setText(fields.snakeStyle, draft.snakeStyle.toUpperCase());
+    setText(fields.favoriteMode, draft.favoriteMode.toUpperCase());
+    setText(fields.accent, draft.accent.toUpperCase());
+    updateCounts();
+
+    if (!updateState) return;
+    const dirty = !Config.draftsEqual(draft, persistedDraft);
+    save.disabled = saving || !dirty;
+    reset.disabled = saving || !dirty;
+    draftState.classList.toggle("is-dirty", dirty);
+    setText(draftState, dirty ? "UNSAVED PREVIEW" : "SAVED");
+    if (!saving) {
+      setText(saveStatus, dirty
+        ? "PREVIEWING CHANGES · SAVE TO PUBLISH"
+        : "YOUR PROFILE IS UP TO DATE");
+    }
   }
 
   function render(profile, editable) {
     currentProfile = profile;
-    document.body.dataset.profileAccent = profile.accent || "acid";
-    document.body.dataset.snakeStyle = profile.snakeStyle || "signal";
+    persistedDraft = Config.profileDraft(profile);
     fields.avatar.src = profile.avatarUrl || "/assets/icon-192.png";
     fields.avatar.alt = `${profile.callsign || profile.displayName || "Player"} avatar`;
     setText(fields.presence, profile.online ? "PLAYING NOW" : "OFFLINE");
     fields.presence.classList.toggle("is-online", Boolean(profile.online));
-    setText(fields.callsign, profile.callsign || profile.displayName || "Discord Player");
     setText(fields.username, `@${profile.username || "player"}`);
-    setText(fields.bio, profile.bio || "No player bio yet.");
     setText(fields.wins, String(profile.stats?.wins || 0).padStart(2, "0"));
     setText(fields.losses, String(profile.stats?.losses || 0).padStart(2, "0"));
     setText(fields.draws, String(profile.stats?.draws || 0).padStart(2, "0"));
     setText(fields.matches, String(profile.stats?.matches || 0).padStart(2, "0"));
-    setText(fields.snakeStyle, profile.snakeStyle || "signal");
-    setText(fields.favoriteMode, profile.favoriteMode || "classic");
-    setText(fields.accent, profile.accent || "acid");
-    fields.callsignInput.value = profile.callsign || "";
-    fields.bioInput.value = profile.bio || "";
-    fields.favoriteModeInput.value = profile.favoriteMode || "classic";
-    fields.snakeStyleInput.value = profile.snakeStyle || "signal";
-    selectedAccent(profile.accent || "acid");
-    editor.hidden = !editable;
+    writeControls(persistedDraft);
+    applyDraftPreview(persistedDraft);
+    form.hidden = !editable;
     logout.hidden = !editable;
+    card.classList.toggle("is-editable", editable);
     loading.hidden = true;
     error.hidden = true;
     card.hidden = false;
@@ -79,6 +136,7 @@
       const response = await fetch(endpoint, { credentials: "same-origin" });
       if (!response.ok) throw new Error("Profile unavailable");
       const payload = await response.json();
+      if (!payload?.profile) throw new Error("Profile payload missing");
       render(payload.profile, Boolean(payload.editable));
     } catch {
       loading.hidden = true;
@@ -86,39 +144,72 @@
     }
   }
 
+  function refreshPreview() {
+    applyDraftPreview(draftFromControls());
+  }
+
+  form.addEventListener("input", refreshPreview);
+  form.addEventListener("change", refreshPreview);
+
+  form.addEventListener("reset", (event) => {
+    event.preventDefault();
+    if (saving) return;
+    writeControls(persistedDraft);
+    applyDraftPreview(persistedDraft);
+    fields.callsignInput.focus();
+  });
+
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const submit = form.querySelector("button[type=submit]");
-    submit.disabled = true;
-    saveStatus.textContent = "SAVING…";
-    const accent = form.querySelector("input[name=accent]:checked")?.value || "acid";
+    const draft = draftFromControls();
+    if (saving || Config.draftsEqual(draft, persistedDraft)) return;
+    saving = true;
+    save.disabled = true;
+    reset.disabled = true;
+    form.setAttribute("aria-busy", "true");
+    draftState.classList.remove("is-dirty");
+    setText(draftState, "PUBLISHING");
+    setText(saveStatus, "PUBLISHING YOUR PLAYER SIGNAL…");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12_000);
     try {
       const response = await fetch("/api/profile", {
         method: "PATCH",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          callsign: fields.callsignInput.value,
-          bio: fields.bioInput.value,
-          accent,
-          favoriteMode: fields.favoriteModeInput.value,
-          snakeStyle: fields.snakeStyleInput.value,
-        }),
+        signal: controller.signal,
+        body: JSON.stringify(draft),
       });
-      if (!response.ok) throw new Error("Save failed");
+      if (!response.ok) {
+        const reason = response.status === 401
+          ? "YOUR SESSION EXPIRED · SIGN IN AGAIN"
+          : "PROFILE SAVE FAILED · TRY AGAIN";
+        throw new Error(reason);
+      }
       const payload = await response.json();
+      if (!payload?.profile) throw new Error("PROFILE SAVE RETURNED NO PLAYER");
       render(payload.profile, true);
-      saveStatus.textContent = "PROFILE SAVED";
+      setText(saveStatus, "PUBLISHED · ROOMS AND RANKINGS NOW USE THIS PROFILE");
       void globalThis.NeonSnakeAccount?.refresh();
-    } catch {
-      saveStatus.textContent = "PROFILE COULD NOT BE SAVED";
+    } catch (saveError) {
+      applyDraftPreview(draft, { updateState: false });
+      draftState.classList.add("is-dirty");
+      setText(draftState, "NOT SAVED");
+      setText(saveStatus, saveError?.name === "AbortError"
+        ? "SAVE TIMED OUT · YOUR PREVIEW IS STILL HERE"
+        : saveError?.message || "PROFILE COULD NOT BE SAVED");
     } finally {
-      submit.disabled = false;
+      clearTimeout(timeout);
+      saving = false;
+      form.removeAttribute("aria-busy");
+      const dirty = !Config.draftsEqual(draftFromControls(), persistedDraft);
+      save.disabled = !dirty;
+      reset.disabled = !dirty;
     }
   });
 
   copy.addEventListener("click", async () => {
-    const url = new URL("/profile.html", location.origin);
+    const url = new URL("/profile", location.origin);
     url.searchParams.set("user", currentProfile?.username || requestedUser);
     try {
       await navigator.clipboard.writeText(url.href);

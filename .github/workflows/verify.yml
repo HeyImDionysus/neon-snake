@@ -32,7 +32,9 @@ jobs:
           node --check public/signal-field.js
           node --check public/duel.js
           node --check public/account.js
+          node --check public/profile-config.js
           node --check public/profile.js
+          node --check public/touch-controls.js
           node --check public/wallpaper-engine.js
           node --check public/wallpaper.js
           node --check public/sw.js
@@ -59,7 +61,10 @@ jobs:
           node realtime-worker.test.js
           node platform-security.test.js
           node profile-system.test.js
+          node profile-interaction.test.js
+          PROFILE_BROWSER_REQUIRED=1 node profile-browser.test.js
           node product-experience.test.js
+          node touch-controls.test.js
           node wallpaper-system.test.js
 
       - name: Build Windows wallpaper

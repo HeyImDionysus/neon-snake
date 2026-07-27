@@ -1,6 +1,6 @@
 .duel-page {
   min-height: 100vh;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 .duel-header {
@@ -686,19 +686,21 @@ body[data-duel-type="live"] .duel-console {
 
   .duel-mobile-controls {
     display: grid;
-    grid-template-columns: repeat(3, 54px);
+    grid-template-columns: repeat(3, 62px);
     justify-content: center;
-    gap: 6px;
+    gap: 8px;
     margin: 16px auto 0;
   }
 
   .duel-mobile-controls button {
-    width: 54px;
-    height: 45px;
+    width: 62px;
+    height: 54px;
     border: 1px solid #ffffff1a;
     color: var(--paper);
     background: #0c120e;
     cursor: pointer;
+    touch-action: manipulation;
+    user-select: none;
   }
 
   .duel-mobile-controls button:disabled {

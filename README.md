@@ -27,7 +27,10 @@ node deployment-contract.test.js
 node realtime-worker.test.js
 node platform-security.test.js
 node profile-system.test.js
+node profile-interaction.test.js
+node profile-browser.test.js
 node product-experience.test.js
+node touch-controls.test.js
 node wallpaper-system.test.js
 ```
 

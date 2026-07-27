@@ -33,6 +33,32 @@
       ]
     },
     {
+      "source": "/downloads/v1.1.0/Neon-Snake-Lively-v1.1.0.zip",
+      "headers": [
+        {
+          "key": "Content-Disposition",
+          "value": "attachment; filename=\"Neon-Snake-Lively-v1.1.0.zip\""
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/downloads/v1.1.0/Neon-Snake-Android-v1.1.0.apk",
+      "headers": [
+        {
+          "key": "Content-Disposition",
+          "value": "attachment; filename=\"Neon-Snake-Android-v1.1.0.apk\""
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
       "source": "/(.*)",
       "headers": [
         {

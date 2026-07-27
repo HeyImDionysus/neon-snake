@@ -45,9 +45,13 @@
       </section>
 
       <section class="profile-error" id="profileError" hidden>
-        <p>PLAYER NOT FOUND</p>
-        <h1>This signal has no public profile.</h1>
-        <a class="primary-link" href="/api/auth/discord/start">Create yours with Discord</a>
+        <p>YOUR PLAYER IDENTITY</p>
+        <h1>Claim your place on the grid.</h1>
+        <p class="profile-error-copy">Discord verifies the player. You choose the callsign, color, favorite mode, and signature snake everyone sees in rooms and rankings.</p>
+        <div class="profile-error-features" aria-label="Profile features">
+          <span>PUBLIC CALLSIGN</span><span>LIVE ROOM STATUS</span><span>VERIFIED RECORD</span>
+        </div>
+        <a class="primary-link" href="/api/auth/discord/start">Build my profile with Discord <span aria-hidden="true">↗</span></a>
       </section>
 
       <article class="profile-card" id="profileCard" hidden>
@@ -79,70 +83,81 @@
           <section class="profile-signature" aria-labelledby="signatureTitle">
             <div class="signature-heading">
               <div>
-                <p class="section-kicker">PLAYER SIGNAL</p>
-                <h2 id="signatureTitle">Signature snake</h2>
+                <p class="section-kicker">LIVE PLAYER CARD</p>
+                <h2 id="signatureTitle">Your public signal.</h2>
               </div>
-              <span id="profileSnakeStyle">SIGNAL</span>
+              <span class="profile-draft-state" id="profileDraftState">SAVED</span>
             </div>
-            <div class="signature-field" aria-hidden="true">
-              <div class="signature-route"></div>
-              <div class="signature-snake">
-                <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+            <div class="profile-preview-card">
+              <div class="profile-preview-identity">
+                <span>PLAYER / VERIFIED</span>
+                <strong id="profilePreviewCallsign">PLAYER</strong>
+                <small id="profilePreviewUsername">@player</small>
               </div>
-              <span class="signature-food"></span>
+              <div class="signature-field" aria-hidden="true">
+                <div class="signature-route"></div>
+                <div class="signature-snake">
+                  <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+                </div>
+                <span class="signature-food"></span>
+              </div>
+              <p class="profile-preview-bio" id="profilePreviewBio">No player bio yet.</p>
             </div>
             <dl class="profile-favorites">
               <div><dt>FAVORITE MODE</dt><dd id="profileFavoriteMode">CLASSIC</dd></div>
               <div><dt>PROFILE COLOR</dt><dd id="profileAccent">ACID</dd></div>
+              <div><dt>SNAKE STYLE</dt><dd id="profileSnakeStyle">SIGNAL</dd></div>
             </dl>
           </section>
 
           <form class="profile-editor" id="profileEditor" hidden>
             <header>
-              <p class="section-kicker">CUSTOMIZE PROFILE</p>
-              <h2>Make the signal yours.</h2>
-              <p>Your verified Discord username always stays visible beneath your custom callsign.</p>
+              <p class="section-kicker">PROFILE STUDIO</p>
+              <h2>Tune every public detail.</h2>
+              <p>Every option previews instantly on your player card. Save once when it feels right; your verified Discord username always remains visible.</p>
             </header>
 
-            <label for="callsignInput">CALLSIGN</label>
-            <input id="callsignInput" name="callsign" maxlength="24" autocomplete="off" />
+            <div class="profile-field-heading"><label for="callsignInput">CALLSIGN</label><span id="callsignCount">0 / 24</span></div>
+            <input id="callsignInput" name="callsign" maxlength="24" autocomplete="off" placeholder="Choose a public callsign" />
 
-            <label for="bioInput">BIO</label>
-            <textarea id="bioInput" name="bio" maxlength="120" rows="3"></textarea>
+            <div class="profile-field-heading"><label for="bioInput">PLAYER BIO</label><span id="bioCount">0 / 120</span></div>
+            <textarea id="bioInput" name="bio" maxlength="120" rows="3" placeholder="What should rivals know about you?"></textarea>
 
             <fieldset class="accent-picker">
-              <legend>PROFILE COLOR</legend>
-              <label><input type="radio" name="accent" value="acid" /><span class="accent-acid">ACID</span></label>
-              <label><input type="radio" name="accent" value="cyan" /><span class="accent-cyan">CYAN</span></label>
-              <label><input type="radio" name="accent" value="violet" /><span class="accent-violet">VIOLET</span></label>
-              <label><input type="radio" name="accent" value="magenta" /><span class="accent-magenta">MAGENTA</span></label>
-              <label><input type="radio" name="accent" value="ember" /><span class="accent-ember">EMBER</span></label>
+              <legend>PROFILE COLOR <small>Changes your glow across the site</small></legend>
+              <div class="accent-options">
+                <label><input type="radio" name="accent" value="acid" /><span class="accent-acid"><i></i>ACID</span></label>
+                <label><input type="radio" name="accent" value="cyan" /><span class="accent-cyan"><i></i>CYAN</span></label>
+                <label><input type="radio" name="accent" value="violet" /><span class="accent-violet"><i></i>VIOLET</span></label>
+                <label><input type="radio" name="accent" value="magenta" /><span class="accent-magenta"><i></i>MAGENTA</span></label>
+                <label><input type="radio" name="accent" value="ember" /><span class="accent-ember"><i></i>EMBER</span></label>
+              </div>
             </fieldset>
 
-            <div class="profile-selects">
-              <label for="favoriteModeInput">FAVORITE MODE
-                <select id="favoriteModeInput" name="favoriteMode">
-                  <option value="classic">Classic</option>
-                  <option value="portal">Portal</option>
-                  <option value="rush">Rush</option>
-                  <option value="canvas">Canvas</option>
-                  <option value="live">Live Duel</option>
-                </select>
-              </label>
-              <label for="snakeStyleInput">SNAKE STYLE
-                <select id="snakeStyleInput" name="snakeStyle">
-                  <option value="signal">Signal</option>
-                  <option value="spectral">Spectral</option>
-                  <option value="glass">Glass</option>
-                  <option value="ember">Ember</option>
-                </select>
-              </label>
-            </div>
+            <fieldset class="profile-choice-grid mode-choice-grid">
+              <legend>FAVORITE MODE <small>Displayed on your public profile</small></legend>
+              <label><input type="radio" name="favoriteMode" value="classic" /><span><strong>CLASSIC</strong><small>Walls are final</small></span></label>
+              <label><input type="radio" name="favoriteMode" value="portal" /><span><strong>PORTAL</strong><small>Loop the edges</small></span></label>
+              <label><input type="radio" name="favoriteMode" value="rush" /><span><strong>RUSH</strong><small>Beat the clock</small></span></label>
+              <label><input type="radio" name="favoriteMode" value="canvas" /><span><strong>CANVAS</strong><small>Paint the route</small></span></label>
+              <label><input type="radio" name="favoriteMode" value="live" /><span><strong>LIVE DUEL</strong><small>Another player</small></span></label>
+            </fieldset>
 
-            <button class="primary-button profile-save" type="submit">
-              <span>Save profile</span><span aria-hidden="true">✓</span>
-            </button>
-            <p class="profile-save-status" id="profileSaveStatus" aria-live="polite"></p>
+            <fieldset class="profile-choice-grid snake-choice-grid">
+              <legend>SIGNATURE SNAKE <small>Previewed live on the left</small></legend>
+              <label><input type="radio" name="snakeStyle" value="signal" /><span><i class="mini-snake"></i><strong>SIGNAL</strong><small>Solid neon</small></span></label>
+              <label><input type="radio" name="snakeStyle" value="spectral" /><span><i class="mini-snake"></i><strong>SPECTRAL</strong><small>Soft ghost glow</small></span></label>
+              <label><input type="radio" name="snakeStyle" value="glass" /><span><i class="mini-snake"></i><strong>GLASS</strong><small>Transparent light</small></span></label>
+              <label><input type="radio" name="snakeStyle" value="ember" /><span><i class="mini-snake"></i><strong>EMBER</strong><small>Hot gradient</small></span></label>
+            </fieldset>
+
+            <div class="profile-editor-actions">
+              <button class="primary-button profile-save" type="submit" disabled>
+                <span>Save changes</span><span aria-hidden="true">✓</span>
+              </button>
+              <button class="text-button profile-reset" type="reset" disabled>Reset preview <span aria-hidden="true">↺</span></button>
+            </div>
+            <p class="profile-save-status" id="profileSaveStatus" role="status" aria-live="polite">YOUR PROFILE IS UP TO DATE</p>
           </form>
         </div>
       </article>
@@ -155,6 +170,7 @@
 
     <script src="signal-field.js"></script>
     <script src="account.js"></script>
+    <script src="profile-config.js"></script>
     <script src="profile.js"></script>
   </body>
 </html>
