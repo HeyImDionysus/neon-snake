@@ -112,7 +112,8 @@ button, a, label, select { -webkit-tap-highlight-color: transparent; }
 }
 
 .discord-login,
-.account-logout {
+.account-logout,
+.account-unavailable {
   border: 1px solid rgba(169, 139, 255, .34);
   border-radius: 999px;
   background: rgba(12, 14, 23, .74);
@@ -123,6 +124,12 @@ button, a, label, select { -webkit-tap-highlight-color: transparent; }
   text-decoration: none;
   text-transform: uppercase;
   transition: border-color .2s ease, color .2s ease, background .2s ease;
+}
+
+.account-unavailable {
+  border-color: var(--line);
+  color: var(--dim);
+  cursor: default;
 }
 
 .discord-login:hover,

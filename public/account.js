@@ -23,6 +23,14 @@
     });
   }
 
+  function renderUnavailable() {
+    if (root.NeonSnakeAccount) root.NeonSnakeAccount.profile = null;
+    controls.forEach((control) => {
+      control.replaceChildren();
+      control.append(element("span", "account-unavailable", "Discord profiles offline"));
+    });
+  }
+
   function renderSignedIn(profile) {
     if (root.NeonSnakeAccount) root.NeonSnakeAccount.profile = profile;
     controls.forEach((control) => {
@@ -94,9 +102,10 @@
       if (!response.ok) throw new Error("Account service unavailable");
       const payload = await response.json();
       if (payload.authenticated && payload.profile) renderSignedIn(payload.profile);
+      else if (payload.available === false) renderUnavailable();
       else renderSignedOut();
     } catch {
-      renderSignedOut();
+      renderUnavailable();
     }
   }
 

@@ -5,6 +5,7 @@ const { createHmac } = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const {
+  accountAvailable,
   createAccountHandler,
   matchSignaturePayload,
   publicProfile,
@@ -78,6 +79,8 @@ function request(url, {
       return command[0] === "SET" ? "OK" : null;
     },
   });
+  assert.equal(accountAvailable(environment), true);
+  assert.equal(accountAvailable({}), false);
   const startResponse = responseHarness();
   await handler(request("/api/auth/discord/start"), startResponse);
   assert.equal(startResponse.statusCode, 302);

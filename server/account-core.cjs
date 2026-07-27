@@ -165,6 +165,15 @@ function environmentConfig(environment) {
   return { clientId, clientSecret, redirectUri, realtimeSecret };
 }
 
+function accountAvailable(environment) {
+  return Boolean(
+    String(environment.DISCORD_CLIENT_ID || "")
+    && String(environment.DISCORD_CLIENT_SECRET || "")
+    && String(environment.DISCORD_REDIRECT_URI || "")
+    && String(environment.REALTIME_SHARED_SECRET || "").length >= 32
+  );
+}
+
 async function readBody(request) {
   if (request.body && typeof request.body === "object") return request.body;
   if (typeof request.body === "string") return JSON.parse(request.body);
@@ -294,6 +303,7 @@ function createAccountHandler({
         const current = await sessionFor(request);
         return sendJson(response, 200, current
           ? {
+            available: true,
             authenticated: true,
             profile: {
               username: current.profile.username,
@@ -301,7 +311,10 @@ function createAccountHandler({
               avatarUrl: avatarUrl(current.profile),
             },
           }
-          : { authenticated: false });
+          : {
+            available: accountAvailable(environment),
+            authenticated: false,
+          });
       }
 
       if (route === "/api/logout") {
@@ -420,6 +433,7 @@ function createAccountHandler({
 
 module.exports = {
   MATCH_SCRIPT,
+  accountAvailable,
   avatarUrl,
   createAccountHandler,
   digest,
