@@ -803,7 +803,7 @@ function createRealtimeHub({
     ]);
     const payload = typeof result === "string" ? JSON.parse(result) : result;
     if (!payload || typeof payload !== "object") throw new Error("Invalid realtime presence response.");
-    if (clean?.userId && action !== "leave") {
+    if (clean?.userId && action !== "leave" && payload.role === "player") {
       try {
         await runRedis([
           "SET",

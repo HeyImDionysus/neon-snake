@@ -295,6 +295,28 @@ async function flush() {
     && message.players[0]?.profile?.username === "signal_player"
     && message.players[0]?.profile?.callsign === "Night Viper"
   )));
+  const authenticatedSecond = new FakeSocket();
+  await authenticatedHub.connect(
+    authenticatedSecond,
+    request("NENA42", "authenticated-second"),
+  );
+  await flush();
+  const activityWritesBeforeSpectator = authenticatedCommands.filter((command) => (
+    command[0] === "SET"
+    && command[1] === "neon-snake:activity:123456789012345678"
+  )).length;
+  const authenticatedSpectator = new FakeSocket();
+  await authenticatedHub.connect(
+    authenticatedSpectator,
+    request("NENA42", "authenticated-spectator"),
+  );
+  await flush();
+  const spectatorWelcome = authenticatedSpectator.messages.find((message) => message.type === "welcome");
+  assert.equal(spectatorWelcome.role, "spectator");
+  assert.equal(authenticatedCommands.filter((command) => (
+    command[0] === "SET"
+    && command[1] === "neon-snake:activity:123456789012345678"
+  )).length, activityWritesBeforeSpectator);
   authenticatedHub.close();
 
   const healthyRedis = createFakeRedis();
