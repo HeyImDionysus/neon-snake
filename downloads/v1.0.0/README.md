@@ -1,6 +1,6 @@
 # Neon Snake Wallpapers v1.0.0
 
-These are permanent, versioned autonomous-wallpaper builds from verified source commit `5605378370c77a67671be57f84470bad78b546be`. GitHub Actions run 30266418551 compiled the Android package and independently rebuilt and verified the Windows package.
+These are permanent, versioned autonomous-wallpaper builds from the verified repository source. GitHub Actions compiles the Android package and independently rebuilds and verifies the Windows package on every change.
 
 ## Windows
 
