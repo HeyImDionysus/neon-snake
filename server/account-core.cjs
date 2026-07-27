@@ -15,6 +15,10 @@ const SESSION_COOKIE = "__Host-neon_session";
 const OAUTH_COOKIE = "__Host-neon_oauth";
 const OAUTH_TTL_SECONDS = 10 * 60;
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
+const ACTIVITY_TTL_SECONDS = 35;
+const PROFILE_ACCENTS = new Set(["acid", "cyan", "violet", "magenta", "ember"]);
+const PROFILE_MODES = new Set(["classic", "portal", "rush", "canvas", "live"]);
+const PROFILE_SNAKES = new Set(["signal", "spectral", "glass", "ember"]);
 const MATCH_SCRIPT = String.raw`
 local eventKey = KEYS[1]
 local leaderboardKey = KEYS[2]
@@ -35,6 +39,21 @@ else
   redis.call("HINCRBY", loserStatsKey, "losses", 1)
 end
 return 1
+`;
+const LEADERBOARD_SCRIPT = String.raw`
+local rows = redis.call("ZREVRANGE", KEYS[1], 0, 49, "WITHSCORES")
+local result = {}
+for index = 1, #rows, 2 do
+  local userId = rows[index]
+  local statsKey = "neon-snake:stats:" .. userId
+  local activityKey = "neon-snake:activity:" .. userId
+  table.insert(result, userId)
+  table.insert(result, rows[index + 1])
+  table.insert(result, redis.call("HGET", statsKey, "losses") or "0")
+  table.insert(result, redis.call("HGET", statsKey, "draws") or "0")
+  table.insert(result, redis.call("GET", activityKey) or "")
+end
+return result
 `;
 
 function header(request, name) {
@@ -106,6 +125,30 @@ function cleanDisplayText(value, fallback = "") {
   return cleaned || fallback;
 }
 
+function cleanProfileText(value, maximum, fallback = "") {
+  const cleaned = String(value || "")
+    .replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, "")
+    .replace(/[<>&]/g, "")
+    .replace(/\s+/g, " ")
+    .slice(0, maximum)
+    .trim();
+  return cleaned || fallback;
+}
+
+function sanitizeProfileCustomization(value = {}) {
+  const source = value && typeof value === "object" ? value : {};
+  const accent = String(source.accent || "").toLowerCase();
+  const favoriteMode = String(source.favoriteMode || "").toLowerCase();
+  const snakeStyle = String(source.snakeStyle || "").toLowerCase();
+  return {
+    callsign: cleanProfileText(source.callsign, 24),
+    bio: cleanProfileText(source.bio, 120),
+    accent: PROFILE_ACCENTS.has(accent) ? accent : "acid",
+    favoriteMode: PROFILE_MODES.has(favoriteMode) ? favoriteMode : "classic",
+    snakeStyle: PROFILE_SNAKES.has(snakeStyle) ? snakeStyle : "signal",
+  };
+}
+
 function publicProfile(user) {
   const id = String(user?.id || "");
   if (!/^[0-9]{15,24}$/.test(id)) throw new TypeError("Discord user id is invalid.");
@@ -123,10 +166,59 @@ function publicProfile(user) {
   };
 }
 
+function storedProfile(user, previous = null) {
+  return {
+    ...publicProfile(user),
+    customization: sanitizeProfileCustomization(previous?.customization),
+  };
+}
+
 function avatarUrl(profile) {
   if (!profile?.avatar || !profile?.id) return "";
   const extension = profile.avatar.startsWith("a_") ? "gif" : "png";
   return `https://cdn.discordapp.com/avatars/${profile.id}/${profile.avatar}.${extension}?size=128`;
+}
+
+function statsFromRedis(value) {
+  const pairs = Array.isArray(value) ? value : [];
+  const stats = {};
+  for (let index = 0; index < pairs.length; index += 2) {
+    stats[String(pairs[index])] = Number(pairs[index + 1]) || 0;
+  }
+  const wins = stats.wins || 0;
+  const losses = stats.losses || 0;
+  const draws = stats.draws || 0;
+  return {
+    wins,
+    losses,
+    draws,
+    matches: wins + losses + draws,
+  };
+}
+
+function publicProfileView(profile, {
+  stats = { wins: 0, losses: 0, draws: 0, matches: 0 },
+  activeAt = 0,
+  now = Date.now(),
+} = {}) {
+  const customization = sanitizeProfileCustomization(profile?.customization);
+  return {
+    username: cleanProfileText(profile?.username, 32, "player"),
+    displayName: cleanDisplayText(profile?.displayName, "Discord Player"),
+    avatarUrl: avatarUrl(profile),
+    callsign: customization.callsign || cleanDisplayText(profile?.displayName, "Discord Player"),
+    bio: customization.bio,
+    accent: customization.accent,
+    favoriteMode: customization.favoriteMode,
+    snakeStyle: customization.snakeStyle,
+    stats,
+    online: Number(activeAt) > 0 && now - Number(activeAt) <= ACTIVITY_TTL_SECONDS * 1_000,
+  };
+}
+
+function usernameKey(value) {
+  const username = String(value || "").trim().toLowerCase();
+  return /^[a-z0-9._]{2,32}$/.test(username) ? username : "";
 }
 
 function environmentConfig(environment) {
@@ -310,7 +402,18 @@ function createAccountHandler({
           signal: AbortSignal.timeout(5_000),
         });
         if (!userResponse.ok) throw new Error("Discord profile lookup failed.");
-        const profile = publicProfile(await userResponse.json());
+        const discordUser = await userResponse.json();
+        const provisional = publicProfile(discordUser);
+        let previousProfile = null;
+        try {
+          const previousValue = await runRedis(["GET", `neon-snake:profile:${provisional.id}`]);
+          previousProfile = previousValue
+            ? (typeof previousValue === "string" ? JSON.parse(previousValue) : previousValue)
+            : null;
+        } catch {
+          previousProfile = null;
+        }
+        const profile = storedProfile(discordUser, previousProfile);
         const sessionToken = random(32);
         const session = {
           userId: profile.id,
@@ -318,6 +421,10 @@ function createAccountHandler({
           expiresAt: now() + SESSION_TTL_SECONDS * 1_000,
         };
         await runRedis(["SET", `neon-snake:profile:${profile.id}`, JSON.stringify(profile)]);
+        const indexedUsername = usernameKey(profile.username);
+        if (indexedUsername) {
+          await runRedis(["SET", `neon-snake:username:${indexedUsername}`, profile.id]);
+        }
         await runRedis([
           "SET",
           `neon-snake:session:${digest(sessionToken)}`,
@@ -334,20 +441,25 @@ function createAccountHandler({
       if (route === "/api/me") {
         if (request.method !== "GET") return sendJson(response, 405, { error: "method_not_allowed" });
         const current = await sessionFor(request);
-        return sendJson(response, 200, current
-          ? {
-            available: true,
-            authenticated: true,
-            profile: {
-              username: current.profile.username,
-              displayName: current.profile.displayName,
-              avatarUrl: avatarUrl(current.profile),
-            },
-          }
-          : {
+        if (!current) {
+          return sendJson(response, 200, {
             available: accountAvailable(environment),
             authenticated: false,
           });
+        }
+        const [statsValue, activeAt] = await Promise.all([
+          runRedis(["HGETALL", `neon-snake:stats:${current.profile.id}`]),
+          runRedis(["GET", `neon-snake:activity:${current.profile.id}`]),
+        ]);
+        return sendJson(response, 200, {
+          available: true,
+          authenticated: true,
+          profile: publicProfileView(current.profile, {
+            stats: statsFromRedis(statsValue),
+            activeAt,
+            now: now(),
+          }),
+        });
       }
 
       if (route === "/api/logout") {
@@ -359,11 +471,104 @@ function createAccountHandler({
         return sendJson(response, 200, { ok: true });
       }
 
+      if (route === "/api/profile") {
+        if (request.method === "GET") {
+          const current = await sessionFor(request);
+          const requestedUsername = usernameKey(url.searchParams.get("user"));
+          let profile = current?.profile || null;
+          if (requestedUsername) {
+            let userId = await runRedis(["GET", `neon-snake:username:${requestedUsername}`]);
+            if (!userId && usernameKey(current?.profile?.username) === requestedUsername) {
+              userId = current.profile.id;
+            }
+            if (!userId) {
+              const leaderboardIds = await runRedis([
+                "ZREVRANGE",
+                "neon-snake:leaderboard:duel",
+                "0",
+                "49",
+              ]);
+              const candidates = Array.isArray(leaderboardIds) && leaderboardIds.length
+                ? await runRedis([
+                  "MGET",
+                  ...leaderboardIds.map((id) => `neon-snake:profile:${id}`),
+                ])
+                : [];
+              const matchIndex = candidates.findIndex((candidate) => {
+                try {
+                  const parsed = candidate
+                    ? (typeof candidate === "string" ? JSON.parse(candidate) : candidate)
+                    : null;
+                  return usernameKey(parsed?.username) === requestedUsername;
+                } catch {
+                  return false;
+                }
+              });
+              userId = matchIndex >= 0 ? leaderboardIds[matchIndex] : null;
+              if (userId) {
+                await runRedis(["SET", `neon-snake:username:${requestedUsername}`, userId]);
+              }
+            }
+            const profileValue = userId
+              ? await runRedis(["GET", `neon-snake:profile:${userId}`])
+              : null;
+            profile = profileValue
+              ? (typeof profileValue === "string" ? JSON.parse(profileValue) : profileValue)
+              : null;
+          }
+          if (!profile) return sendJson(response, 404, { error: "profile_not_found" });
+          const [statsValue, activeAt] = await Promise.all([
+            runRedis(["HGETALL", `neon-snake:stats:${profile.id}`]),
+            runRedis(["GET", `neon-snake:activity:${profile.id}`]),
+          ]);
+          return sendJson(response, 200, {
+            profile: publicProfileView(profile, {
+              stats: statsFromRedis(statsValue),
+              activeAt,
+              now: now(),
+            }),
+            editable: Boolean(current && current.profile.id === profile.id),
+          });
+        }
+        if (request.method === "PATCH") {
+          if (!requestIsSameOrigin(request)) {
+            return sendJson(response, 403, { error: "origin_not_allowed" });
+          }
+          const current = await sessionFor(request);
+          if (!current) return sendJson(response, 401, { error: "authentication_required" });
+          const customization = sanitizeProfileCustomization(await readBody(request));
+          const profile = {
+            ...current.profile,
+            customization,
+            updatedAt: new Date(now()).toISOString(),
+          };
+          await runRedis(["SET", `neon-snake:profile:${profile.id}`, JSON.stringify(profile)]);
+          const [statsValue, activeAt] = await Promise.all([
+            runRedis(["HGETALL", `neon-snake:stats:${profile.id}`]),
+            runRedis(["GET", `neon-snake:activity:${profile.id}`]),
+          ]);
+          return sendJson(response, 200, {
+            profile: publicProfileView(profile, {
+              stats: statsFromRedis(statsValue),
+              activeAt,
+              now: now(),
+            }),
+          });
+        }
+        return sendJson(response, 405, { error: "method_not_allowed" });
+      }
+
       if (route === "/api/leaderboard") {
         if (request.method !== "GET") return sendJson(response, 405, { error: "method_not_allowed" });
-        const rows = await runRedis(["ZREVRANGE", "neon-snake:leaderboard:duel", "0", "49", "WITHSCORES"]);
+        const rows = await runRedis([
+          "EVAL",
+          LEADERBOARD_SCRIPT,
+          "1",
+          "neon-snake:leaderboard:duel",
+        ]);
         const pairs = Array.isArray(rows) ? rows : [];
-        const userIds = pairs.filter((_, index) => index % 2 === 0);
+        const stride = 5;
+        const userIds = pairs.filter((_, index) => index % stride === 0);
         const profiles = userIds.length
           ? await runRedis(["MGET", ...userIds.map((id) => `neon-snake:profile:${id}`)])
           : [];
@@ -374,11 +579,23 @@ function createAccountHandler({
           } catch {
             profile = null;
           }
+          const customization = sanitizeProfileCustomization(profile?.customization);
+          const wins = Number(pairs[index * stride + 1]) || 0;
+          const losses = Number(pairs[index * stride + 2]) || 0;
+          const draws = Number(pairs[index * stride + 3]) || 0;
+          const activeAt = Number(pairs[index * stride + 4]) || 0;
           return {
             rank: index + 1,
             displayName: profile?.displayName || "Discord Player",
+            username: profile?.username || "player",
             avatarUrl: profile ? avatarUrl(profile) : "",
-            wins: Number(pairs[index * 2 + 1]) || 0,
+            callsign: customization.callsign || profile?.displayName || "Discord Player",
+            accent: customization.accent,
+            favoriteMode: customization.favoriteMode,
+            snakeStyle: customization.snakeStyle,
+            wins,
+            record: { wins, losses, draws },
+            online: activeAt > 0 && now() - activeAt <= ACTIVITY_TTL_SECONDS * 1_000,
           };
         });
         return sendJson(response, 200, { entries, verified: true, metric: "server-authoritative-wins" });
@@ -399,6 +616,8 @@ function createAccountHandler({
 }
 
 module.exports = {
+  ACTIVITY_TTL_SECONDS,
+  LEADERBOARD_SCRIPT,
   MATCH_SCRIPT,
   accountAvailable,
   avatarUrl,
@@ -406,6 +625,9 @@ module.exports = {
   createSessionReader,
   digest,
   equalText,
+  publicProfileView,
   publicProfile,
   recordMatchResult,
+  sanitizeProfileCustomization,
+  statsFromRedis,
 };

@@ -107,6 +107,11 @@
           profile: player.profile && typeof player.profile === "object"
             ? {
               displayName: String(player.profile.displayName || "").slice(0, 64),
+              username: String(player.profile.username || "").slice(0, 32),
+              callsign: String(player.profile.callsign || player.profile.displayName || "").slice(0, 24),
+              accent: ["acid", "cyan", "violet", "magenta", "ember"].includes(player.profile.accent)
+                ? player.profile.accent
+                : "acid",
               avatar: String(player.profile.avatar || "").slice(0, 128),
             }
             : null,

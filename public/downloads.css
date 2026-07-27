@@ -1,0 +1,165 @@
+.downloads-shell {
+  position: relative;
+  z-index: 1;
+  width: min(100% - 48px, 1280px);
+  margin: 0 auto;
+  padding: clamp(42px, 7vw, 94px) 0;
+}
+
+.downloads-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(300px, .85fr);
+  align-items: end;
+  gap: clamp(34px, 8vw, 110px);
+  margin-bottom: clamp(34px, 5vw, 58px);
+}
+
+.downloads-hero h1 {
+  margin: 8px 0 0;
+  font-size: clamp(3.4rem, 8.5vw, 8.5rem);
+  line-height: .82;
+  letter-spacing: -.075em;
+}
+
+.downloads-hero h1 em {
+  color: var(--acid);
+  font-style: normal;
+}
+
+.downloads-hero > p {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: clamp(14px, 1.25vw, 18px);
+  line-height: 1.7;
+}
+
+.wallpaper-preview {
+  position: relative;
+  aspect-ratio: 16 / 8.2;
+  min-height: 420px;
+  border: 1px solid var(--line);
+  background: #050806;
+  box-shadow: 0 34px 100px rgba(0,0,0,.34);
+}
+
+.wallpaper-preview .wallpaper-surface {
+  min-height: 100%;
+}
+
+.preview-label {
+  position: absolute;
+  right: 18px;
+  top: 18px;
+  z-index: 2;
+  padding: 8px 10px;
+  border: 1px solid rgba(173,255,102,.25);
+  color: var(--acid);
+  background: rgba(4, 9, 5, .7);
+  font: 700 8px var(--mono);
+  letter-spacing: .15em;
+}
+
+.download-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.download-platform {
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  min-height: 490px;
+  padding: clamp(26px, 4vw, 46px);
+  border: 1px solid var(--line);
+  background: rgba(8, 14, 10, .9);
+}
+
+.download-platform header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.platform-mark {
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  border: 1px solid var(--line-bright);
+  color: var(--acid);
+  background: var(--panel);
+  font-size: 30px;
+}
+
+.download-platform header p,
+.download-platform header h2 { margin: 0; }
+.download-platform header p { color: var(--acid); font: 700 9px var(--mono); letter-spacing: .16em; }
+.download-platform header h2 { margin-top: 5px; font-size: clamp(1.7rem, 3vw, 2.8rem); letter-spacing: -.04em; }
+.download-platform > p { margin: 28px 0 0; color: var(--muted); line-height: 1.65; }
+.download-platform ol { margin: 28px 0; padding: 0; list-style: none; counter-reset: step; }
+.download-platform li {
+  counter-increment: step;
+  position: relative;
+  padding: 13px 0 13px 38px;
+  border-top: 1px solid var(--line);
+  color: var(--paper);
+  font-size: 13px;
+}
+.download-platform li::before {
+  content: counter(step, decimal-leading-zero);
+  position: absolute;
+  left: 0;
+  color: var(--dim);
+  font: 700 9px var(--mono);
+}
+
+.download-button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 64px;
+  padding: 0 18px;
+  color: var(--ink);
+  background: var(--acid);
+  font-weight: 800;
+  text-decoration: none;
+  transition: filter .16s ease, transform .16s ease;
+}
+
+.download-button span:last-child { font: 700 8px var(--mono); letter-spacing: .1em; }
+.download-button:hover { filter: brightness(1.1); transform: translateY(-2px); }
+.android-download { background: linear-gradient(145deg, rgba(169,139,255,.06), transparent 42%), rgba(8, 14, 10, .9); }
+.android-download .platform-mark,
+.android-download header p { color: var(--violet); }
+.android-download .download-button { color: #08050d; background: var(--violet); }
+
+.download-proof {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 22px;
+  min-height: 74px;
+  padding: 18px 22px;
+  border: 1px solid var(--line);
+  border-top: 0;
+  color: var(--dim);
+  font: 700 8px var(--mono);
+  letter-spacing: .12em;
+}
+.download-proof a { margin-left: auto; color: var(--paper); text-decoration: none; }
+.download-proof a:hover { color: var(--acid); }
+
+@media (max-width: 820px) {
+  .downloads-hero,
+  .download-grid { grid-template-columns: 1fr; }
+  .wallpaper-preview { aspect-ratio: 4 / 5; min-height: 560px; }
+}
+
+@media (max-width: 600px) {
+  .downloads-shell { width: min(100% - 28px, 560px); padding-block: 32px; }
+  .downloads-hero h1 { font-size: clamp(3rem, 18vw, 5.5rem); }
+  .wallpaper-preview { min-height: 500px; }
+  .download-platform { min-height: 0; }
+  .download-proof a { width: 100%; margin-left: 0; }
+}

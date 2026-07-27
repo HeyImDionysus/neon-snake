@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#070b09" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="description" content="View and customize a verified Neon Snake player profile." />
+    <meta name="robots" content="index,follow" />
+    <title>Player Profile — Neon Snake</title>
+    <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/assets/icon-180.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="profile.css" />
+  </head>
+  <body class="profile-page" data-profile-accent="acid">
+    <canvas class="signal-field" id="signalField" aria-hidden="true"></canvas>
+    <div class="ambient ambient-one" aria-hidden="true"></div>
+    <div class="ambient ambient-two" aria-hidden="true"></div>
+
+    <header class="site-header product-header">
+      <a class="brand" href="./" aria-label="Play Neon Snake">
+        <span class="brand-glyph" aria-hidden="true"><img src="assets/signal-mark.svg" alt="" /></span>
+        <span>NEON SNAKE</span>
+      </a>
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a href="./">PLAY</a>
+        <a href="duel.html">MULTIPLAYER</a>
+        <a href="downloads.html">WALLPAPERS</a>
+        <a href="./#leaderboard">LEADERBOARD</a>
+      </nav>
+      <div class="header-actions">
+        <div class="account-control" data-account-control>
+          <a class="discord-login" href="/api/auth/discord/start">Sign in with Discord</a>
+        </div>
+      </div>
+    </header>
+
+    <main class="profile-shell">
+      <section class="profile-loading" id="profileLoading" aria-live="polite">
+        <span></span>
+        <strong>LOADING PLAYER SIGNAL</strong>
+      </section>
+
+      <section class="profile-error" id="profileError" hidden>
+        <p>PLAYER NOT FOUND</p>
+        <h1>This signal has no public profile.</h1>
+        <a class="primary-link" href="/api/auth/discord/start">Create yours with Discord</a>
+      </section>
+
+      <article class="profile-card" id="profileCard" hidden>
+        <header class="profile-hero">
+          <div class="profile-avatar-wrap">
+            <img id="profileAvatar" alt="" width="132" height="132" />
+            <span class="profile-presence" id="profilePresence">OFFLINE</span>
+          </div>
+          <div class="profile-identity">
+            <p class="section-kicker">VERIFIED PLAYER</p>
+            <h1 id="profileCallsign">PLAYER</h1>
+            <strong id="profileUsername">@player</strong>
+            <p id="profileBio">No player bio yet.</p>
+          </div>
+          <div class="profile-actions">
+            <button class="text-button" id="copyProfileButton" type="button">Copy profile link <span aria-hidden="true">↗</span></button>
+            <button class="text-button" id="logoutProfileButton" type="button" hidden>Sign out <span aria-hidden="true">→</span></button>
+          </div>
+        </header>
+
+        <section class="profile-stats" aria-label="Verified live duel record">
+          <div><span>WINS</span><strong id="profileWins">00</strong></div>
+          <div><span>LOSSES</span><strong id="profileLosses">00</strong></div>
+          <div><span>DRAWS</span><strong id="profileDraws">00</strong></div>
+          <div><span>MATCHES</span><strong id="profileMatches">00</strong></div>
+        </section>
+
+        <div class="profile-body">
+          <section class="profile-signature" aria-labelledby="signatureTitle">
+            <div class="signature-heading">
+              <div>
+                <p class="section-kicker">PLAYER SIGNAL</p>
+                <h2 id="signatureTitle">Signature snake</h2>
+              </div>
+              <span id="profileSnakeStyle">SIGNAL</span>
+            </div>
+            <div class="signature-field" aria-hidden="true">
+              <div class="signature-route"></div>
+              <div class="signature-snake">
+                <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+              </div>
+              <span class="signature-food"></span>
+            </div>
+            <dl class="profile-favorites">
+              <div><dt>FAVORITE MODE</dt><dd id="profileFavoriteMode">CLASSIC</dd></div>
+              <div><dt>PROFILE COLOR</dt><dd id="profileAccent">ACID</dd></div>
+            </dl>
+          </section>
+
+          <form class="profile-editor" id="profileEditor" hidden>
+            <header>
+              <p class="section-kicker">CUSTOMIZE PROFILE</p>
+              <h2>Make the signal yours.</h2>
+              <p>Your verified Discord username always stays visible beneath your custom callsign.</p>
+            </header>
+
+            <label for="callsignInput">CALLSIGN</label>
+            <input id="callsignInput" name="callsign" maxlength="24" autocomplete="off" />
+
+            <label for="bioInput">BIO</label>
+            <textarea id="bioInput" name="bio" maxlength="120" rows="3"></textarea>
+
+            <fieldset class="accent-picker">
+              <legend>PROFILE COLOR</legend>
+              <label><input type="radio" name="accent" value="acid" /><span class="accent-acid">ACID</span></label>
+              <label><input type="radio" name="accent" value="cyan" /><span class="accent-cyan">CYAN</span></label>
+              <label><input type="radio" name="accent" value="violet" /><span class="accent-violet">VIOLET</span></label>
+              <label><input type="radio" name="accent" value="magenta" /><span class="accent-magenta">MAGENTA</span></label>
+              <label><input type="radio" name="accent" value="ember" /><span class="accent-ember">EMBER</span></label>
+            </fieldset>
+
+            <div class="profile-selects">
+              <label for="favoriteModeInput">FAVORITE MODE
+                <select id="favoriteModeInput" name="favoriteMode">
+                  <option value="classic">Classic</option>
+                  <option value="portal">Portal</option>
+                  <option value="rush">Rush</option>
+                  <option value="canvas">Canvas</option>
+                  <option value="live">Live Duel</option>
+                </select>
+              </label>
+              <label for="snakeStyleInput">SNAKE STYLE
+                <select id="snakeStyleInput" name="snakeStyle">
+                  <option value="signal">Signal</option>
+                  <option value="spectral">Spectral</option>
+                  <option value="glass">Glass</option>
+                  <option value="ember">Ember</option>
+                </select>
+              </label>
+            </div>
+
+            <button class="primary-button profile-save" type="submit">
+              <span>Save profile</span><span aria-hidden="true">✓</span>
+            </button>
+            <p class="profile-save-status" id="profileSaveStatus" aria-live="polite"></p>
+          </form>
+        </div>
+      </article>
+    </main>
+
+    <footer class="site-footer product-footer">
+      <span>NEON SNAKE / VERIFIED PLAYERS</span>
+      <span><a href="./">PLAY</a> · <a href="duel.html">MULTIPLAYER</a> · <a href="downloads.html">WALLPAPERS</a></span>
+    </footer>
+
+    <script src="signal-field.js"></script>
+    <script src="account.js"></script>
+    <script src="profile.js"></script>
+  </body>
+</html>

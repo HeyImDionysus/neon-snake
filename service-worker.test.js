@@ -114,13 +114,13 @@ async function main() {
   const shell = stores.get(activeName);
   assert.ok(activeName, "Expected a versioned shell cache");
   assert.equal(skipWaitingCalls, 1);
-  ["/index.html", "/duel.html", "/wallpaper.html", "/assets/icon-192.png", "/assets/icon-512.png"].forEach((url) => {
+  ["/index.html", "/duel.html", "/downloads.html", "/profile.html", "/wallpaper.html", "/assets/icon-192.png", "/assets/icon-512.png"].forEach((url) => {
     assert.ok(shell.has(requestKey(url)), `Install omitted ${url}`);
   });
   process.stdout.write("PASS install primes the complete versioned app shell\n");
 
-  assert.match(source, /neon-snake-shell-v70/);
-  process.stdout.write("PASS disconnect-cancellation fixes ship behind a fresh shell cache version\n");
+  assert.match(source, /neon-snake-shell-v71/);
+  process.stdout.write("PASS product redesign ships behind a fresh shell cache version\n");
 
   stores.set("neon-snake-shell-stale", new Map());
   await dispatchWaitUntil("activate");
@@ -167,10 +167,22 @@ async function main() {
     mode: "navigate",
     url: `${origin}/wallpaper`,
   });
+  const downloadsFallback = await dispatchFetch({
+    method: "GET",
+    mode: "navigate",
+    url: `${origin}/downloads`,
+  });
+  const profileFallback = await dispatchFetch({
+    method: "GET",
+    mode: "navigate",
+    url: `${origin}/profile?user=signal_player`,
+  });
   assert.equal(soloFallback.body, "shell:/index.html");
   assert.equal(duelFallback.body, "shell:/duel.html");
   assert.equal(wallpaperFallback.body, "shell:/wallpaper.html");
-  process.stdout.write("PASS offline navigation preserves solo, Duel, and wallpaper routes\n");
+  assert.equal(downloadsFallback.body, "shell:/downloads.html");
+  assert.equal(profileFallback.body, "shell:/profile.html");
+  process.stdout.write("PASS offline navigation preserves solo, Duel, downloads, profile, and wallpaper routes\n");
 
   process.stdout.write("\n6 deterministic service-worker lifecycle tests passed.\n");
 }

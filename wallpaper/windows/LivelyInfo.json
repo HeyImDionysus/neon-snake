@@ -1,8 +1,8 @@
 {
   "AppVersion": "2.0.7.0",
-  "Title": "Neon Snake — Autonomous Signal",
+  "Title": "Neon Snake — Live Autopilot",
   "Thumbnail": "thumbnail.png",
-  "Desc": "The Neon Snake Autopilot runs as a responsive, offline desktop wallpaper.",
+  "Desc": "The real Neon Snake Autopilot eats, grows, scores, and survives as an offline desktop wallpaper.",
   "Author": "Neon Snake",
   "License": "MIT",
   "Contact": "https://github.com/HeyImDionysus/neon-snake",
