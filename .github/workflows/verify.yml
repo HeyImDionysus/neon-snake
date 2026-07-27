@@ -68,6 +68,7 @@ jobs:
           node profile-system.test.js
           node profile-interaction.test.js
           PROFILE_BROWSER_REQUIRED=1 node profile-browser.test.js
+          PRODUCT_BROWSER_REQUIRED=1 node product-browser.test.js
           node product-experience.test.js
           node touch-controls.test.js
           node wallpaper-system.test.js

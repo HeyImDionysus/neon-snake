@@ -48,23 +48,24 @@ const tests = [
     assert.match(styles, /\.protocol-glyph\[data-glyph="rush"\]/);
     assert.match(styles, /\.protocol-glyph\[data-glyph="canvas"\]/);
   }],
-  ["the methodology is presented as a run trace rather than a four-card template", () => {
-    assert.match(indexHtml, /class="signal-atlas"/);
-    assert.match(indexHtml, /class="atlas-route"/);
-    assert.equal((indexHtml.match(/class="atlas-entry"/g) || []).length, 4);
-    assert.doesNotMatch(indexHtml, /class="showcase-grid"/);
-    assert.match(styles, /@keyframes atlas-draw/);
+  ["the product paths are direct actions rather than a decorative card template", () => {
+    assert.match(indexHtml, /class="next-moves"/);
+    assert.match(indexHtml, /class="next-moves-list"/);
+    assert.equal((indexHtml.match(/class="next-move-number"/g) || []).length, 3);
+    assert.doesNotMatch(indexHtml, /signal-atlas|atlas-route|class="showcase-grid"/);
+    assert.match(styles, /\.next-moves-list a/);
   }],
   ["motion is bounded and reduced-motion aware", () => {
     assert.match(fieldSource, /prefers-reduced-motion: reduce/);
-    assert.match(fieldSource, /24/);
+    assert.match(fieldSource, /COMPACT_FRAME_INTERVAL = 1000 \/ 15/);
     assert.match(fieldSource, /document\.hidden/);
     assert.match(fieldSource, /motionQuery\?\.addEventListener\("change", handleMotionPreference\)/);
+    assert.match(fieldSource, /visibilitychange/);
     assert.match(styles, /prefers-reduced-motion: reduce/);
-    assert.match(styles, /\.atlas-route__flow/);
   }],
-  ["the atlas changes layout before intermediate-width cards can collide", () => {
-    assert.match(styles, /@media \(max-width: 1280px\)[^]*?\.signal-atlas/);
+  ["the action list and mobile navigation reflow before controls collide", () => {
+    assert.match(styles, /@media \(max-width: 820px\)[^]*?\.site-menu-open/);
+    assert.match(styles, /@media \(max-width: 680px\)[^]*?\.next-moves/);
   }],
   ["public multiplayer copy no longer calls the finished feature a canary", () => {
     assert.doesNotMatch(indexHtml, /LIVE ROOM CANARY/);

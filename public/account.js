@@ -14,6 +14,16 @@
     return node;
   }
 
+  function playerSignature(profile = {}) {
+    const style = ["signal", "spectral", "glass", "ember"].includes(profile.snakeStyle)
+      ? profile.snakeStyle
+      : "signal";
+    const signature = element("span", `player-signature snake-${style}`);
+    signature.setAttribute("aria-hidden", "true");
+    signature.append(document.createElement("i"), document.createElement("i"), document.createElement("i"));
+    return signature;
+  }
+
   function renderSignedOut() {
     if (root.NeonSnakeAccount) root.NeonSnakeAccount.profile = null;
     controls.forEach((control) => {
@@ -35,6 +45,8 @@
 
   function renderSignedIn(profile) {
     if (root.NeonSnakeAccount) root.NeonSnakeAccount.profile = profile;
+    document.body.dataset.playerAccent = profile.accent || "acid";
+    document.body.dataset.playerSnake = profile.snakeStyle || "signal";
     controls.forEach((control) => {
       control.replaceChildren();
       const profileLink = element("a", "account-profile-link");
@@ -93,8 +105,13 @@
       playerCopy.append(
         element("strong", "", entry.callsign || entry.displayName || "Discord Player"),
         element("small", "", `@${entry.username || "player"}`),
+        element(
+          "small",
+          "player-preference",
+          `${String(entry.snakeStyle || "signal").toUpperCase()} · ${String(entry.favoriteMode || "classic").toUpperCase()}`,
+        ),
       );
-      player.append(playerCopy);
+      player.append(playerSignature(entry), playerCopy);
       if (entry.online) player.append(element("i", "online-now", "LIVE"));
       const record = entry.record || { wins: entry.wins || 0, losses: 0, draws: 0 };
       const result = element("span", "online-record");
@@ -137,8 +154,13 @@
       identity.append(
         element("strong", "", entry.callsign || entry.displayName || "Discord Player"),
         element("small", "", `@${entry.username || "player"}`),
+        element(
+          "small",
+          "player-preference",
+          `${String(entry.snakeStyle || "signal").toUpperCase()} · ${String(entry.favoriteMode || "classic").toUpperCase()}`,
+        ),
       );
-      link.append(identity, element("i", "", "PLAYING"));
+      link.append(playerSignature(entry), identity, element("i", "", "PLAYING"));
       item.append(link);
       livePlayers.append(item);
     });

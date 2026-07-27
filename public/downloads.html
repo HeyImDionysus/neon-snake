@@ -25,13 +25,17 @@
         <span class="brand-glyph" aria-hidden="true"><img src="assets/signal-mark.svg" alt="" /></span>
         <span>NEON SNAKE</span>
       </a>
-      <nav class="site-nav" aria-label="Primary navigation">
+      <nav class="site-nav" id="primaryNavigation" aria-label="Primary navigation">
         <a href="./">GAME</a>
         <a href="duel.html">LIVE DUEL</a>
         <a href="./#leaderboard">RANKINGS</a>
         <a href="downloads.html" aria-current="page">WALLPAPERS</a>
         <a href="profile.html">PROFILE</a>
       </nav>
+      <button class="site-menu-toggle" type="button" aria-controls="primaryNavigation" aria-expanded="false" aria-label="Open navigation">
+        <span aria-hidden="true"><i></i><i></i></span>
+        <small>MENU</small>
+      </button>
       <div class="header-actions">
         <div class="account-control" data-account-control>
           <a class="discord-login" href="/api/auth/discord/start">Sign in with Discord</a>
@@ -67,6 +71,36 @@
           </div>
         </div>
         <span class="preview-label">LIVE PREVIEW · AUTOPILOT</span>
+        <aside class="preview-controls" aria-label="Wallpaper preview controls">
+          <header>
+            <span>TRY THE WALLPAPER</span>
+            <p>These controls change the live preview above. The Windows download includes the same options.</p>
+          </header>
+          <fieldset>
+            <legend>COLOR</legend>
+            <div class="preview-choice-row">
+              <button type="button" data-wallpaper-palette="acid" aria-pressed="true">ACID</button>
+              <button type="button" data-wallpaper-palette="aurora" aria-pressed="false">AURORA</button>
+              <button type="button" data-wallpaper-palette="ultraviolet" aria-pressed="false">VIOLET</button>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>BOUNDARY</legend>
+            <div class="preview-choice-row">
+              <button type="button" data-wallpaper-mode="classic" aria-pressed="true">WALLS</button>
+              <button type="button" data-wallpaper-mode="portal" aria-pressed="false">WRAP</button>
+            </div>
+          </fieldset>
+          <label class="preview-range">
+            <span><strong>SNAKE SPEED</strong><output id="wallpaperPaceOutput" for="wallpaperPace">QUICK</output></span>
+            <input id="wallpaperPace" type="range" min="70" max="240" step="10" value="110" />
+          </label>
+          <label class="preview-range">
+            <span><strong>GLOW</strong><output id="wallpaperGlowOutput" for="wallpaperGlow">78%</output></span>
+            <input id="wallpaperGlow" type="range" min="0" max="100" step="5" value="80" />
+          </label>
+          <p class="preview-control-status" id="wallpaperPreviewStatus" role="status" aria-live="polite">ACID · WALLS · QUICK</p>
+        </aside>
       </section>
 
       <section class="download-grid" aria-label="Wallpaper downloads">
@@ -120,6 +154,7 @@
     </footer>
 
     <script src="signal-field.js"></script>
+    <script src="site-shell.js"></script>
     <script src="account.js"></script>
     <script src="game-logic.js"></script>
     <script src="wallpaper-engine.js"></script>

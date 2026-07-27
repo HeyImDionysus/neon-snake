@@ -37,13 +37,17 @@
         <span class="brand-glyph" aria-hidden="true"><img src="assets/signal-mark.svg" alt="" /></span>
         <span>NEON SNAKE</span>
       </a>
-      <nav class="site-nav" aria-label="Primary navigation">
+      <nav class="site-nav" id="primaryNavigation" aria-label="Primary navigation">
         <a href="#play" aria-current="page">GAME</a>
         <a href="duel.html">LIVE DUEL</a>
         <a href="#leaderboard">RANKINGS</a>
         <a href="downloads.html">WALLPAPERS</a>
         <a href="profile.html">PROFILE</a>
       </nav>
+      <button class="site-menu-toggle" type="button" aria-controls="primaryNavigation" aria-expanded="false" aria-label="Open navigation">
+        <span aria-hidden="true"><i></i><i></i></span>
+        <small>MENU</small>
+      </button>
       <div class="header-actions">
         <div class="system-status" aria-live="polite">
           <span class="status-light" aria-hidden="true"></span>
@@ -309,42 +313,28 @@
       </div>
     </section>
 
-    <section class="showcase" id="how-it-works" aria-labelledby="showcaseTitle">
-      <div class="showcase-heading">
-        <p class="section-kicker">NEON SNAKE</p>
-        <h2 id="showcaseTitle">Choose how you play.</h2>
-        <p>Solo modes, two-player rooms, public profiles, and autonomous wallpapers all use the same game rules.</p>
-      </div>
-      <div class="signal-atlas">
-        <svg class="atlas-route" viewBox="0 0 1000 520" preserveAspectRatio="none" aria-hidden="true">
-          <path class="atlas-route__base" d="M54 414 C156 75 298 86 409 292 S635 474 760 178 S900 79 948 244" />
-          <path class="atlas-route__flow" d="M54 414 C156 75 298 86 409 292 S635 474 760 178 S900 79 948 244" />
-        </svg>
-        <article class="atlas-entry" data-step="01">
-          <span class="showcase-number">01 / SOLO</span>
-          <h3>Solo</h3>
-          <p>Play Classic, Portal, Rush, or Canvas. Solo records stay on this device.</p>
-        </article>
-        <article class="atlas-entry" data-step="02">
-          <span class="showcase-number">02 / DUEL</span>
-          <h3>Duel</h3>
-          <p>Fight the local Autopilot or invite another player with a six-character room code.</p>
-        </article>
-        <article class="atlas-entry" data-step="03">
-          <span class="showcase-number">03 / PROFILE</span>
-          <h3>Profile</h3>
-          <p>Use Discord to claim a profile, choose a callsign and style, and publish your live record.</p>
-        </article>
-        <article class="atlas-entry" data-step="04">
-          <span class="showcase-number">04 / WALLPAPER</span>
-          <h3>Wallpaper</h3>
-          <p>Run the autonomous game as a native Android live wallpaper or a Windows Lively wallpaper.</p>
-        </article>
-      </div>
-      <div class="atlas-legend" aria-hidden="true">
-        <span><i></i> YOUR SIGNAL</span>
-        <span>SOLO / MULTIPLAYER / PROFILES / WALLPAPERS</span>
-      </div>
+    <section class="next-moves" id="how-it-works" aria-labelledby="nextMovesTitle">
+      <header>
+        <p class="section-kicker">KEEP PLAYING</p>
+        <h2 id="nextMovesTitle">Take your snake further.</h2>
+      </header>
+      <nav class="next-moves-list" aria-label="More ways to play">
+        <a href="duel.html">
+          <span class="next-move-number">01</span>
+          <span><strong>Challenge a rival</strong><small>Fight the Autopilot or open a live room.</small></span>
+          <i aria-hidden="true">↗</i>
+        </a>
+        <a href="profile.html">
+          <span class="next-move-number">02</span>
+          <span><strong>Make it yours</strong><small>Choose the name, color, and snake other players see.</small></span>
+          <i aria-hidden="true">↗</i>
+        </a>
+        <a href="downloads.html">
+          <span class="next-move-number">03</span>
+          <span><strong>Put it on your screen</strong><small>Download the autonomous game for Windows or Android.</small></span>
+          <i aria-hidden="true">↓</i>
+        </a>
+      </nav>
     </section>
 
     <footer class="site-footer">
@@ -354,6 +344,7 @@
 
     <p class="sr-only" id="gameAnnouncement" aria-live="assertive"></p>
     <script src="signal-field.js"></script>
+    <script src="site-shell.js"></script>
     <script src="account.js"></script>
     <script src="game-logic.js"></script>
     <script src="touch-controls.js"></script>

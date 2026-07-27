@@ -24,13 +24,17 @@
         <span class="brand-glyph" aria-hidden="true"><img src="assets/signal-mark.svg" alt="" /></span>
         <span>NEON SNAKE</span>
       </a>
-      <nav class="site-nav" aria-label="Primary navigation">
+      <nav class="site-nav" id="primaryNavigation" aria-label="Primary navigation">
         <a href="./">GAME</a>
         <a href="duel.html">LIVE DUEL</a>
         <a href="./#leaderboard">RANKINGS</a>
         <a href="downloads.html">WALLPAPERS</a>
         <a href="profile.html" aria-current="page">PROFILE</a>
       </nav>
+      <button class="site-menu-toggle" type="button" aria-controls="primaryNavigation" aria-expanded="false" aria-label="Open navigation">
+        <span aria-hidden="true"><i></i><i></i></span>
+        <small>MENU</small>
+      </button>
       <div class="header-actions">
         <div class="account-control" data-account-control>
           <a class="discord-login" href="/api/auth/discord/start">Sign in with Discord</a>
@@ -169,6 +173,7 @@
     </footer>
 
     <script src="signal-field.js"></script>
+    <script src="site-shell.js"></script>
     <script src="account.js"></script>
     <script src="profile-config.js"></script>
     <script src="profile.js"></script>

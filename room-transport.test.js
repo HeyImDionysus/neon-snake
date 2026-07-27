@@ -242,7 +242,21 @@ const tests = [
             avatar: "avatar_hash",
           },
         },
-        { id: "client-two", slot: 1, ready: false, seenAt: 950 },
+        {
+          id: "client-two",
+          slot: 1,
+          ready: false,
+          seenAt: 950,
+          profile: {
+            displayName: "Night Viper",
+            username: "night_viper",
+            callsign: "Viper",
+            accent: "magenta",
+            favoriteMode: "rush",
+            snakeStyle: "spectral",
+            avatar: "avatar_hash",
+          },
+        },
       ],
     });
     assert.deepEqual(socket.messages.at(-1), { type: "ready", ready: true });
@@ -252,6 +266,8 @@ const tests = [
       message.type === "presence"
       && message.from === "client-two"
       && message.slot === 1
+      && message.profile?.favoriteMode === "rush"
+      && message.profile?.snakeStyle === "spectral"
     )));
 
     const input = {

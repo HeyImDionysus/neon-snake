@@ -30,6 +30,7 @@ node activity-system.test.js
 node profile-system.test.js
 node profile-interaction.test.js
 node profile-browser.test.js
+node product-browser.test.js
 node product-experience.test.js
 node touch-controls.test.js
 node wallpaper-system.test.js

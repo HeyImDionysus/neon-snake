@@ -70,8 +70,8 @@ const tests = [
   }],
   ["the renderer draws both fluid snakes", () => {
     const body = functionBody("render");
-    assert.match(body, /drawFluidSnake\(playerSnake/);
-    assert.match(body, /drawFluidSnake\(opponentSnake/);
+    assert.match(body, /drawFluidSnake\(\s*playerSnake/);
+    assert.match(body, /drawFluidSnake\(\s*opponentSnake/);
     assert.match(functionBody("drawFluidSnake"), /Rules\.fluidMotionPath/);
   }],
   ["the renderer advances simulation before sampling interpolated motion", () => {
