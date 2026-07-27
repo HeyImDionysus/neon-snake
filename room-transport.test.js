@@ -266,6 +266,70 @@ const tests = [
     )));
     transport.close();
   }],
+  ["recovery replays the authoritative countdown before roster callbacks", async () => {
+    const scheduled = [];
+    const eventOrder = [];
+    let requestCount = 0;
+    const countdown = {
+      type: "countdown",
+      round: 42,
+      startsAt: 10_000,
+      from: "client-one",
+      room: "ABC234",
+      sentAt: 1_000,
+    };
+    const fetchImpl = async () => {
+      requestCount += 1;
+      if (requestCount === 2) throw new TypeError("temporary network failure");
+      return {
+        ok: true,
+        async json() {
+          return {
+            role: "player",
+            slot: 1,
+            session: "session-two",
+            players: [
+              { id: "client-one", slot: 0, ready: true },
+              { id: "client-two", slot: 1, ready: true },
+            ],
+            stateRev: 0,
+            inputRev: 0,
+            countdownRev: 4,
+            countdown,
+          };
+        },
+      };
+    };
+    const transport = await transports.createRemoteRoomTransport({
+      code: "ABC234",
+      clientId: "client-two",
+      onMessage(message) {
+        eventOrder.push(`message:${message.type}`);
+      },
+      onStatus(status) {
+        eventOrder.push(`status:${status.state}`);
+      },
+      fetchImpl,
+      setTimeoutImpl(callback) {
+        scheduled.push(callback);
+        return scheduled.length;
+      },
+      clearTimeoutImpl() {},
+    });
+
+    eventOrder.length = 0;
+    await scheduled.shift()();
+    assert.deepEqual(eventOrder, ["status:reconnecting"]);
+    await scheduled.shift()();
+    assert.equal(requestCount, 3);
+    assert.deepEqual(eventOrder, [
+      "status:reconnecting",
+      "status:connected",
+      "message:countdown",
+      "message:presence",
+    ]);
+    transport.close();
+  }],
   ["remote input batching preserves two rapid guest turns in order", async () => {
     const requests = [];
     const scheduled = [];

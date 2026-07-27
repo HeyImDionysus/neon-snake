@@ -71,6 +71,26 @@ function assertSymmetricTick(players, food, gridSize) {
   assert.equal(swapped.foodEatenBy, swapEater(result.foodEatenBy));
 }
 
+function legalPolicyMoves({
+  humanSnake,
+  aiSnake,
+  humanDirection,
+  aiMove,
+  food,
+  gridSize = GRID,
+}) {
+  const aiHead = rules.nextHead(aiSnake[0], aiMove, "classic", gridSize);
+  const aiGrowing = aiHead.x === food.x && aiHead.y === food.y;
+  const rivalBody = aiGrowing ? aiSnake : aiSnake.slice(0, -1);
+  return DIRECTIONS.filter((move) => {
+    if (rules.isReverseDirection(move, humanDirection)) return false;
+    const head = rules.nextHead(humanSnake[0], move, "classic", gridSize);
+    const growing = head.x === food.x && head.y === food.y;
+    if (rules.collisionType(head, humanSnake, growing, "classic", gridSize)) return false;
+    return !rivalBody.some((segment) => segment.x === head.x && segment.y === head.y);
+  });
+}
+
 function simulateDuel(code, aiRole, policy, maxSteps = 300) {
   let signalState = rules.signalState(code);
   const spawns = rules.duelSpawns(GRID);
@@ -111,17 +131,16 @@ function simulateDuel(code, aiRole, policy, maxSteps = 300) {
     food = open[choice.index];
   }
 
-  function humanMove() {
+  function humanMove(aiMove) {
     const humanSnake = snakes[humanRole];
     const aiSnake = snakes[aiRole];
     const humanDirection = directions[humanRole];
-    const legal = DIRECTIONS.filter((move) => {
-      if (rules.isReverseDirection(move, humanDirection)) return false;
-      const head = rules.nextHead(humanSnake[0], move, "classic", GRID);
-      const growing = head.x === food.x && head.y === food.y;
-      if (rules.collisionType(head, humanSnake, growing, "classic", GRID)) return false;
-      const rivalBody = aiSnake.slice(0, -1);
-      return !rivalBody.some((segment) => segment.x === head.x && segment.y === head.y);
+    const legal = legalPolicyMoves({
+      humanSnake,
+      aiSnake,
+      humanDirection,
+      aiMove,
+      food,
     });
     if (!legal.length) return { ...humanDirection };
 
@@ -169,7 +188,7 @@ function simulateDuel(code, aiRole, policy, maxSteps = 300) {
 
     const moves = {
       [aiRole]: selected.direction,
-      [humanRole]: humanMove(),
+      [humanRole]: humanMove(selected.direction),
     };
     const result = rules.resolveDuelTick({
       players: {
@@ -236,6 +255,38 @@ function simulateDuel(code, aiRole, policy, maxSteps = 300) {
 }
 
 const tests = [
+  ["benchmark policies retain an Autopilot tail when its selected move grows", () => {
+    const humanSnake = [
+      { x: 5, y: 4 },
+      { x: 4, y: 4 },
+      { x: 3, y: 4 },
+    ];
+    const aiSnake = [
+      { x: 6, y: 4 },
+      { x: 6, y: 5 },
+      { x: 5, y: 5 },
+    ];
+    const food = { x: 7, y: 4 };
+    const intoRivalTail = { name: "down", x: 0, y: 1 };
+    const growingMoves = legalPolicyMoves({
+      humanSnake,
+      aiSnake,
+      humanDirection: { x: 1, y: 0 },
+      aiMove: { x: 1, y: 0 },
+      food,
+      gridSize: 10,
+    });
+    const movingMoves = legalPolicyMoves({
+      humanSnake,
+      aiSnake,
+      humanDirection: { x: 1, y: 0 },
+      aiMove: { x: 0, y: -1 },
+      food,
+      gridSize: 10,
+    });
+    assert.equal(growingMoves.some((move) => move.name === intoRivalTail.name), false);
+    assert.equal(movingMoves.some((move) => move.name === intoRivalTail.name), true);
+  }],
   ["simultaneous duel resolution is player-order symmetric", () => {
     const size = 10;
     let state = rules.signalState("DUEL42");

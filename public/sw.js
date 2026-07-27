@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE_NAME = "neon-snake-shell-v57";
+const CACHE_NAME = "neon-snake-shell-v58";
 const APP_SHELL = [
   "/",
   "/index.html",

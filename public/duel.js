@@ -818,7 +818,7 @@ function handleRoomStatus(status) {
         slot: Number.isInteger(player.slot) ? player.slot : -1,
         seenAt: Number.isFinite(Number(player.seenAt)) ? Number(player.seenAt) : Date.now(),
       }]));
-    if (roomTransport) syncLiveRoom();
+    roomPlayers = activeRoomRoster().slice(0, 2);
   }
 }
 
@@ -922,7 +922,11 @@ function toggleRoomReady() {
 
 function beginLiveCountdown(startsAt, round) {
   if (!Number.isSafeInteger(round) || round < 1) return;
-  if (round <= liveRoundId || runState === "running") return;
+  if (
+    round < liveRoundId
+    || runState === "running"
+    || (round === liveRoundId && runState !== "ready")
+  ) return;
   if (!liveRoomGateOpen()) return;
   if (liveCountdownActive) {
     clearInterval(liveCountdownTimer);
@@ -1056,7 +1060,7 @@ function handleRoomMessage(message) {
       slot: Number.isInteger(message.slot) ? message.slot : -1,
       seenAt: Number.isFinite(Number(message.seenAt)) ? Number(message.seenAt) : Date.now(),
     });
-    syncLiveRoom();
+    if (roomTransport) syncLiveRoom();
     return;
   }
   if (message.type === "countdown") {
