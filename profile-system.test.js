@@ -55,7 +55,10 @@ function redisHarness() {
     if (verb === "MGET") return [key, ...rest].map((entry) => values.get(entry) ?? null);
     if (verb === "HGETALL") return hashes.get(key) || [];
     if (verb === "EVAL" && String(key).includes("ZREVRANGE")) {
-      return ["123456789012345678", "7", "3", "2", "1785124800000"];
+      return [
+        "123456789012345678", "7", "3", "2", "1785124800000", "1",
+        "223456789012345678", "0", "0", "0", "1785124800400", "0",
+      ];
     }
     throw new Error(`Unsupported fake Redis command: ${verb}`);
   };
@@ -108,6 +111,16 @@ function redisHarness() {
     customization: customized,
   }));
   redis.values.set(`neon-snake:activity:${userId}`, "1785124800000");
+  redis.values.set("neon-snake:profile:223456789012345678", JSON.stringify({
+    id: "223456789012345678",
+    username: "new_player",
+    displayName: "New Player",
+    avatar: "",
+    customization: {
+      callsign: "Fresh Signal",
+      accent: "cyan",
+    },
+  }));
   redis.hashes.set(`neon-snake:stats:${userId}`, [
     "wins", "7",
     "losses", "3",
@@ -178,7 +191,13 @@ function redisHarness() {
   assert.equal(entry.username, "signal_player");
   assert.equal(entry.callsign, "Arc Runner");
   assert.equal(entry.online, true);
+  assert.equal(entry.rank, 1);
   assert.deepEqual(entry.record, { wins: 7, losses: 3, draws: 2 });
+  const activeWithoutWins = JSON.parse(leaderboardResponse.body).entries[1];
+  assert.equal(activeWithoutWins.username, "new_player");
+  assert.equal(activeWithoutWins.rank, null);
+  assert.equal(activeWithoutWins.online, true);
+  assert.deepEqual(activeWithoutWins.record, { wins: 0, losses: 0, draws: 0 });
 
   process.stdout.write("PASS public profiles, safe customization, visible usernames, activity, and records stay server-backed\n");
 })().catch((error) => {

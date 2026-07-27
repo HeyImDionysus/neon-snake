@@ -11,6 +11,12 @@
     if (!rules) throw new TypeError("Snake rules are required.");
     const cycle = rules.hamiltonianCycle(GRID);
     const indexes = new Map(cycle.map((point, index) => [`${point.x},${point.y}`, index]));
+    const candidates = [
+      { name: "up", x: 0, y: -1 },
+      { name: "right", x: 1, y: 0 },
+      { name: "down", x: 0, y: 1 },
+      { name: "left", x: -1, y: 0 },
+    ];
     const normalizedSignal = rules.normalizeSignalCode(signal) || "NEON42";
     let randomState = rules.signalState(normalizedSignal);
     let snake = [];
@@ -19,6 +25,7 @@
     let foodsEaten = 0;
     let score = 0;
     let completedBoards = 0;
+    let recentHeads = [];
 
     function nextRandom() {
       const next = rules.nextSignalRandom(randomState);
@@ -57,21 +64,30 @@
       }
       snake = [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }];
       direction = { x: 1, y: 0 };
+      recentHeads = [];
       placeFood(true);
     }
 
-    function cycleDirection() {
+    function autopilotDirection() {
+      const evaluations = rules.evaluateMoves({
+        snake,
+        direction,
+        food,
+        mode,
+        gridSize: GRID,
+        candidates,
+        recentHeads,
+      });
+      const selected = rules.chooseBestMove(evaluations);
+      if (selected?.direction) return { ...selected.direction };
       const head = snake[0];
       const headIndex = indexes.get(key(head));
       const target = cycle[(headIndex + 1) % cycle.length];
-      return {
-        x: target.x - head.x,
-        y: target.y - head.y,
-      };
+      return { x: target.x - head.x, y: target.y - head.y };
     }
 
     function step() {
-      direction = cycleDirection();
+      direction = autopilotDirection();
       const head = rules.nextHead(snake[0], direction, mode, GRID);
       const growing = Boolean(food && head.x === food.x && head.y === food.y);
       const collision = rules.collisionType(head, snake, growing, mode, GRID);
@@ -81,6 +97,8 @@
       }
 
       snake.unshift(head);
+      recentHeads.push({ ...head });
+      if (recentHeads.length > 192) recentHeads.shift();
       if (!growing) {
         snake.pop();
         return { type: "move" };

@@ -31,24 +31,25 @@ const androidService = read(
   "wallpaper",
   "NeonWallpaperService.java",
 );
-const permanentReadme = read("downloads", "v1.0.0", "README.md");
+const permanentReadme = read("downloads", "v1.1.0", "README.md");
 const permanentWindows = readBytes(
   "downloads",
-  "v1.0.0",
-  "Neon-Snake-Lively-v1.0.0.zip",
+  "v1.1.0",
+  "Neon-Snake-Lively-v1.1.0.zip",
 );
 const permanentAndroid = readBytes(
   "downloads",
-  "v1.0.0",
-  "Neon-Snake-Android-v1.0.0.apk",
+  "v1.1.0",
+  "Neon-Snake-Android-v1.1.0.apk",
 );
 
 assert.match(wallpaperHtml, /wallpaperCanvas/);
 assert.match(homeHtml, /href="downloads\.html"/);
 assert.doesNotMatch(homeHtml, /href="wallpaper\.html"/);
 assert.match(homeHtml, /WINDOWS LIVELY · ANDROID LIVE WALLPAPER/);
-assert.match(downloadsHtml, /Neon-Snake-Android-v1\.0\.0\.apk/);
-assert.match(downloadsHtml, /Neon-Snake-Lively-v1\.0\.0\.zip/);
+assert.match(downloadsHtml, /Neon-Snake-Android-v1\.1\.0\.apk/);
+assert.match(downloadsHtml, /Neon-Snake-Lively-v1\.1\.0\.zip/);
+assert.equal((downloadsHtml.match(/ download href=/g) || []).length, 2);
 assert.match(downloadsHtml, /Download for Android/);
 assert.match(downloadsHtml, /Download for Windows/);
 assert.match(wallpaperHtml, /game-logic\.js/);
@@ -63,6 +64,7 @@ assert.match(wallpaperScript, /Math\.min\(2, Math\.max\(1, devicePixelRatio/);
 assert.match(wallpaperScript, /fps: clampNumber\(query\.get\("fps"\), 8, 30, 24\)/);
 assert.match(wallpaperScript, /drawSnakeHead/);
 assert.match(wallpaperScript, /drawPickupEffects/);
+assert.match(wallpaperScript, /quadraticCurveTo/);
 assert.match(wallpaperScript, /wallpaperScore/);
 assert.match(wallpaperEngine, /createWallpaperEngine/);
 assert.match(wallpaperEngine, /type: "eat"/);
@@ -119,6 +121,7 @@ assert.match(androidService, /setOffsetNotificationsEnabled\(false\)/);
 assert.match(androidService, /postDelayed\(frame, powerSave \? 67L : 42L\)/);
 assert.match(androidService, /drawSnakeHead/);
 assert.match(androidService, /drawPickupEffects/);
+assert.match(androidService, /quadTo/);
 assert.match(androidService, /snake\.foodsEaten\(\)/);
 assert.match(read("wallpaper", "android", "app", "src", "main", "java", "app", "neonsnake", "wallpaper", "AutonomousSnake.java"), /shortestFoodMove/);
 assert.match(permanentReadme, new RegExp(sha256(permanentWindows)));

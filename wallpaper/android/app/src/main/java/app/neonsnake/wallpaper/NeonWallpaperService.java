@@ -199,7 +199,35 @@ public final class NeonWallpaperService extends WallpaperService {
                 path.close();
                 canvas.drawPath(path, paint);
             } else {
-                canvas.drawCircle(x, y, tile * .21f * pulse, paint);
+                float radius = tile * .27f * pulse;
+                canvas.drawCircle(x - radius * .38f, y + radius * .08f, radius * .72f, paint);
+                canvas.drawCircle(x + radius * .38f, y + radius * .08f, radius * .72f, paint);
+                paint.clearShadowLayer();
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(Math.max(2f, tile * .075f));
+                paint.setStrokeCap(Paint.Cap.ROUND);
+                paint.setColor(Color.rgb(41, 75, 44));
+                path.reset();
+                path.moveTo(x, y - radius * .48f);
+                path.quadTo(
+                    x + radius * .04f,
+                    y - radius * 1.05f,
+                    x + radius * .34f,
+                    y - radius * 1.18f
+                );
+                canvas.drawPath(path, paint);
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(Color.rgb(141, 221, 85));
+                canvas.save();
+                canvas.rotate(-26f, x + radius * .58f, y - radius * .88f);
+                canvas.drawOval(
+                    x + radius * .16f,
+                    y - radius * 1.08f,
+                    x + radius,
+                    y - radius * .68f,
+                    paint
+                );
+                canvas.restore();
             }
             paint.clearShadowLayer();
         }

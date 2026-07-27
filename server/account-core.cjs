@@ -30,6 +30,8 @@ local loser = ARGV[3]
 if redis.call("SET", eventKey, "1", "NX", "EX", 604800) == false then
   return 0
 end
+if winner ~= "" then redis.call("ZADD", leaderboardKey, "NX", 0, winner) end
+if loser ~= "" then redis.call("ZADD", leaderboardKey, "NX", 0, loser) end
 if draw then
   if winner ~= "" then redis.call("HINCRBY", winnerStatsKey, "draws", 1) end
   if loser ~= "" then redis.call("HINCRBY", loserStatsKey, "draws", 1) end
@@ -42,16 +44,32 @@ return 1
 `;
 const LEADERBOARD_SCRIPT = String.raw`
 local rows = redis.call("ZREVRANGE", KEYS[1], 0, 49, "WITHSCORES")
+local active = redis.call("ZREVRANGEBYSCORE", KEYS[2], ARGV[1], ARGV[2], "LIMIT", 0, 50)
 local result = {}
-for index = 1, #rows, 2 do
-  local userId = rows[index]
+local seen = {}
+local rank = 0
+
+local function append(userId, wins, playerRank)
+  if seen[userId] then return end
+  seen[userId] = true
   local statsKey = "neon-snake:stats:" .. userId
   local activityKey = "neon-snake:activity:" .. userId
   table.insert(result, userId)
-  table.insert(result, rows[index + 1])
+  table.insert(result, wins)
   table.insert(result, redis.call("HGET", statsKey, "losses") or "0")
   table.insert(result, redis.call("HGET", statsKey, "draws") or "0")
   table.insert(result, redis.call("GET", activityKey) or "")
+  table.insert(result, tostring(playerRank))
+end
+
+for index = 1, #rows, 2 do
+  local userId = rows[index]
+  rank = rank + 1
+  append(userId, rows[index + 1], rank)
+end
+
+for _, userId in ipairs(active) do
+  append(userId, redis.call("ZSCORE", KEYS[1], userId) or "0", 0)
 end
 return result
 `;
@@ -563,11 +581,14 @@ function createAccountHandler({
         const rows = await runRedis([
           "EVAL",
           LEADERBOARD_SCRIPT,
-          "1",
+          "2",
           "neon-snake:leaderboard:duel",
+          "neon-snake:players:active",
+          String(now()),
+          String(now() - ACTIVITY_TTL_SECONDS * 1_000),
         ]);
         const pairs = Array.isArray(rows) ? rows : [];
-        const stride = 5;
+        const stride = 6;
         const userIds = pairs.filter((_, index) => index % stride === 0);
         const profiles = userIds.length
           ? await runRedis(["MGET", ...userIds.map((id) => `neon-snake:profile:${id}`)])
@@ -584,8 +605,9 @@ function createAccountHandler({
           const losses = Number(pairs[index * stride + 2]) || 0;
           const draws = Number(pairs[index * stride + 3]) || 0;
           const activeAt = Number(pairs[index * stride + 4]) || 0;
+          const rank = Number(pairs[index * stride + 5]) || null;
           return {
-            rank: index + 1,
+            rank,
             displayName: profile?.displayName || "Discord Player",
             username: profile?.username || "player",
             avatarUrl: profile ? avatarUrl(profile) : "",

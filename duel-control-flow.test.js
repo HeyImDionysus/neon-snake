@@ -88,7 +88,9 @@ const tests = [
     assert.match(functionBody("requestDirection"), /round: liveRoundId/);
     assert.match(functionBody("broadcastSnapshot"), /guestInputAck/);
     assert.match(functionBody("broadcastSnapshot"), /round: liveRoundId/);
-    assert.match(functionBody("applyRemoteSnapshot"), /opponentInputSequences\[0\] <= acknowledged/);
+    assert.match(functionBody("applyRemoteSnapshot"), /state\.playerInputAck/);
+    assert.match(functionBody("applyRemoteSnapshot"), /localSequences\[0\] <= acknowledged/);
+    assert.match(functionBody("advanceGame"), /roomTransport\?\.authoritative/);
     assert.match(functionBody("handleRoomMessage"), /round !== liveRoundId/);
   }],
   ["live rooms remain waiting until two connected players are ready", () => {

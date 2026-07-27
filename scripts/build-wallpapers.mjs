@@ -17,7 +17,7 @@ await Promise.all([
   cp(path.join(root, "public", "wallpaper-engine.js"), path.join(windowsRoot, "wallpaper-engine.js")),
   cp(path.join(root, "public", "wallpaper.js"), path.join(windowsRoot, "wallpaper.js")),
   cp(path.join(root, "public", "wallpaper.css"), path.join(windowsRoot, "wallpaper.css")),
-  cp(path.join(root, "public", "assets", "icon-512.png"), path.join(windowsRoot, "thumbnail.png")),
+  cp(path.join(root, "wallpaper", "windows", "thumbnail.png"), path.join(windowsRoot, "thumbnail.png")),
 ]);
 
 const sourceHtml = await readFile(path.join(root, "public", "wallpaper.html"), "utf8");

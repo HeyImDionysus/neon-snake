@@ -20,6 +20,7 @@ for (const [name, html] of pages) {
   assert.match(html, /href="duel\.html"/);
   assert.match(html, /href="downloads\.html"/);
   assert.match(html, /href="\.\/#leaderboard"|href="#leaderboard"/);
+  assert.match(html, /href="profile\.html"/);
   assert.match(html, /data-account-control/);
   process.stdout.write(`PASS ${name} uses the shared product navigation\n`);
 }
@@ -28,13 +29,14 @@ assert.doesNotMatch(home, /AI-Built Systems Experiment|THE CODEX EXPERIMENT|Judg
 assert.match(home, /href="downloads\.html"/);
 assert.doesNotMatch(home, /href="wallpaper\.html"/);
 assert.match(home, /id="leaderboard"/);
-assert.match(home, /Players, not placeholders/);
+assert.match(home, /id="livePlayers"/);
+assert.match(home, /Live players and rankings/);
 process.stdout.write("PASS the homepage reads as a product and routes wallpaper users to downloads\n");
 
 assert.match(downloads, /Download for Windows/);
 assert.match(downloads, /Download for Android/);
 assert.match(downloads, /class="wallpaper-surface"/);
-assert.match(downloads, /actual autonomous game loop/i);
+assert.match(downloads, /same autonomous snake from the game/i);
 process.stdout.write("PASS downloads provide direct platform actions and a live truthful preview\n");
 
 ["callsignInput", "bioInput", "favoriteModeInput", "snakeStyleInput"].forEach((id) => {
@@ -51,6 +53,7 @@ process.stdout.write("PASS profiles have a dedicated safe customization and reco
 assert.match(account, /@\$\{entry\.username/);
 assert.match(account, /profile\.html\?user=/);
 assert.match(account, /entry\.online/);
+assert.match(account, /renderLivePlayers/);
 assert.match(account, /12_000/);
 assert.doesNotMatch(account, /innerHTML|insertAdjacentHTML|document\.write/);
 process.stdout.write("PASS the public board exposes usernames, profile links, and current activity\n");

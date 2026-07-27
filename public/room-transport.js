@@ -56,6 +56,7 @@
     let lastPongAt = 0;
     let lastPingAt = 0;
     let readySent = false;
+    let lastReadySentAt = 0;
     let activeRound = null;
 
     function clearSocketTimers() {
@@ -92,6 +93,14 @@
       }, delay);
     }
 
+    function sendReady() {
+      if (socket?.readyState !== WebSocketImpl.OPEN || role !== "player") return false;
+      socket.send(JSON.stringify({ type: "ready", ready }));
+      readySent = true;
+      lastReadySentAt = now();
+      return true;
+    }
+
     function emitRoster(players) {
       if (!Array.isArray(players)) return;
       roster = players;
@@ -119,9 +128,16 @@
         });
       });
       onStatus({ state: "synchronized", role, slot, players: roster });
+      const localPlayer = roster.find((player) => player?.id === clientId);
+      if (
+        role === "player"
+        && localPlayer
+        && Boolean(localPlayer.ready) !== ready
+        && now() - lastReadySentAt >= 500
+      ) sendReady();
     }
 
-    function scheduleHeartbeat() {
+    function scheduleHeartbeat(delay = active ? 5_000 : 15_000) {
       if (closed) return;
       if (heartbeatTimer !== null) clearTimeoutImpl(heartbeatTimer);
       heartbeatTimer = setTimeoutImpl(() => {
@@ -136,7 +152,7 @@
           socket.send("ping");
         }
         scheduleHeartbeat();
-      }, active ? 5_000 : 15_000);
+      }, delay);
     }
 
     function scheduleReconnect() {
@@ -198,12 +214,10 @@
           lastPongAt = now();
           role = message.role === "player" ? "player" : "spectator";
           slot = role === "player" && Number.isInteger(message.slot) ? message.slot : -1;
-          if (role === "player") {
-            nextSocket.send(JSON.stringify({ type: "ready", ready }));
-            readySent = true;
-          }
+          if (role === "player") sendReady();
           emitRoster(message.players);
           onStatus({ state: "connected", role, slot, players: roster });
+          scheduleHeartbeat(750);
           if (active) armStateWatchdog(3_000);
           return;
         }
@@ -289,9 +303,8 @@
         }
         if (message.type === "leave") return true;
         if (socket?.readyState !== WebSocketImpl.OPEN) return false;
-        socket.send(JSON.stringify(message.type === "presence"
-          ? { type: "ready", ready }
-          : message));
+        if (message.type === "presence" || message.type === "ready") return sendReady();
+        socket.send(JSON.stringify(message));
         return true;
       },
       setActive(nextActive, round = null) {

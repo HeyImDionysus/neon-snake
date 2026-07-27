@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="bg" cx="28%" cy="20%" r="90%">
+      <stop offset="0" stop-color="#193a21"/>
+      <stop offset=".48" stop-color="#071009"/>
+      <stop offset="1" stop-color="#020503"/>
+    </radialGradient>
+    <filter id="acid" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="red" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="7" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <g opacity=".24" stroke="#405848" stroke-width="1">
+    <path d="M56 56H456M56 96H456M56 136H456M56 176H456M56 216H456M56 256H456M56 296H456M56 336H456M56 376H456M56 416H456M56 456H456"/>
+    <path d="M56 56V456M96 56V456M136 56V456M176 56V456M216 56V456M256 56V456M296 56V456M336 56V456M376 56V456M416 56V456M456 56V456"/>
+  </g>
+  <rect x="40" y="40" width="432" height="432" fill="none" stroke="#adff66" stroke-opacity=".35"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#acid)">
+    <path d="M108 360H188Q228 360 228 320V272Q228 232 268 232H348Q388 232 388 192V152Q388 112 348 112H260" stroke="#adff66" stroke-opacity=".18" stroke-width="44"/>
+    <path d="M108 360H188Q228 360 228 320V272Q228 232 268 232H348Q388 232 388 192V152Q388 112 348 112H260" stroke="#294b2c" stroke-width="33"/>
+    <path d="M108 360H188Q228 360 228 320V272Q228 232 268 232H348Q388 232 388 192V152Q388 112 348 112H260" stroke="#8ddd55" stroke-width="24"/>
+    <path d="M108 360H188Q228 360 228 320V272Q228 232 268 232H348Q388 232 388 192V152Q388 112 348 112H260" stroke="#d4ffa8" stroke-opacity=".42" stroke-width="3"/>
+  </g>
+  <g transform="translate(108 360)" filter="url(#acid)">
+    <circle r="19" fill="#d4ffa8"/>
+    <circle cx="-6" cy="-5" r="2.6" fill="#122015"/>
+    <circle cx="-6" cy="5" r="2.6" fill="#122015"/>
+  </g>
+  <g transform="translate(404 344)" filter="url(#red)">
+    <circle cx="-7" cy="3" r="15" fill="#ff7657"/>
+    <circle cx="7" cy="3" r="15" fill="#ff7657"/>
+    <path d="M0-8Q1-22 11-28" fill="none" stroke="#294b2c" stroke-width="4" stroke-linecap="round"/>
+    <ellipse cx="17" cy="-23" rx="10" ry="5" transform="rotate(-28 17-23)" fill="#8ddd55"/>
+  </g>
+  <g font-family="monospace" font-weight="700" letter-spacing="2">
+    <text x="56" y="78" font-size="11" fill="#7d9384">AUTOPILOT</text>
+    <text x="56" y="100" font-size="18" fill="#adff66">00140</text>
+    <text x="456" y="446" text-anchor="end" font-size="10" fill="#edf5ed">NEON SNAKE</text>
+  </g>
+</svg>

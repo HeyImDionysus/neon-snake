@@ -64,6 +64,7 @@ let playerQueuedDirection = { ...DIRECTIONS.right };
 let opponentDirection = { ...DIRECTIONS.left };
 let opponentQueuedDirection = { ...DIRECTIONS.left };
 let playerInputBuffer = [];
+let playerInputSequences = [];
 let opponentInputBuffer = [];
 let opponentInputSequences = [];
 let autopilotRecentHeads = [];
@@ -160,6 +161,7 @@ function resetDuel() {
   opponentDirection = { ...spawns.opponent.direction };
   opponentQueuedDirection = { ...opponentDirection };
   playerInputBuffer = [];
+  playerInputSequences = [];
   opponentInputBuffer = [];
   opponentInputSequences = [];
   autopilotRecentHeads = [];
@@ -436,6 +438,7 @@ function tickLiveHost(now) {
 
 function advanceGame(now) {
   if (runState !== "running" || !nextMoveAt) return;
+  if (duelType === "live" && roomTransport?.authoritative) return;
   const isLiveHost = duelType === "live" && roomPlayers[0]?.id === clientId;
   if (duelType === "live" && !isLiveHost) return;
 
@@ -570,14 +573,20 @@ function requestDirection(next) {
       const buffered = Rules.bufferDirection(currentBuffer, currentDirection, next);
       if (buffered.length > currentBuffer.length) {
         localInputSequence = Math.max(localInputSequence + 1, Date.now());
-        if (localIndex === 0) playerInputBuffer = buffered;
-        else opponentInputBuffer = buffered;
-        postRoomMessage({
+        const sent = postRoomMessage({
           type: "input",
           round: liveRoundId,
           sequence: localInputSequence,
           direction: next,
         });
+        if (!sent) return;
+        if (localIndex === 0) {
+          playerInputBuffer = buffered;
+          playerInputSequences.push(localInputSequence);
+        } else {
+          opponentInputBuffer = buffered;
+          opponentInputSequences.push(localInputSequence);
+        }
       }
     } else if (localIndex === 0) {
       playerInputBuffer = Rules.bufferDirection(playerInputBuffer, playerDirection, next);
@@ -715,7 +724,7 @@ function setRoomReadyIntent(nextReady, pending = true) {
 }
 
 function postRoomMessage(message) {
-  roomTransport?.send(message);
+  return roomTransport?.send(message) || false;
 }
 
 function updateRosterSlot(element, player, index) {
@@ -882,6 +891,7 @@ function handleRoomStatus(status) {
   if (status.state !== "connected") return;
   roomConnectionState = "connected";
   roomConnected = true;
+  roomLatency.textContent = "WEBSOCKET CONNECTED · MEASURING";
   roomRole = status.role === "player" ? "player" : "spectator";
   roomSlot = roomRole === "player" && Number.isInteger(status.slot) ? status.slot : -1;
   applyAuthoritativeRoomRoster(status.players);
@@ -1089,6 +1099,7 @@ function broadcastSnapshot(result) {
       food,
       signalCursor,
       round: liveRoundId,
+      playerInputAck: 0,
       guestInputAck,
       crashes: result.crashes,
       over: result.over,
@@ -1106,12 +1117,12 @@ function applyRemoteSnapshot(message) {
   if (state?.round !== liveRoundId) return;
   if (!state?.playerSnake?.length || !state?.opponentSnake?.length) return;
   const localIndex = roomPlayers.findIndex((player) => player.id === clientId);
-  if (localIndex === 1) {
-    const acknowledged = Number(state.guestInputAck) || 0;
-    while (opponentInputSequences.length && opponentInputSequences[0] <= acknowledged) {
-      opponentInputSequences.shift();
-      opponentInputBuffer.shift();
-    }
+  const localSequences = localIndex === 0 ? playerInputSequences : opponentInputSequences;
+  const localBuffer = localIndex === 0 ? playerInputBuffer : opponentInputBuffer;
+  const acknowledged = Number(localIndex === 0 ? state.playerInputAck : state.guestInputAck) || 0;
+  while (localSequences.length && localSequences[0] <= acknowledged) {
+    localSequences.shift();
+    localBuffer.shift();
   }
   lastRemoteSequence = message.sequence;
   previousPlayerSnake = cloneSnake(playerSnake);
