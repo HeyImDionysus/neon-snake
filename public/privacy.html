@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#070b09" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="description" content="How Neon Snake handles player, profile, and multiplayer data." />
+    <meta name="robots" content="index,follow" />
+    <title>Privacy Policy — Neon Snake</title>
+    <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/assets/icon-180.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="legal.css" />
+  </head>
+  <body class="legal-page">
+    <canvas class="signal-field" id="signalField" aria-hidden="true"></canvas>
+    <div class="ambient ambient-one" aria-hidden="true"></div>
+    <div class="ambient ambient-two" aria-hidden="true"></div>
+
+    <header class="site-header product-header">
+      <a class="brand" href="./" aria-label="Play Neon Snake">
+        <span class="brand-glyph" aria-hidden="true"><img src="assets/signal-mark.svg" alt="" /></span>
+        <span>NEON SNAKE</span>
+      </a>
+      <nav class="site-nav" id="primaryNavigation" aria-label="Primary navigation">
+        <a href="./">GAME</a>
+        <a href="duel.html">MULTIPLAYER</a>
+        <a href="./#leaderboard">RANKINGS</a>
+        <a href="downloads.html">WALLPAPERS</a>
+        <a href="profile.html">PROFILE</a>
+      </nav>
+      <button class="site-menu-toggle" type="button" aria-controls="primaryNavigation" aria-expanded="false" aria-label="Open navigation">
+        <span aria-hidden="true"><i></i><i></i></span>
+        <small>MENU</small>
+      </button>
+    </header>
+
+    <main class="legal-shell">
+      <header class="legal-hero">
+        <div>
+          <p class="legal-kicker">PLAYER DATA / PLAIN ENGLISH</p>
+          <h1>Privacy, without the <em>fog.</em></h1>
+        </div>
+        <p class="legal-effective">EFFECTIVE JULY 27, 2026<br />NEON SNAKE</p>
+      </header>
+
+      <p class="legal-summary">
+        You can play every solo mode without an account. Discord sign-in is optional and exists to give you a public profile and a server-verified multiplayer record.
+      </p>
+
+      <div class="legal-sections">
+        <section class="legal-section">
+          <div>
+            <h2>What we collect</h2>
+            <p>If you sign in with Discord, Neon Snake stores your Discord user ID, username, display name, avatar reference, and the profile choices you submit: callsign, bio, accent color, favorite mode, and snake style.</p>
+            <p>For live rooms, we temporarily store your room presence, connection state, and match outcome. Aggregate wins, losses, and draws remain on your public profile.</p>
+          </div>
+        </section>
+
+        <section class="legal-section">
+          <div>
+            <h2>What stays local</h2>
+            <p>Solo scores, preferences, and run reports are kept in your browser. Neon Snake does not upload them to create a hidden behavioral profile.</p>
+            <p>The Windows and Android wallpaper builds run on your device and do not require a Neon Snake account.</p>
+          </div>
+        </section>
+
+        <section class="legal-section">
+          <div>
+            <h2>Discord authentication</h2>
+            <p>Neon Snake requests Discord’s <strong>identify</strong> permission only. Discord access and refresh tokens are not retained after the server exchanges the one-time authorization code.</p>
+            <p>A secure, HTTP-only session cookie keeps you signed in. Activity sessions use a partitioned cookie because Discord loads the game inside an embedded frame.</p>
+          </div>
+        </section>
+
+        <section class="legal-section">
+          <div>
+            <h2>How data is used</h2>
+            <ul>
+              <li>Display the public profile you choose to create.</li>
+              <li>Connect two players to the same authoritative live room.</li>
+              <li>Prevent duplicate result recording and maintain rankings.</li>
+              <li>Protect the service, diagnose failures, and enforce fair play.</li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="legal-section">
+          <div>
+            <h2>Service providers</h2>
+            <p>Discord provides identity and the embedded Activity surface. Vercel hosts the game and its server functions. Upstash stores sessions, profiles, room state, and records. Those providers may process basic request metadata under their own policies.</p>
+            <p>Neon Snake does not sell player data and does not use third-party advertising trackers.</p>
+          </div>
+        </section>
+
+        <section class="legal-section">
+          <div>
+            <h2>Retention and control</h2>
+            <p>Room presence expires automatically. Session records expire or are replaced as sessions end. Public profile and aggregate match records remain until deletion is requested.</p>
+            <p>You can sign out at any time. To request profile deletion or correction, open a privacy request in the <a href="https://github.com/HeyImDionysus/neon-snake/issues">project issue tracker</a> without posting sensitive information.</p>
+          </div>
+        </section>
+
+        <section class="legal-section">
+          <div>
+            <h2>Security and changes</h2>
+            <p>We use server-side token exchange, constrained cookies, origin checks, security headers, and authoritative match validation. No internet service can promise absolute security.</p>
+            <p>Material policy changes will be posted on this page with a new effective date.</p>
+          </div>
+        </section>
+      </div>
+
+      <aside class="legal-callout">
+        <strong>THE SHORT VERSION</strong>
+        <p>Play anonymously, or sign in for a profile and verified live record. No ads, no email scope, no sold data.</p>
+      </aside>
+    </main>
+
+    <footer class="site-footer product-footer">
+      <span>NEON SNAKE / PLAYER PRIVACY</span>
+      <span><a href="./">PLAY</a> · <a href="terms.html">TERMS</a> · <a href="privacy.html" aria-current="page">PRIVACY</a></span>
+    </footer>
+
+    <script src="signal-field.js"></script>
+    <script src="site-shell.js"></script>
+  </body>
+</html>

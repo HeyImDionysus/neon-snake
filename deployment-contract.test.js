@@ -6,6 +6,7 @@ const path = require("node:path");
 
 const root = __dirname;
 const publicRoot = path.join(root, "public");
+const discordAssetRoot = path.join(publicRoot, "assets", "discord");
 const vercel = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8"));
 const manifest = JSON.parse(fs.readFileSync(path.join(publicRoot, "manifest.webmanifest"), "utf8"));
 const serviceWorker = fs.readFileSync(path.join(publicRoot, "sw.js"), "utf8");
@@ -78,7 +79,7 @@ const tests = [
     urls.forEach((urlPath) => {
       assert.equal(fs.existsSync(publicPath(urlPath)), true, `Missing app-shell file: ${urlPath}`);
     });
-    ["index.html", "duel.html", "downloads.html", "profile.html"].forEach((name) => {
+    ["index.html", "duel.html", "downloads.html", "profile.html", "privacy.html", "terms.html"].forEach((name) => {
       const htmlFile = path.join(publicRoot, name);
       localReferences(htmlFile).forEach((reference) => {
         const urlPath = new URL(reference, `https://neon-snake.invalid/${name}`).pathname;
@@ -103,7 +104,7 @@ const tests = [
     manifest.icons.forEach((icon) => {
       assert.equal(fs.existsSync(publicPath(icon.src)), true, `Missing manifest icon: ${icon.src}`);
     });
-    ["index.html", "duel.html", "downloads.html", "profile.html"].forEach((name) => {
+    ["index.html", "duel.html", "downloads.html", "profile.html", "privacy.html", "terms.html"].forEach((name) => {
       const html = fs.readFileSync(path.join(publicRoot, name), "utf8");
       assert.match(html, /rel="manifest" href="\/manifest\.webmanifest"/);
       assert.match(html, /rel="apple-touch-icon" href="\/assets\/icon-180\.png"/);
@@ -117,10 +118,12 @@ const tests = [
     assert.match(serviceWorker, /quota or unsupported-response failure/i);
     assert.match(serviceWorker, /requestUrl\.pathname\.startsWith\("\/duel"\)/);
     assert.match(serviceWorker, /requestUrl\.pathname\.startsWith\("\/wallpaper"\)/);
+    assert.match(serviceWorker, /requestUrl\.pathname\.startsWith\("\/privacy"\)/);
+    assert.match(serviceWorker, /requestUrl\.pathname\.startsWith\("\/terms"\)/);
     assert.match(serviceWorker, /requestUrl\.pathname\.startsWith\("\/api\/"\)/);
   }],
   ["every local HTML asset and navigation target stays inside public", () => {
-    ["index.html", "duel.html", "downloads.html", "profile.html", "wallpaper.html"].forEach((name) => {
+    ["index.html", "duel.html", "downloads.html", "profile.html", "privacy.html", "terms.html", "wallpaper.html"].forEach((name) => {
       const htmlFile = path.join(publicRoot, name);
       localReferences(htmlFile).forEach((reference) => {
         const pathname = reference.split(/[?#]/, 1)[0];
@@ -138,6 +141,27 @@ const tests = [
         assert.equal(fs.existsSync(target), true, `Broken local reference in ${name}: ${reference}`);
       });
     });
+  }],
+  ["Discord publication assets and legal surfaces are ready for portal review", () => {
+    assert.deepEqual(
+      pngDimensions(path.join(discordAssetRoot, "neon-snake-icon.png")),
+      { width: 1024, height: 1024 },
+    );
+    assert.deepEqual(
+      pngDimensions(path.join(discordAssetRoot, "neon-snake-background.png")),
+      { width: 1024, height: 576 },
+    );
+    assert.deepEqual(
+      pngDimensions(path.join(discordAssetRoot, "neon-snake-cover.png")),
+      { width: 1024, height: 576 },
+    );
+    const privacy = fs.readFileSync(path.join(publicRoot, "privacy.html"), "utf8");
+    const terms = fs.readFileSync(path.join(publicRoot, "terms.html"), "utf8");
+    assert.match(privacy, /Discord user ID/);
+    assert.match(privacy, /does not sell player data/);
+    assert.match(terms, /Fair play/);
+    assert.match(terms, /privacy\.html/);
+    assert.doesNotMatch(`${privacy}\n${terms}`, /STORAGE_KV_REST_API_TOKEN|DISCORD_CLIENT_SECRET/);
   }],
   ["the public response contract keeps restrictive browser boundaries", () => {
     const globalRule = vercel.headers.find((rule) => rule.source === "/(.*)");
