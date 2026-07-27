@@ -1,11 +1,14 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 
 const root = __dirname;
 const read = (...segments) => fs.readFileSync(path.join(root, ...segments), "utf8");
+const readBytes = (...segments) => fs.readFileSync(path.join(root, ...segments));
+const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
 
 const wallpaperHtml = read("public", "wallpaper.html");
 const wallpaperScript = read("public", "wallpaper.js");
@@ -26,6 +29,17 @@ const androidService = read(
   "neonsnake",
   "wallpaper",
   "NeonWallpaperService.java",
+);
+const permanentReadme = read("downloads", "v1.0.0", "README.md");
+const permanentWindows = readBytes(
+  "downloads",
+  "v1.0.0",
+  "Neon-Snake-Lively-v1.0.0.zip",
+);
+const permanentAndroid = readBytes(
+  "downloads",
+  "v1.0.0",
+  "Neon-Snake-Android-v1.0.0.apk",
 );
 
 assert.match(wallpaperHtml, /wallpaperCanvas/);
@@ -102,5 +116,11 @@ assert.match(androidService, /drawSnakeHead/);
 assert.match(androidService, /drawPickupEffects/);
 assert.match(androidService, /snake\.foodsEaten\(\)/);
 assert.match(read("wallpaper", "android", "app", "src", "main", "java", "app", "neonsnake", "wallpaper", "AutonomousSnake.java"), /shortestFoodMove/);
+assert.match(permanentReadme, new RegExp(sha256(permanentWindows)));
+assert.match(permanentReadme, new RegExp(sha256(permanentAndroid)));
+assert.equal(permanentWindows.subarray(0, 2).toString("ascii"), "PK");
+assert.equal(permanentAndroid.subarray(0, 2).toString("ascii"), "PK");
+assert.ok(permanentWindows.length > 25_000);
+assert.ok(permanentAndroid.length > 20_000);
 
 process.stdout.write("PASS Windows and Android packages match the game, visibly eat and grow, and stay offline/battery-aware\n");
