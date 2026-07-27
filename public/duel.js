@@ -1124,7 +1124,7 @@ function applyRemoteSnapshot(message) {
 }
 
 function cancelLiveRound(message) {
-  const departedSlot = Number(message?.slot);
+  const departedSlot = Number.isInteger(message?.slot) ? message.slot : -1;
   const authoritativeDeparture = departedSlot === 0 || departedSlot === 1;
   if (authoritativeDeparture) {
     roomPeers = new Map([...roomPeers].filter(([, peer]) => peer.slot !== departedSlot));

@@ -360,6 +360,7 @@ const tests = [
     assert.match(handler, /message\.type === "countdown-cancel"/);
     assert.match(handler, /cancelLiveRound\(message\)/);
     const cancellation = functionBody("cancelLiveRound");
+    assert.match(cancellation, /Number\.isInteger\(message\?\.slot\)/);
     assert.match(cancellation, /peer\.slot !== departedSlot/);
     assert.match(cancellation, /runState === "over" && authoritativeDeparture/);
     assert.match(cancellation, /The previous rival disconnected/);
