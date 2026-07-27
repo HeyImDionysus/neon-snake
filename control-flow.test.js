@@ -3,6 +3,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const vm = require("node:vm");
 
 const source = fs.readFileSync(path.join(__dirname, "public", "game.js"), "utf8");
 const styles = fs.readFileSync(path.join(__dirname, "public", "styles.css"), "utf8");
@@ -24,6 +25,32 @@ function relativeLuminance(hex) {
 function contrastRatio(first, second) {
   const values = [relativeLuminance(first), relativeLuminance(second)].sort((a, b) => b - a);
   return (values[0] + .05) / (values[1] + .05);
+}
+
+function movementSteps({ nextMoveAt, now, moveBefore, stepDuration = 10 }) {
+  const steps = [];
+  const context = {
+    expireCore() {},
+    expireMutation() {},
+    getTickDelay() {
+      return stepDuration;
+    },
+    lastMoveAt: 0,
+    nextMoveAt,
+    previousSnake: [],
+    runState: "running",
+    scheduleMove() {
+      context.nextMoveAt = context.lastMoveAt + context.stepDuration;
+    },
+    snake: [{ x: 0, y: 0 }],
+    stepDuration,
+    tick(stepAt) {
+      steps.push(stepAt);
+    },
+  };
+  vm.runInNewContext(`${functionBody("advanceMovement")}\nthis.advanceMovement = advanceMovement;`, context);
+  context.advanceMovement(now, moveBefore);
+  return { nextMoveAt: context.nextMoveAt, steps };
 }
 
 const tests = [
@@ -106,8 +133,10 @@ const tests = [
   ["delayed frames resolve Core and mutation expiry at each movement timestamp", () => {
     const render = functionBody("render");
     const advance = functionBody("advanceMovement");
-    assert.ok(render.indexOf("advanceMovement(now)") < render.indexOf("expireCore(now)"));
-    assert.ok(render.indexOf("advanceMovement(now)") < render.indexOf("expireMutation(now)"));
+    const movementIndex = render.indexOf("advanceMovement(");
+    assert.ok(movementIndex >= 0);
+    assert.ok(movementIndex < render.indexOf("expireCore(now)"));
+    assert.ok(movementIndex < render.indexOf("expireMutation(now)"));
     assert.ok(advance.indexOf("expireCore(stepAt)") < advance.indexOf("tick(stepAt)"));
     assert.ok(advance.indexOf("expireMutation(stepAt)") < advance.indexOf("tick(stepAt)"));
     assert.match(advance, /stepDuration = getTickDelay\(stepAt\)/);
@@ -116,14 +145,34 @@ const tests = [
   ["Rush reaches its strict deadline before another movement can run", () => {
     const render = functionBody("render");
     const timer = functionBody("updateRushTimer");
-    assert.ok(render.indexOf("updateRushTimer(now)") < render.indexOf("advanceMovement(now)"));
-    assert.match(render, /const rushEnded = updateRushTimer\(now\);\s*if \(!rushEnded\) advanceMovement\(now\)/);
+    const advance = functionBody("advanceMovement");
+    assert.ok(render.indexOf("advanceMovement(") < render.indexOf("updateRushTimer(now)"));
+    assert.match(render, /moveBefore = activeMode === "rush"[\s\S]*\? rushDeadline[\s\S]*advanceMovement\(Math\.min\(now, moveBefore\), moveBefore\)/);
+    assert.match(advance, /nextMoveAt < moveBefore/);
     assert.match(timer, /rushRemaining = Math\.max\(0, rushDeadline - now\)/);
-    assert.match(timer, /if \(rushRemaining > 0\) return false;\s*endGame\("time"\);\s*return true/);
+    assert.match(timer, /if \(rushRemaining <= 0\) endGame\("time"\)/);
     assert.ok(!functionBody("updateTimeSystems").includes("mutation.expiresAt"));
     assert.match(source, /const PACES = Rules\.paceProfiles\(\)/);
     assert.match(source, /Rules\.soloTiming\(\)/);
     assert.doesNotMatch(source, /const RUSH_DURATION = 60_000/);
+  }],
+  ["Rush resolves pending pre-deadline ticks but excludes its boundary", () => {
+    assert.deepEqual(
+      movementSteps({ nextMoveAt: 70, now: 100, moveBefore: 100 }),
+      { nextMoveAt: 100, steps: [70, 80, 90] },
+    );
+    assert.deepEqual(
+      movementSteps({ nextMoveAt: 99, now: 100, moveBefore: 100 }),
+      { nextMoveAt: 109, steps: [99] },
+    );
+    assert.deepEqual(
+      movementSteps({ nextMoveAt: 100, now: 100, moveBefore: 100 }),
+      { nextMoveAt: 100, steps: [] },
+    );
+    assert.deepEqual(
+      movementSteps({ nextMoveAt: 101, now: 101, moveBefore: 100 }),
+      { nextMoveAt: 101, steps: [] },
+    );
   }],
   ["Canvas paint cost stays constant as permanent strokes accumulate", () => {
     const draw = functionBody("drawCanvasPaint");

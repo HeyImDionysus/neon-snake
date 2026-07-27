@@ -904,8 +904,11 @@ function render(now) {
   const delta = Math.min(now - lastFrame, 34);
   lastFrame = now;
   updateEffects(delta);
-  const rushEnded = updateRushTimer(now);
-  if (!rushEnded) advanceMovement(now);
+  const moveBefore = activeMode === "rush" && runState === "running"
+    ? rushDeadline
+    : Infinity;
+  advanceMovement(Math.min(now, moveBefore), moveBefore);
+  updateRushTimer(now);
   expireCore(now);
   expireMutation(now);
   updateTimeSystems(now);
@@ -920,12 +923,10 @@ function render(now) {
 }
 
 function updateRushTimer(now) {
-  if (activeMode !== "rush" || runState !== "running") return false;
+  if (activeMode !== "rush" || runState !== "running") return;
   rushRemaining = Math.max(0, rushDeadline - now);
   rushTimeEl.textContent = (rushRemaining / 1000).toFixed(1);
-  if (rushRemaining > 0) return false;
-  endGame("time");
-  return true;
+  if (rushRemaining <= 0) endGame("time");
 }
 
 function expireMutation(now) {
@@ -975,9 +976,15 @@ function scheduleMove() {
   nextMoveAt = lastMoveAt + stepDuration;
 }
 
-function advanceMovement(now) {
+function advanceMovement(now, moveBefore = Infinity) {
   let catchUpSteps = 0;
-  while (runState === "running" && nextMoveAt && now >= nextMoveAt && catchUpSteps < 3) {
+  while (
+    runState === "running"
+    && nextMoveAt
+    && nextMoveAt < moveBefore
+    && now >= nextMoveAt
+    && catchUpSteps < 3
+  ) {
     const stepAt = nextMoveAt;
     nextMoveAt = 0;
     expireMutation(stepAt);
@@ -992,7 +999,12 @@ function advanceMovement(now) {
 
   // A long-suspended frame should resume cleanly instead of simulating an
   // unbounded backlog in one paint.
-  if (runState === "running" && nextMoveAt && now >= nextMoveAt) {
+  if (
+    runState === "running"
+    && nextMoveAt
+    && nextMoveAt < moveBefore
+    && now >= nextMoveAt
+  ) {
     previousSnake = snake.map((segment) => ({ ...segment }));
     lastMoveAt = now;
     stepDuration = getTickDelay(now);
