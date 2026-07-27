@@ -357,7 +357,7 @@ const tests = [
         { id: "client-one", slot: 1, ready: true, seenAt: 950 },
       ],
     });
-    transport.setActive(true);
+    transport.setActive(true, 1_000);
     socket.message({
       type: "countdown",
       round: 1_000,
@@ -367,6 +367,16 @@ const tests = [
     socket.message({
       type: "state",
       sequence: 1,
+      state: { round: 999 },
+    });
+    assert.equal(
+      [...timers.values()].some((timer) => timer.delay === 3_000),
+      false,
+      "A snapshot for another round must not mask a stalled active round",
+    );
+    socket.message({
+      type: "state",
+      sequence: 2,
       state: { round: 1_000 },
     });
     const watchdog = [...timers.entries()].find(([, timer]) => timer.delay === 3_000);
@@ -386,6 +396,59 @@ const tests = [
       code: 1012,
       reason: "Authoritative state timed out",
     });
+    transport.close();
+    assert.equal(timers.size, 0);
+  }],
+  ["an active realtime reconnect rearms the authoritative state watchdog", async () => {
+    FakeWebSocket.instances.length = 0;
+    const timers = new Map();
+    let timerId = 0;
+    const transport = await transports.createWebSocketRoomTransport({
+      code: "ABC234",
+      clientId: "client-one",
+      endpoint: "wss://neon.example.test",
+      onMessage: () => {},
+      onStatus: () => {},
+      WebSocketImpl: FakeWebSocket,
+      setTimeoutImpl: (callback, delay) => {
+        timerId += 1;
+        timers.set(timerId, { callback, delay });
+        return timerId;
+      },
+      clearTimeoutImpl: (id) => timers.delete(id),
+    });
+    const first = FakeWebSocket.instances[0];
+    first.emit("open");
+    first.message({
+      type: "welcome",
+      role: "player",
+      slot: 1,
+      players: [
+        { id: "client-host", slot: 0, ready: true },
+        { id: "client-one", slot: 1, ready: true },
+      ],
+    });
+    transport.setActive(true, 1_000);
+    first.emit("close");
+    const reconnect = [...timers.entries()].find(([, timer]) => timer.delay === 250);
+    assert.ok(reconnect);
+    timers.delete(reconnect[0]);
+    await reconnect[1].callback();
+    const second = FakeWebSocket.instances[1];
+    second.emit("open");
+    second.message({
+      type: "welcome",
+      role: "player",
+      slot: 1,
+      players: [
+        { id: "client-host", slot: 0, ready: true },
+        { id: "client-one", slot: 1, ready: true },
+      ],
+    });
+    assert.ok(
+      [...timers.values()].some((timer) => timer.delay === 3_000),
+      "Welcome on an active replacement socket must rearm the state watchdog",
+    );
     transport.close();
     assert.equal(timers.size, 0);
   }],

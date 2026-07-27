@@ -56,6 +56,7 @@
     let lastPongAt = 0;
     let lastPingAt = 0;
     let readySent = false;
+    let activeRound = null;
 
     function clearSocketTimers() {
       if (heartbeatTimer !== null) clearTimeoutImpl(heartbeatTimer);
@@ -198,6 +199,7 @@
           }
           emitRoster(message.players);
           onStatus({ state: "connected", role, slot, players: roster });
+          if (active) armStateWatchdog(3_000);
           return;
         }
         if (message.type === "authenticated") {
@@ -221,6 +223,7 @@
         if (message.type === "countdown-cancel") {
           if (stateTimer !== null) clearTimeoutImpl(stateTimer);
           stateTimer = null;
+          activeRound = null;
           onMessage({
             type: "countdown-cancel",
             room: normalizedCode,
@@ -233,18 +236,26 @@
           onStatus({ state: "rejected", role, slot, code: message.code || "invalid_message" });
           return;
         }
-        if (message.type === "countdown") {
-          const startsAt = Number(message.startsAt);
-          armStateWatchdog(Number.isFinite(startsAt)
-            ? Math.max(3_000, startsAt - now() + 3_000)
-            : 13_000);
-        } else if (message.type === "state") {
-          armStateWatchdog(3_000);
-        }
         onMessage({
           ...message,
           room: normalizedCode,
         });
+        if (
+          message.type === "countdown"
+          && Number.isSafeInteger(Number(message.round))
+          && Number(message.round) === activeRound
+        ) {
+          const startsAt = Number(message.startsAt);
+          armStateWatchdog(Number.isFinite(startsAt)
+            ? Math.max(3_000, startsAt - now() + 3_000)
+            : 13_000);
+        } else if (
+          message.type === "state"
+          && Number.isSafeInteger(Number(message.state?.round))
+          && Number(message.state.round) === activeRound
+        ) {
+          armStateWatchdog(3_000);
+        }
       });
       nextSocket.addEventListener("close", () => {
         if (socket !== nextSocket || closed) return;
@@ -278,8 +289,11 @@
           : message));
         return true;
       },
-      setActive(nextActive) {
+      setActive(nextActive, round = null) {
         active = Boolean(nextActive);
+        activeRound = active && Number.isSafeInteger(Number(round))
+          ? Number(round)
+          : null;
         armStateWatchdog();
         scheduleHeartbeat();
       },

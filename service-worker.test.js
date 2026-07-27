@@ -119,7 +119,7 @@ async function main() {
   });
   process.stdout.write("PASS install primes the complete versioned app shell\n");
 
-  assert.match(source, /neon-snake-shell-v67/);
+  assert.match(source, /neon-snake-shell-v68/);
   process.stdout.write("PASS disconnect-cancellation fixes ship behind a fresh shell cache version\n");
 
   stores.set("neon-snake-shell-stale", new Map());

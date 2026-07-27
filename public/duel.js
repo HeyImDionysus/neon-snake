@@ -464,6 +464,7 @@ function setRunState(state, label) {
   restartButton.hidden = duelType !== "ai" || state === "ready" || state === "countdown";
   roomTransport?.setActive?.(
     duelType === "live" && (state === "countdown" || state === "running"),
+    liveRoundId,
   );
 }
 

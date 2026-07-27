@@ -67,6 +67,7 @@ if action == "join" then
     connectionId = connectionId,
     slot = slot,
     ready = false,
+    readyAt = 0,
     seenAt = now,
     userId = userId,
     displayName = displayName,
@@ -83,6 +84,7 @@ elseif current and current["connectionId"] == connectionId then
     current["seenAt"] = now
     if action == "ready" and tonumber(current["slot"]) >= 0 then
       current["ready"] = ready
+      current["readyAt"] = ready and now or 0
     elseif action == "authenticate" and userId ~= "" then
       current["userId"] = userId
       current["displayName"] = displayName
@@ -533,7 +535,7 @@ class RoomSimulation {
     try {
       await publishing;
     } catch (error) {
-      this.hub.abortRound(this.room, error);
+      this.hub.abortRound(this.room, this, error);
       return;
     }
     if (game.over) {
@@ -639,9 +641,10 @@ function createRealtimeHub({
     }
   }
 
-  function abortRound(room, error) {
+  function abortRound(room, simulation, error) {
     const state = stateFor(room);
-    state.simulation?.stop();
+    if (state.simulation !== simulation) return;
+    simulation.stop();
     state.simulation = null;
     broadcast(room, {
       type: "countdown-cancel",
@@ -653,11 +656,16 @@ function createRealtimeHub({
       room,
       name: typeof error?.name === "string" ? error.name : "Error",
     });
+    localConnections(room).forEach((connection) => {
+      connection.socket.close(1012, "Realtime relay unavailable");
+    });
   }
 
-  function roomAllReady(room) {
+  function roomAllReady(room, minimumReadyAt = 0) {
     const players = stateFor(room).players;
-    return players.length === 2 && players.every((player) => player.ready);
+    return players.length === 2 && players.every((player) => (
+      player.ready && Number(player.readyAt) >= minimumReadyAt
+    ));
   }
 
   function connectionOwnsSlot(room, connectionId, slot) {
@@ -932,7 +940,10 @@ function createRealtimeHub({
     if (message.type === "countdown") {
       const result = await refresh(connection, "touch");
       setRoster(connection.room, result.players || []);
-      if (!roomAllReady(connection.room) || !connectionOwnsSlot(connection.room, connection.connectionId, 0)) {
+      if (
+        !roomAllReady(connection.room, connection.joinedAt)
+        || !connectionOwnsSlot(connection.room, connection.connectionId, 0)
+      ) {
         send(connection, { type: "rejected", code: "room_not_ready" });
         return;
       }
@@ -1014,6 +1025,7 @@ function createRealtimeHub({
       room,
       clientId,
       connectionId: uuid(),
+      joinedAt: now(),
       slot: -1,
       profile: null,
       rateWindow: 0,
