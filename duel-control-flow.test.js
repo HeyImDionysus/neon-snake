@@ -349,6 +349,11 @@ const tests = [
     const body = functionBody("syncLiveRoom");
     assert.match(body, /abortLiveCountdown/);
     assert.match(body, /liveCountdownActive/);
+    assert.match(
+      body,
+      /runState === "ready" \|\| runState === "over"/,
+      "A disconnected post-round room must replace the stale result overlay",
+    );
     const handler = functionBody("handleRoomMessage");
     assert.match(handler, /message\.type === "countdown-cancel"/);
     assert.match(handler, /cancelLiveRound\(message\)/);

@@ -781,7 +781,7 @@ function syncLiveRoom() {
   if (phase === "waiting") {
     roomState.textContent = roomConnected ? "WAITING FOR PLAYER 2" : "NOT CONNECTED";
     if (liveCountdownActive) abortLiveCountdown();
-    if (runState === "ready") {
+    if (runState === "ready" || runState === "over") {
       setRunState("ready", roomConnected ? "WAITING FOR PLAYER 2" : "LIVE ROOM STANDBY");
       showOverlay(
         "LIVE ROOM",
