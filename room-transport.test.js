@@ -200,20 +200,12 @@ const tests = [
     const transport = await transports.createWebSocketRoomTransport({
       code: "abc234",
       clientId: "client-one",
-      endpoint: "wss://neon.example.test/",
+      endpoint: "/api/realtime",
+      locationHref: "https://neon.example.test/duel",
       onMessage: (message) => received.push(message),
       onStatus: (status) => statuses.push(status),
       WebSocketImpl: FakeWebSocket,
       now: () => 1_000,
-      fetchImpl: async (url, options) => {
-        assert.equal(url, "/api/realtime-ticket");
-        assert.equal(options.method, "POST");
-        assert.deepEqual(JSON.parse(options.body), { clientId: "client-one" });
-        return {
-          ok: true,
-          json: async () => ({ ticket: "signed.identity.ticket" }),
-        };
-      },
       setTimeoutImpl: (callback, delay) => {
         timerId += 1;
         scheduled.set(timerId, { callback, delay });
@@ -221,20 +213,19 @@ const tests = [
       },
       clearTimeoutImpl: (id) => scheduled.delete(id),
     });
-    assert.equal(transport.kind, "durable-object-websocket");
+    assert.equal(transport.kind, "vercel-websocket");
     assert.equal(transport.authoritative, true);
     const socket = FakeWebSocket.instances[0];
     const socketUrl = new URL(socket.url);
     assert.equal(socketUrl.protocol, "wss:");
-    assert.equal(socketUrl.pathname, "/room/ABC234");
+    assert.equal(socketUrl.pathname, "/api/realtime");
+    assert.equal(socketUrl.searchParams.get("room"), "ABC234");
     assert.equal(socketUrl.searchParams.get("clientId"), "client-one");
     assert.equal(socketUrl.searchParams.get("ticket"), null);
     assert.equal(transport.send({ type: "ready", ready: true }), false);
 
     socket.emit("open");
-    assert.deepEqual(socket.messages, [
-      { type: "authenticate", ticket: "signed.identity.ticket" },
-    ]);
+    assert.deepEqual(socket.messages, []);
     assert.equal(statuses.at(-1).state, "socket-open");
     socket.message({
       type: "welcome",
@@ -247,21 +238,12 @@ const tests = [
           ready: true,
           seenAt: 900,
           profile: {
-            userId: "123456789012345678",
             displayName: "Signal Player",
             avatar: "avatar_hash",
           },
         },
         { id: "client-two", slot: 1, ready: false, seenAt: 950 },
       ],
-    });
-    assert.deepEqual(socket.messages.at(-1), {
-      type: "authenticate",
-      ticket: "signed.identity.ticket",
-    });
-    socket.message({
-      type: "authenticated",
-      profile: { displayName: "Signal Player", avatar: "avatar_hash" },
     });
     assert.deepEqual(socket.messages.at(-1), { type: "ready", ready: true });
     assert.equal(statuses.at(-1).state, "connected");

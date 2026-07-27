@@ -119,8 +119,8 @@ async function main() {
   });
   process.stdout.write("PASS install primes the complete versioned app shell\n");
 
-  assert.match(source, /neon-snake-shell-v63/);
-  process.stdout.write("PASS Duel robustness changes ship behind a fresh shell cache version\n");
+  assert.match(source, /neon-snake-shell-v64/);
+  process.stdout.write("PASS native Vercel realtime changes ship behind a fresh shell cache version\n");
 
   stores.set("neon-snake-shell-stale", new Map());
   await dispatchWaitUntil("activate");

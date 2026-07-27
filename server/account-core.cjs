@@ -2,7 +2,6 @@
 
 const {
   createHash,
-  createHmac,
   randomBytes,
   timingSafeEqual,
 } = require("node:crypto");
@@ -16,7 +15,6 @@ const SESSION_COOKIE = "__Host-neon_session";
 const OAUTH_COOKIE = "__Host-neon_oauth";
 const OAUTH_TTL_SECONDS = 10 * 60;
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
-const TICKET_TTL_SECONDS = 5 * 60;
 const MATCH_SCRIPT = String.raw`
 local eventKey = KEYS[1]
 local leaderboardKey = KEYS[2]
@@ -100,35 +98,12 @@ function equalText(first, second) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function encode(value) {
-  return Buffer.from(value).toString("base64url");
-}
-
-function sign(value, secret) {
-  return createHmac("sha256", secret).update(value).digest("base64url");
-}
-
-function signedTicket(payload, secret) {
-  const encoded = encode(JSON.stringify(payload));
-  return `${encoded}.${sign(encoded, secret)}`;
-}
-
 function cleanDisplayText(value, fallback = "") {
   const cleaned = String(value || "")
     .replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, "")
     .trim()
     .slice(0, 64);
   return cleaned || fallback;
-}
-
-function matchSignaturePayload(value) {
-  return [
-    String(value?.eventId || ""),
-    String(value?.firstUserId || ""),
-    String(value?.secondUserId || ""),
-    value?.winnerUserId === null ? "" : String(value?.winnerUserId || ""),
-    String(Number(value?.endedAt) || 0),
-  ].join("\n");
 }
 
 function publicProfile(user) {
@@ -158,11 +133,10 @@ function environmentConfig(environment) {
   const clientId = String(environment.DISCORD_CLIENT_ID || "");
   const clientSecret = String(environment.DISCORD_CLIENT_SECRET || "");
   const redirectUri = String(environment.DISCORD_REDIRECT_URI || "");
-  const realtimeSecret = String(environment.REALTIME_SHARED_SECRET || "");
-  if (!clientId || !clientSecret || !redirectUri || realtimeSecret.length < 32) {
+  if (!clientId || !clientSecret || !redirectUri) {
     throw new Error("Account service is not configured.");
   }
-  return { clientId, clientSecret, redirectUri, realtimeSecret };
+  return { clientId, clientSecret, redirectUri };
 }
 
 function accountAvailable(environment) {
@@ -170,7 +144,6 @@ function accountAvailable(environment) {
     String(environment.DISCORD_CLIENT_ID || "")
     && String(environment.DISCORD_CLIENT_SECRET || "")
     && String(environment.DISCORD_REDIRECT_URI || "")
-    && String(environment.REALTIME_SHARED_SECRET || "").length >= 32
   );
 }
 
@@ -189,8 +162,82 @@ async function readBody(request) {
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
-function hmacHeader(request) {
-  return String(header(request, "x-neon-signature") || "");
+function createRedisRunner({
+  environment = process.env,
+  fetchImpl = globalThis.fetch,
+  redisCommand,
+} = {}) {
+  return redisCommand || ((command) => executeRedisRest(command, {
+    environment,
+    fetchImpl,
+  }));
+}
+
+function createSessionReader(options = {}) {
+  const runRedis = createRedisRunner(options);
+  return async function sessionFor(request) {
+    const token = cookieMap(request).get(SESSION_COOKIE) || "";
+    if (!/^[A-Za-z0-9_-]{32,128}$/.test(token)) return null;
+    const sessionValue = await runRedis(["GET", `neon-snake:session:${digest(token)}`]);
+    if (sessionValue === null || sessionValue === undefined || sessionValue === "") return null;
+    let session;
+    try {
+      session = typeof sessionValue === "string" ? JSON.parse(sessionValue) : sessionValue;
+    } catch {
+      return null;
+    }
+    if (!session?.userId) return null;
+    const profileValue = await runRedis(["GET", `neon-snake:profile:${session.userId}`]);
+    if (profileValue === null || profileValue === undefined || profileValue === "") return null;
+    let profile;
+    try {
+      profile = typeof profileValue === "string" ? JSON.parse(profileValue) : profileValue;
+    } catch {
+      return null;
+    }
+    return profile ? { token, session, profile } : null;
+  };
+}
+
+async function recordMatchResult({
+  eventId,
+  firstUserId,
+  secondUserId,
+  winnerUserId,
+  endedAt,
+}, options = {}) {
+  const now = options.now || (() => Date.now());
+  const first = String(firstUserId || "");
+  const second = String(secondUserId || "");
+  const winner = winnerUserId === null ? "" : String(winnerUserId || "");
+  const timestamp = Number(endedAt);
+  if (
+    !/^[A-Za-z0-9:_-]{8,160}$/.test(String(eventId || ""))
+    || !/^[0-9]{15,24}$/.test(first)
+    || !/^[0-9]{15,24}$/.test(second)
+    || first === second
+    || (winner && winner !== first && winner !== second)
+    || !Number.isSafeInteger(timestamp)
+    || timestamp < now() - 15 * 60 * 1_000
+    || timestamp > now() + 60 * 1_000
+  ) {
+    throw new TypeError("Match result is invalid.");
+  }
+  const loser = winner ? (winner === first ? second : first) : second;
+  const runRedis = createRedisRunner(options);
+  const updated = await runRedis([
+    "EVAL",
+    MATCH_SCRIPT,
+    "4",
+    `neon-snake:match:${digest(eventId)}`,
+    "neon-snake:leaderboard:duel",
+    `neon-snake:stats:${winner || first}`,
+    `neon-snake:stats:${loser}`,
+    winner ? "0" : "1",
+    winner || first,
+    loser,
+  ]);
+  return Number(updated) === 1;
 }
 
 function createAccountHandler({
@@ -200,27 +247,13 @@ function createAccountHandler({
   now = () => Date.now(),
   random = (bytes) => randomBytes(bytes).toString("base64url"),
 } = {}) {
-  const redisOptions = {
+  const storeOptions = {
     environment,
     fetchImpl,
-    ...(redisCommand ? { fetchImpl: async () => { throw new Error("Unexpected fetch"); } } : {}),
+    redisCommand,
   };
-  const runRedis = redisCommand || ((command) => executeRedisRest(command, redisOptions));
-
-  async function getJson(command) {
-    const value = await runRedis(command);
-    if (value === null || value === undefined || value === "") return null;
-    return typeof value === "string" ? JSON.parse(value) : value;
-  }
-
-  async function sessionFor(request) {
-    const token = cookieMap(request).get(SESSION_COOKIE) || "";
-    if (!/^[A-Za-z0-9_-]{32,128}$/.test(token)) return null;
-    const session = await getJson(["GET", `neon-snake:session:${digest(token)}`]);
-    if (!session?.userId) return null;
-    const profile = await getJson(["GET", `neon-snake:profile:${session.userId}`]);
-    return profile ? { token, session, profile } : null;
-  }
+  const runRedis = createRedisRunner(storeOptions);
+  const sessionFor = createSessionReader(storeOptions);
 
   return async function accountHandler(request, response) {
     const url = requestUrl(request);
@@ -326,33 +359,6 @@ function createAccountHandler({
         return sendJson(response, 200, { ok: true });
       }
 
-      if (route === "/api/realtime-ticket") {
-        if (request.method !== "POST") return sendJson(response, 405, { error: "method_not_allowed" });
-        if (!requestIsSameOrigin(request)) return sendJson(response, 403, { error: "origin_not_allowed" });
-        const current = await sessionFor(request);
-        if (!current) return sendJson(response, 401, { error: "authentication_required" });
-        const ticketRequest = await readBody(request);
-        const clientId = String(ticketRequest.clientId || "");
-        if (!/^[A-Za-z0-9._:-]{8,96}$/.test(clientId)) {
-          return sendJson(response, 400, { error: "invalid_client" });
-        }
-        const config = environmentConfig(environment);
-        const issuedAt = now();
-        const payload = {
-          sub: current.profile.id,
-          cid: clientId,
-          name: current.profile.displayName,
-          avatar: current.profile.avatar,
-          iat: issuedAt,
-          exp: issuedAt + TICKET_TTL_SECONDS * 1_000,
-          jti: random(18),
-        };
-        return sendJson(response, 200, {
-          ticket: signedTicket(payload, config.realtimeSecret),
-          expiresAt: payload.exp,
-        });
-      }
-
       if (route === "/api/leaderboard") {
         if (request.method !== "GET") return sendJson(response, 405, { error: "method_not_allowed" });
         const rows = await runRedis(["ZREVRANGE", "neon-snake:leaderboard:duel", "0", "49", "WITHSCORES"]);
@@ -378,45 +384,6 @@ function createAccountHandler({
         return sendJson(response, 200, { entries, verified: true, metric: "server-authoritative-wins" });
       }
 
-      if (route === "/api/match-result") {
-        if (request.method !== "POST") return sendJson(response, 405, { error: "method_not_allowed" });
-        const config = environmentConfig(environment);
-        const body = await readBody(request);
-        const expected = sign(matchSignaturePayload(body), config.realtimeSecret);
-        if (!equalText(expected, hmacHeader(request))) {
-          return sendJson(response, 403, { error: "signature_invalid" });
-        }
-        const eventId = String(body.eventId || "");
-        const first = String(body.firstUserId || "");
-        const second = String(body.secondUserId || "");
-        const winner = body.winnerUserId === null ? "" : String(body.winnerUserId || "");
-        const endedAt = Number(body.endedAt);
-        if (
-          !/^[A-Za-z0-9:_-]{8,160}$/.test(eventId)
-          || !/^[0-9]{15,24}$/.test(first)
-          || !/^[0-9]{15,24}$/.test(second)
-          || first === second
-          || (winner && winner !== first && winner !== second)
-          || !Number.isSafeInteger(endedAt)
-          || endedAt < now() - 15 * 60 * 1_000
-          || endedAt > now() + 60 * 1_000
-        ) return sendJson(response, 400, { error: "invalid_result" });
-        const loser = winner ? (winner === first ? second : first) : second;
-        const updated = await runRedis([
-          "EVAL",
-          MATCH_SCRIPT,
-          "4",
-          `neon-snake:match:${digest(eventId)}`,
-          "neon-snake:leaderboard:duel",
-          `neon-snake:stats:${winner || first}`,
-          `neon-snake:stats:${loser}`,
-          winner ? "0" : "1",
-          winner || first,
-          loser,
-        ]);
-        return sendJson(response, 200, { ok: true, recorded: Number(updated) === 1 });
-      }
-
       return sendJson(response, 404, { error: "not_found" });
     } catch (error) {
       if (error instanceof TypeError || error instanceof SyntaxError) {
@@ -436,9 +403,9 @@ module.exports = {
   accountAvailable,
   avatarUrl,
   createAccountHandler,
+  createSessionReader,
   digest,
   equalText,
-  matchSignaturePayload,
   publicProfile,
-  signedTicket,
+  recordMatchResult,
 };
