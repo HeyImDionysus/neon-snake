@@ -62,10 +62,10 @@ assert.match(downloads, /id="androidDownloadStatus"/);
 assert.match(downloadsScript, /DOWNLOAD STARTED/);
 assert.match(wallpaperScript, /NeonSnakeWallpaperPreview/);
 assert.match(downloads, /href="\/downloads\/v1\.1\.2\/Neon-Snake-Lively-v1\.1\.2\.zip"/);
-assert.match(downloads, /href="\/downloads\/v1\.1\.0\/Neon-Snake-Android-v1\.1\.0\.apk"/);
+assert.match(downloads, /href="\/downloads\/v1\.1\.1\/Neon-Snake-Android-v1\.1\.1\.apk"/);
 assert.doesNotMatch(downloads, /github\.com\/HeyImDionysus\/neon-snake\/raw/);
 assert.equal(fs.existsSync(path.join(__dirname, "public", "downloads", "v1.1.2", "Neon-Snake-Lively-v1.1.2.zip")), true);
-assert.equal(fs.existsSync(path.join(__dirname, "public", "downloads", "v1.1.0", "Neon-Snake-Android-v1.1.0.apk")), true);
+assert.equal(fs.existsSync(path.join(__dirname, "public", "downloads", "v1.1.1", "Neon-Snake-Android-v1.1.1.apk")), true);
 assert.match(vercel, /Content-Disposition/);
 process.stdout.write("PASS downloads provide direct platform actions and a live truthful preview\n");
 

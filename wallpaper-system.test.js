@@ -38,7 +38,7 @@ const androidService = read(
   "NeonWallpaperService.java",
 );
 const permanentWindowsReadme = read("downloads", "v1.1.2", "README.md");
-const permanentAndroidReadme = read("downloads", "v1.1.0", "README.md");
+const permanentAndroidReadme = read("downloads", "v1.1.1", "README.md");
 const permanentWindows = readBytes(
   "downloads",
   "v1.1.2",
@@ -46,8 +46,8 @@ const permanentWindows = readBytes(
 );
 const permanentAndroid = readBytes(
   "downloads",
-  "v1.1.0",
-  "Neon-Snake-Android-v1.1.0.apk",
+  "v1.1.1",
+  "Neon-Snake-Android-v1.1.1.apk",
 );
 const shippedLivelyProperties = JSON.parse(readArchiveText(
   ["downloads", "v1.1.2", "Neon-Snake-Lively-v1.1.2.zip"],
@@ -62,7 +62,7 @@ assert.match(wallpaperHtml, /wallpaperCanvas/);
 assert.match(homeHtml, /href="downloads\.html"/);
 assert.doesNotMatch(homeHtml, /href="wallpaper\.html"/);
 assert.match(homeHtml, /WINDOWS LIVELY · ANDROID LIVE WALLPAPER/);
-assert.match(downloadsHtml, /Neon-Snake-Android-v1\.1\.0\.apk/);
+assert.match(downloadsHtml, /Neon-Snake-Android-v1\.1\.1\.apk/);
 assert.match(downloadsHtml, /Neon-Snake-Lively-v1\.1\.2\.zip/);
 assert.equal((downloadsHtml.match(/<a class="download-button"[^>]*\bdownload="/g) || []).length, 2);
 assert.match(downloadsHtml, /Download for Android/);
