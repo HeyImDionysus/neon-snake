@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Neon Snake Wallpaper</string>
+    <string name="wallpaper_name">Neon Snake — Autonomous Signal</string>
+    <string name="wallpaper_description">The Neon Snake Autopilot runs locally as a battery-aware live wallpaper.</string>
+    <string name="setup_title">NEON SNAKE</string>
+    <string name="setup_subtitle">AUTONOMOUS LIVE WALLPAPER</string>
+    <string name="setup_body">Runs entirely on-device. Rendering stops whenever the wallpaper is hidden and automatically reduces its frame rate in Battery Saver.</string>
+    <string name="set_wallpaper">SET LIVE WALLPAPER</string>
+</resources>

@@ -9,6 +9,289 @@
     return typeof runtime?.fetch === "function";
   }
 
+  function webSocketRoomSupported(runtime = root) {
+    return typeof runtime?.WebSocket === "function";
+  }
+
+  async function createWebSocketRoomTransport({
+    code,
+    clientId,
+    endpoint,
+    onMessage,
+    onStatus = () => {},
+    WebSocketImpl = root.WebSocket,
+    now = () => Date.now(),
+    setTimeoutImpl = root.setTimeout,
+    clearTimeoutImpl = root.clearTimeout,
+    fetchImpl = root.fetch,
+  } = {}) {
+    if (typeof code !== "string" || !code.trim()) throw new TypeError("A room code is required.");
+    if (typeof clientId !== "string" || !clientId.trim()) throw new TypeError("A client id is required.");
+    if (typeof endpoint !== "string" || !/^wss:\/\//i.test(endpoint)) {
+      throw new TypeError("A secure realtime endpoint is required.");
+    }
+    if (typeof onMessage !== "function") throw new TypeError("A message handler is required.");
+    if (typeof onStatus !== "function") throw new TypeError("A status handler is required.");
+    if (typeof WebSocketImpl !== "function") throw new TypeError("WebSocket is not available.");
+
+    const normalizedCode = code.trim().toUpperCase();
+    const baseEndpoint = endpoint.replace(/\/+$/, "");
+    let socket = null;
+    let closed = false;
+    let active = false;
+    let ready = false;
+    let role = "spectator";
+    let slot = -1;
+    let roster = [];
+    let failures = 0;
+    let reconnectTimer = null;
+    let heartbeatTimer = null;
+    let connectionTimer = null;
+    let lastPongAt = 0;
+    let lastPingAt = 0;
+    let identityTicket = "";
+    let identityExpiresAt = 0;
+    let identityAccepted = false;
+    let readySent = false;
+
+    function clearSocketTimers() {
+      if (heartbeatTimer !== null) clearTimeoutImpl(heartbeatTimer);
+      if (connectionTimer !== null) clearTimeoutImpl(connectionTimer);
+      heartbeatTimer = null;
+      connectionTimer = null;
+    }
+
+    function emitRoster(players) {
+      if (!Array.isArray(players)) return;
+      roster = players;
+      players.forEach((player) => {
+        if (!player || player.id === clientId) return;
+        onMessage({
+          type: "presence",
+          from: player.id,
+          room: normalizedCode,
+          ready: Boolean(player.ready),
+          slot: Number.isInteger(player.slot) ? player.slot : -1,
+          seenAt: Number(player.seenAt) || now(),
+          profile: player.profile && typeof player.profile === "object"
+            ? {
+              displayName: String(player.profile.displayName || "").slice(0, 64),
+              avatar: String(player.profile.avatar || "").slice(0, 128),
+            }
+            : null,
+          sentAt: now(),
+        });
+      });
+      onStatus({ state: "synchronized", role, slot, players: roster });
+    }
+
+    function scheduleHeartbeat() {
+      if (closed) return;
+      if (heartbeatTimer !== null) clearTimeoutImpl(heartbeatTimer);
+      heartbeatTimer = setTimeoutImpl(() => {
+        heartbeatTimer = null;
+        if (socket?.readyState === WebSocketImpl.OPEN) {
+          const staleAfter = active ? 20_000 : 45_000;
+          if (lastPongAt && now() - lastPongAt > staleAfter) {
+            socket.close(4000, "Realtime heartbeat timed out");
+            return;
+          }
+          lastPingAt = now();
+          socket.send("ping");
+        }
+        scheduleHeartbeat();
+      }, active ? 5_000 : 15_000);
+    }
+
+    function scheduleReconnect() {
+      if (closed || reconnectTimer !== null) return;
+      clearSocketTimers();
+      failures += 1;
+      const delay = Math.min(4_000, 250 * 2 ** Math.min(failures - 1, 4));
+      onStatus({ state: "reconnecting", role, slot, failures, code: "socket_closed" });
+      reconnectTimer = setTimeoutImpl(() => {
+        reconnectTimer = null;
+        void connect();
+      }, delay);
+    }
+
+    function socketUrl() {
+      const url = new URL(`${baseEndpoint}/room/${encodeURIComponent(normalizedCode)}`);
+      url.searchParams.set("clientId", clientId);
+      return url.href;
+    }
+
+    async function refreshIdentityTicket() {
+      if (typeof fetchImpl !== "function") return;
+      try {
+        const ticketResponse = await fetchImpl("/api/realtime-ticket", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clientId }),
+        });
+        if (!ticketResponse?.ok) return;
+        const payload = await ticketResponse.json();
+        if (typeof payload?.ticket !== "string") return;
+        identityTicket = payload.ticket;
+        identityExpiresAt = Number(payload.expiresAt) || 0;
+      } catch {
+        // Anonymous realtime play remains available if account services are offline.
+      }
+    }
+
+    async function connect() {
+      if (closed) return;
+      if (!identityTicket || identityExpiresAt <= now() + 30_000) {
+        await refreshIdentityTicket();
+      }
+      if (closed) return;
+      const nextSocket = new WebSocketImpl(socketUrl());
+      socket = nextSocket;
+      identityAccepted = false;
+      readySent = false;
+      connectionTimer = setTimeoutImpl(() => {
+        connectionTimer = null;
+        if (socket === nextSocket) nextSocket.close(4000, "Realtime connection timed out");
+      }, 8_000);
+      nextSocket.addEventListener("open", () => {
+        if (socket !== nextSocket || closed) return;
+        failures = 0;
+        onStatus({ state: "socket-open", role, slot, players: roster });
+        if (identityTicket) {
+          nextSocket.send(JSON.stringify({ type: "authenticate", ticket: identityTicket }));
+        }
+        scheduleHeartbeat();
+      });
+      nextSocket.addEventListener("message", (event) => {
+        if (socket !== nextSocket || closed) return;
+        if (event.data === "pong") {
+          lastPongAt = now();
+          onStatus({
+            state: "latency",
+            role,
+            slot,
+            players: roster,
+            latency: Math.max(0, lastPongAt - lastPingAt),
+          });
+          return;
+        }
+        let message;
+        try {
+          message = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+        if (message.type === "welcome") {
+          if (connectionTimer !== null) clearTimeoutImpl(connectionTimer);
+          connectionTimer = null;
+          lastPongAt = now();
+          role = message.role === "player" ? "player" : "spectator";
+          slot = role === "player" && Number.isInteger(message.slot) ? message.slot : -1;
+          if (role === "player" && (!identityTicket || identityAccepted)) {
+            nextSocket.send(JSON.stringify({ type: "ready", ready }));
+            readySent = true;
+          }
+          emitRoster(message.players);
+          onStatus({ state: "connected", role, slot, players: roster });
+          return;
+        }
+        if (message.type === "authenticated") {
+          identityAccepted = true;
+          if (role === "player" && !readySent) {
+            nextSocket.send(JSON.stringify({ type: "ready", ready }));
+            readySent = true;
+          }
+          return;
+        }
+        if (message.type === "roster") {
+          emitRoster(message.players);
+          return;
+        }
+        if (message.type === "pong") {
+          lastPongAt = now();
+          onStatus({
+            state: "latency",
+            role,
+            slot,
+            players: roster,
+            latency: Math.max(0, lastPongAt - Number(message.at || lastPongAt)),
+          });
+          return;
+        }
+        if (message.type === "countdown-cancel") {
+          emitRoster(roster);
+          return;
+        }
+        if (message.type === "rejected") {
+          if (
+            message.code === "authentication_invalid"
+            && role === "player"
+            && !readySent
+          ) {
+            identityTicket = "";
+            identityExpiresAt = 0;
+            nextSocket.send(JSON.stringify({ type: "ready", ready }));
+            readySent = true;
+            onStatus({ state: "identity-unavailable", role, slot, players: roster });
+            return;
+          }
+          onStatus({ state: "rejected", role, slot, code: message.code || "invalid_message" });
+          return;
+        }
+        onMessage({
+          ...message,
+          room: normalizedCode,
+        });
+      });
+      nextSocket.addEventListener("close", () => {
+        if (socket !== nextSocket || closed) return;
+        socket = null;
+        clearSocketTimers();
+        scheduleReconnect();
+      });
+      nextSocket.addEventListener("error", () => {
+        if (socket === nextSocket) nextSocket.close();
+      });
+    }
+
+    await connect();
+
+    return {
+      kind: "durable-object-websocket",
+      authoritative: true,
+      send(message) {
+        if (closed) return false;
+        if (!message || typeof message !== "object" || Array.isArray(message)) {
+          throw new TypeError("A room message object is required.");
+        }
+        if (message.type === "presence" || message.type === "ready") {
+          ready = Boolean(message.ready);
+          if (!readySent) return false;
+        }
+        if (message.type === "leave") return true;
+        if (socket?.readyState !== WebSocketImpl.OPEN) return false;
+        socket.send(JSON.stringify(message.type === "presence"
+          ? { type: "ready", ready }
+          : message));
+        return true;
+      },
+      setActive(nextActive) {
+        active = Boolean(nextActive);
+        scheduleHeartbeat();
+      },
+      close() {
+        if (closed) return;
+        closed = true;
+        if (reconnectTimer !== null) clearTimeoutImpl(reconnectTimer);
+        reconnectTimer = null;
+        clearSocketTimers();
+        socket?.close(1000, "Client left room");
+        socket = null;
+      },
+    };
+  }
+
   function createBroadcastRoomTransport({
     code,
     clientId,
@@ -419,7 +702,9 @@
     broadcastRoomSupported,
     createBroadcastRoomTransport,
     createRemoteRoomTransport,
+    createWebSocketRoomTransport,
     remoteRoomSupported,
+    webSocketRoomSupported,
   };
 
   root.NeonSnakeTransports = transports;

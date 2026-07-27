@@ -28,6 +28,9 @@
         <span class="status-light" aria-hidden="true"></span>
         <span id="duelStatus">DUEL LAB READY</span>
       </div>
+      <div class="account-control" data-account-control>
+        <a class="discord-login" href="/api/auth/discord/start">Sign in with Discord</a>
+      </div>
       <a class="duel-back" href="./">SOLO LAB ↗</a>
     </header>
 
@@ -154,15 +157,15 @@
           <section class="system-trace room-system-trace" aria-labelledby="roomTraceTitle">
             <header>
               <span id="roomTraceTitle">ROOM ARCHITECTURE</span>
-              <strong>CASUAL / HOST-AUTHORITATIVE</strong>
+              <strong>EDGE / SERVER-AUTHORITATIVE</strong>
             </header>
             <div class="trace-flow" aria-label="Live room data path">
-              <span>P2 INPUT</span><i aria-hidden="true">→</i>
-              <span>VERCEL VALIDATION</span><i aria-hidden="true">→</i>
-              <span>REDIS QUEUE</span><i aria-hidden="true">→</i>
-              <span>P1 SNAPSHOT</span>
+              <span>PLAYER INPUT</span><i aria-hidden="true">→</i>
+              <span>EDGE SOCKET</span><i aria-hidden="true">→</i>
+              <span>ROOM SIMULATION</span><i aria-hidden="true">→</i>
+              <span>VERIFIED SNAPSHOT</span>
             </div>
-            <p>Player 1's browser runs the match. The server validates message shape and player-slot permissions, but does not verify moves or outcomes. Anyone with the code can enter; idle room data expires automatically.</p>
+            <p>A persistent edge room owns every 138 ms tick, validates both players' inputs, resolves collisions once, and publishes the same result to both screens. Signed-in outcomes can enter the verified leaderboard.</p>
           </section>
 
           <label class="room-code-label" for="roomCodeInput">ROOM SIGNAL</label>
@@ -178,6 +181,7 @@
           </div>
 
           <p class="room-state" id="roomState" aria-live="polite">NOT CONNECTED</p>
+          <p class="room-latency" id="roomLatency">REALTIME PING · NOT MEASURED</p>
           <div class="room-actions">
             <button class="secondary-button" id="connectRoomButton" type="button">
               <span>Connect room</span><span aria-hidden="true">◇</span>
@@ -190,8 +194,8 @@
 
         <section class="duel-method">
           <p class="section-kicker">HONEST BOUNDARY</p>
-          <h3>Local engine. Temporary relay.</h3>
-          <p>The snake planners stay on-device. Only Public Live Rooms use the backend, and they require two connected players plus two Ready signals before countdown.</p>
+          <h3>Local Autopilot. Authoritative live rooms.</h3>
+          <p>The Autopilot stays on-device. Public Live Rooms use a persistent edge simulation and require two connected players plus two Ready signals before countdown.</p>
         </section>
 
         <div class="instructions duel-instructions" id="duelInstructions">
@@ -204,6 +208,8 @@
 
     <p class="sr-only" id="duelAnnouncement" aria-live="assertive"></p>
     <script src="signal-field.js"></script>
+    <script src="runtime-config.js"></script>
+    <script src="account.js"></script>
     <script src="game-logic.js"></script>
     <script src="room-transport.js"></script>
     <script src="duel.js"></script>

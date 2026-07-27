@@ -290,9 +290,10 @@ const tests = [
     const branch = body.match(/if \(message\.type === "presence" \|\| message\.type === "ready"\) \{([^]*?)\n  \}/);
     assert.ok(branch, "Expected a presence/ready branch");
     assert.match(branch[1], /if \(roomTransport\) syncLiveRoom\(\)/);
-    assert.match(functionBody("connectLiveRoom"), /roomTransport = await Transports\.createRemoteRoomTransport/);
+    assert.match(functionBody("connectLiveRoom"), /Transports\.createWebSocketRoomTransport/);
+    assert.match(functionBody("connectLiveRoom"), /Transports\.createRemoteRoomTransport/);
     assert.ok(
-      functionBody("connectLiveRoom").indexOf("roomTransport = await Transports.createRemoteRoomTransport")
+      functionBody("connectLiveRoom").indexOf("roomTransport = realtimeUrl")
         < functionBody("connectLiveRoom").lastIndexOf("syncLiveRoom()"),
     );
     assert.match(functionBody("connectLiveRoom"), /setRoomReadyIntent\(false\)/);
@@ -345,7 +346,7 @@ const tests = [
   }],
   ["a connected room locks its Signal Code", () => {
     const body = functionBody("syncLiveRoom");
-    assert.match(body, /roomCodeInput\.disabled = roomConnected/);
+    assert.match(body, /roomCodeInput\.disabled = Boolean\(roomTransport\)/);
   }],
   ["a third participant is explicitly treated as a spectator", () => {
     const body = functionBody("syncLiveRoom");
