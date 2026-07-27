@@ -43,6 +43,11 @@ for _, member in ipairs(stale) do
   redis.call("HDEL", readyKey, member)
 end
 redis.call("ZREMRANGEBYSCORE", playersKey, "-inf", cutoff)
+if #stale > 0 and redis.call("HEXISTS", dataKey, "countdown") == 1 then
+  redis.call("HDEL", dataKey, "countdown")
+  redis.call("HINCRBY", dataKey, "countdownRev", 1)
+  redis.call("DEL", inputKey)
+end
 
 local active = redis.call("ZRANGEBYSCORE", playersKey, cutoff, "+inf")
 if #active == 0 then
@@ -86,6 +91,11 @@ end
 if action == "sync" and member ~= nil then
   redis.call("ZADD", playersKey, now, member)
   redis.call("HSET", readyKey, member, ready and "1" or "0")
+  if not ready and redis.call("HEXISTS", dataKey, "countdown") == 1 then
+    redis.call("HDEL", dataKey, "countdown")
+    redis.call("HINCRBY", dataKey, "countdownRev", 1)
+    redis.call("DEL", inputKey)
+  end
 
   for _, event in ipairs(events) do
     local eventType = event["type"]
@@ -112,6 +122,11 @@ end
 if action == "leave" and member ~= nil then
   redis.call("ZREM", playersKey, member)
   redis.call("HDEL", readyKey, member)
+  if redis.call("HEXISTS", dataKey, "countdown") == 1 then
+    redis.call("HDEL", dataKey, "countdown")
+    redis.call("HINCRBY", dataKey, "countdownRev", 1)
+    redis.call("DEL", inputKey)
+  end
   member = nil
   slot = -1
   role = "disconnected"

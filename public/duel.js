@@ -862,7 +862,7 @@ async function connectLiveRoom() {
   connectRoomButton.disabled = true;
   roomState.textContent = "CONNECTING TO LIVE ROOM";
   roomPeers = new Map();
-  setRoomReadyIntent(false, false);
+  setRoomReadyIntent(false);
   roomRole = "disconnected";
   roomSlot = -1;
   roomConnectionState = "connecting";
@@ -874,6 +874,7 @@ async function connectLiveRoom() {
       onMessage: handleRoomMessage,
       onStatus: handleRoomStatus,
     });
+    postRoomMessage({ type: "ready", ready: false });
   } catch (error) {
     roomTransport = null;
     roomConnected = false;
@@ -1062,7 +1063,8 @@ function applyRemoteSnapshot(message) {
 }
 
 function handleRoomMessage(message) {
-  if (!message || message.room !== roomCode || message.from === clientId) return;
+  if (!message || message.room !== roomCode) return;
+  if (message.from === clientId && message.type !== "countdown") return;
   if (message.type === "leave") {
     roomPeers.delete(message.from);
     syncLiveRoom();

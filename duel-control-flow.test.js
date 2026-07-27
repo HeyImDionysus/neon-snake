@@ -295,6 +295,16 @@ const tests = [
       functionBody("connectLiveRoom").indexOf("roomTransport = await Transports.createRemoteRoomTransport")
         < functionBody("connectLiveRoom").lastIndexOf("syncLiveRoom()"),
     );
+    assert.match(functionBody("connectLiveRoom"), /setRoomReadyIntent\(false\)/);
+    assert.match(functionBody("connectLiveRoom"), /postRoomMessage\(\{ type: "ready", ready: false \}\)/);
+  }],
+  ["a recovering host accepts its own authoritative countdown replay", () => {
+    const body = functionBody("handleRoomMessage");
+    assert.match(body, /message\.from === clientId && message\.type !== "countdown"/);
+    assert.ok(
+      body.indexOf('message.from === clientId && message.type !== "countdown"')
+        < body.indexOf('message.type === "countdown"'),
+    );
   }],
   ["live countdown aborts if either player disconnects", () => {
     const body = functionBody("syncLiveRoom");

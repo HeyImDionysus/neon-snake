@@ -273,6 +273,12 @@ async function main() {
     const script = core.ROOM_SCRIPT;
     assert.match(script, /ZREMRANGEBYSCORE/);
     assert.match(script, /slot == 0 and \(eventType == "state" or eventType == "countdown"\)/);
+    assert.match(script, /not ready and redis\.call\("HEXISTS", dataKey, "countdown"\) == 1/);
+    assert.match(script, /#stale > 0 and redis\.call\("HEXISTS", dataKey, "countdown"\) == 1/);
+    assert.ok(
+      (script.match(/redis\.call\("HDEL", dataKey, "countdown"\)/g) || []).length >= 3,
+      "Countdowns must be invalidated by unready, expiry, and leave transitions.",
+    );
     assert.match(script, /slot == 1 and eventType == "input"/);
     assert.match(script, /ZADD", inputKey/);
     assert.match(script, /ZREMRANGEBYSCORE", inputKey/);
