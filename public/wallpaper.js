@@ -255,8 +255,30 @@
       context.closePath();
       context.fill();
     } else {
+      const radius = tile * .27 * pulse;
+      context.fillStyle = color;
       context.beginPath();
-      context.arc(0, 0, tile * .21 * pulse, 0, Math.PI * 2);
+      context.arc(-radius * .38, radius * .08, radius * .72, 0, Math.PI * 2);
+      context.arc(radius * .38, radius * .08, radius * .72, 0, Math.PI * 2);
+      context.fill();
+      context.shadowBlur = 0;
+      context.strokeStyle = palette.bodyDark;
+      context.lineWidth = Math.max(1.5, tile * .075);
+      context.beginPath();
+      context.moveTo(0, -radius * .48);
+      context.quadraticCurveTo(radius * .04, -radius * 1.05, radius * .34, -radius * 1.18);
+      context.stroke();
+      context.fillStyle = palette.body;
+      context.beginPath();
+      context.ellipse(
+        radius * .58,
+        -radius * .88,
+        radius * .42,
+        radius * .2,
+        -.45,
+        0,
+        Math.PI * 2,
+      );
       context.fill();
     }
     context.restore();

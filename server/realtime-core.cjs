@@ -29,6 +29,7 @@ const PRESENCE_SCRIPT = String.raw`
 local presenceKey = KEYS[1]
 local metadataKey = KEYS[2]
 local generationKey = KEYS[3]
+local activePlayersKey = KEYS[4]
 local now = tonumber(ARGV[1])
 local action = ARGV[2]
 local clientId = ARGV[3]
@@ -123,6 +124,11 @@ elseif current and current["connectionId"] == connectionId then
     redis.call("ZADD", presenceKey, now, clientId)
     redis.call("HSET", metadataKey, clientId, cjson.encode(current))
   end
+end
+
+if current and tonumber(current["slot"]) >= 0 and current["userId"] and current["userId"] ~= "" then
+  redis.call("ZADD", activePlayersKey, now, current["userId"])
+  redis.call("EXPIRE", activePlayersKey, ${ROOM_TTL_SECONDS * 3})
 end
 
 redis.call("EXPIRE", presenceKey, ${ROOM_TTL_SECONDS})
@@ -466,6 +472,7 @@ class RoomSimulation {
       opponentDirection: { x: -1, y: 0 },
       playerInputs: [],
       opponentInputs: [],
+      playerInputAck: 0,
       playerScore: 0,
       opponentScore: 0,
       guestInputAck: 0,
@@ -511,7 +518,10 @@ class RoomSimulation {
     const game = this.game;
     const playerInput = this.consumeInput(game.playerInputs, game.playerDirection);
     const opponentInput = this.consumeInput(game.opponentInputs, game.opponentDirection);
-    if (playerInput) game.playerDirection = { ...playerInput.direction };
+    if (playerInput) {
+      game.playerDirection = { ...playerInput.direction };
+      game.playerInputAck = Math.max(game.playerInputAck, playerInput.sequence);
+    }
     if (opponentInput) {
       game.opponentDirection = { ...opponentInput.direction };
       game.guestInputAck = Math.max(game.guestInputAck, opponentInput.sequence);
@@ -573,6 +583,7 @@ class RoomSimulation {
           food: game.food,
           signalCursor: game.signalCursor,
           round: game.round,
+          playerInputAck: game.playerInputAck,
           guestInputAck: game.guestInputAck,
           crashes: result.crashes,
           over: game.over,
@@ -775,8 +786,9 @@ function createRealtimeHub({
     const result = await runRedis([
       "EVAL",
       PRESENCE_SCRIPT,
-      "3",
+      "4",
       ...roomKeys(connection.room),
+      "neon-snake:players:active",
       String(now()),
       action,
       connection.clientId,

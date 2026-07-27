@@ -4,6 +4,8 @@
   const controls = [...document.querySelectorAll("[data-account-control]")];
   const leaderboard = document.querySelector("#onlineLeaderboard");
   const status = document.querySelector("#onlineLeaderboardStatus");
+  const livePlayers = document.querySelector("#livePlayers");
+  const livePlayerCount = document.querySelector("#livePlayerCount");
 
   function element(tag, className, text) {
     const node = document.createElement(tag);
@@ -69,7 +71,11 @@
     entries.forEach((entry) => {
       const item = document.createElement("li");
       item.className = `online-entry accent-${entry.accent || "acid"}`;
-      const rank = element("span", "run-position", String(entry.rank).padStart(2, "0"));
+      const rank = element(
+        "span",
+        `run-position${entry.rank ? "" : " live-unranked"}`,
+        entry.rank ? String(entry.rank).padStart(2, "0") : "—",
+      );
       const player = element("a", "online-player");
       player.href = `/profile.html?user=${encodeURIComponent(entry.username || "")}`;
       player.setAttribute("aria-label", `View profile for ${entry.callsign || entry.displayName || "Discord Player"}`);
@@ -101,6 +107,43 @@
     });
   }
 
+  function renderLivePlayers(entries) {
+    if (!livePlayers) return;
+    const active = entries.filter((entry) => entry.online);
+    livePlayers.replaceChildren();
+    if (livePlayerCount) {
+      livePlayerCount.textContent = `${active.length} ${active.length === 1 ? "PLAYER" : "PLAYERS"} ONLINE`;
+    }
+    if (!active.length) {
+      livePlayers.append(element("li", "empty-run", "No signed-in players are in a room."));
+      return;
+    }
+    active.forEach((entry) => {
+      const item = document.createElement("li");
+      item.className = `live-player accent-${entry.accent || "acid"}`;
+      const link = element("a");
+      link.href = `/profile.html?user=${encodeURIComponent(entry.username || "")}`;
+      if (entry.avatarUrl) {
+        const avatar = document.createElement("img");
+        avatar.src = entry.avatarUrl;
+        avatar.alt = "";
+        avatar.width = 30;
+        avatar.height = 30;
+        avatar.loading = "lazy";
+        avatar.referrerPolicy = "no-referrer";
+        link.append(avatar);
+      }
+      const identity = element("span");
+      identity.append(
+        element("strong", "", entry.callsign || entry.displayName || "Discord Player"),
+        element("small", "", `@${entry.username || "player"}`),
+      );
+      link.append(identity, element("i", "", "PLAYING"));
+      item.append(link);
+      livePlayers.append(item);
+    });
+  }
+
   async function loadAccount() {
     if (!controls.length) return;
     try {
@@ -121,10 +164,13 @@
       const response = await fetch("/api/leaderboard", { credentials: "same-origin" });
       if (!response.ok) throw new Error("Leaderboard unavailable");
       const payload = await response.json();
-      renderLeaderboard(Array.isArray(payload.entries) ? payload.entries : []);
+      const entries = Array.isArray(payload.entries) ? payload.entries : [];
+      renderLeaderboard(entries);
+      renderLivePlayers(entries);
       if (status) status.textContent = "SERVER-VERIFIED LIVE WINS";
     } catch {
       renderLeaderboard([]);
+      renderLivePlayers([]);
       if (status) status.textContent = "LEADERBOARD OFFLINE";
     }
   }

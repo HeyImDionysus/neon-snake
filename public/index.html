@@ -37,10 +37,11 @@
         <span>NEON SNAKE</span>
       </a>
       <nav class="site-nav" aria-label="Primary navigation">
-        <a href="#play" aria-current="page">PLAY</a>
-        <a href="duel.html">MULTIPLAYER</a>
+        <a href="#play" aria-current="page">GAME</a>
+        <a href="duel.html">LIVE DUEL</a>
+        <a href="#leaderboard">RANKINGS</a>
         <a href="downloads.html">WALLPAPERS</a>
-        <a href="#leaderboard">LEADERBOARD</a>
+        <a href="profile.html">PROFILE</a>
       </nav>
       <div class="header-actions">
         <div class="system-status" aria-live="polite">
@@ -285,11 +286,18 @@
     <section class="public-board" id="leaderboard" aria-labelledby="leaderboardTitle">
       <header class="public-board-heading">
         <div>
-          <p class="section-kicker">VERIFIED LIVE RANKINGS</p>
-          <h2 id="leaderboardTitle">Players, not placeholders.</h2>
+          <p class="section-kicker">PUBLIC MULTIPLAYER</p>
+          <h2 id="leaderboardTitle">Live players and rankings.</h2>
         </div>
-        <p>Every name links to a public profile. A LIVE marker means that player is currently connected to a room. Only completed server-run matches change the record.</p>
+        <p>Signed-in players appear here while they are in a room—even before their first win. Completed server-run matches are the only results that change the ranking.</p>
       </header>
+      <section class="live-now-panel" aria-labelledby="liveNowTitle">
+        <header>
+          <h3 id="liveNowTitle"><i aria-hidden="true"></i> Playing now</h3>
+          <span id="livePlayerCount">0 ONLINE</span>
+        </header>
+        <ul id="livePlayers"><li class="empty-run">No signed-in players are in a room.</li></ul>
+      </section>
       <div class="public-board-table">
         <div class="public-board-columns" aria-hidden="true"><span>RANK</span><span>PLAYER</span><span>RECORD</span></div>
         <ol id="onlineLeaderboard"><li class="empty-run">Loading verified players…</li></ol>
@@ -302,9 +310,9 @@
 
     <section class="showcase" id="how-it-works" aria-labelledby="showcaseTitle">
       <div class="showcase-heading">
-        <p class="section-kicker">EVERY WAY TO PLAY</p>
-        <h2 id="showcaseTitle">One snake.<br />Four places to take it.</h2>
-        <p>Start a solo run, fight the Autopilot, meet another player in a live room, or let the snake keep moving behind your desktop and phone.</p>
+        <p class="section-kicker">NEON SNAKE</p>
+        <h2 id="showcaseTitle">Choose how you play.</h2>
+        <p>Solo modes, two-player rooms, public profiles, and autonomous wallpapers all use the same game rules.</p>
       </div>
       <div class="signal-atlas">
         <svg class="atlas-route" viewBox="0 0 1000 520" preserveAspectRatio="none" aria-hidden="true">
@@ -313,23 +321,23 @@
         </svg>
         <article class="atlas-entry" data-step="01">
           <span class="showcase-number">01 / SOLO</span>
-          <h3>Classic rules, different pressure</h3>
-          <p>Walls, portals, a sixty-second rush, or an endless painting mode. Your local runs stay on your device.</p>
+          <h3>Solo</h3>
+          <p>Play Classic, Portal, Rush, or Canvas. Solo records stay on this device.</p>
         </article>
         <article class="atlas-entry" data-step="02">
           <span class="showcase-number">02 / DUEL</span>
-          <h3>Fight code or a real player</h3>
-          <p>Challenge the local Autopilot or open a temporary two-player room with one shared code.</p>
+          <h3>Duel</h3>
+          <p>Fight the local Autopilot or invite another player with a six-character room code.</p>
         </article>
         <article class="atlas-entry" data-step="03">
           <span class="showcase-number">03 / PROFILE</span>
-          <h3>Make your record public</h3>
-          <p>Use your verified Discord identity, customize your callsign and snake, and let every win build your profile.</p>
+          <h3>Profile</h3>
+          <p>Use Discord to claim a profile, choose a callsign and style, and publish your live record.</p>
         </article>
         <article class="atlas-entry" data-step="04">
           <span class="showcase-number">04 / WALLPAPER</span>
-          <h3>Let the run continue</h3>
-          <p>The same eat, grow, score, and survive loop runs natively on Android and through Lively on Windows.</p>
+          <h3>Wallpaper</h3>
+          <p>Run the autonomous game as a native Android live wallpaper or a Windows Lively wallpaper.</p>
         </article>
       </div>
       <div class="atlas-legend" aria-hidden="true">

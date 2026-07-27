@@ -58,15 +58,20 @@ function createFakeRedis() {
     assert.ok(room);
     if (!roomState.has(room)) roomState.set(room, new Map());
     const players = roomState.get(room);
-    const timestamp = Number(command[6]);
-    const action = command[7];
-    const clientId = command[8];
-    const connectionId = command[9];
-    const ready = command[10] === "1";
+    assert.equal(command[2], "4");
+    assert.equal(command[6], "neon-snake:players:active");
+    const timestamp = Number(command[7]);
+    const action = command[8];
+    const clientId = command[9];
+    const connectionId = command[10];
+    const ready = command[11] === "1";
     const profile = {
-      userId: command[11],
-      displayName: command[12],
-      avatar: command[13],
+      userId: command[12],
+      displayName: command[13],
+      avatar: command[14],
+      username: command[15],
+      callsign: command[16],
+      accent: command[17],
     };
     let current = players.get(clientId);
     if (action === "join") {
@@ -243,6 +248,55 @@ async function flush() {
   stopRelay();
   relay.close();
 
+  const authenticatedCommands = [];
+  const authenticatedPresence = createFakeRedis();
+  const authenticatedHub = createRealtimeHub({
+    redisCommand: async (command) => {
+      authenticatedCommands.push(command);
+      if (command[0] === "SET") return "OK";
+      return authenticatedPresence(command);
+    },
+    bus: createFakeBus(),
+    sessionReader: async () => ({
+      profile: {
+        id: "123456789012345678",
+        username: "signal_player",
+        displayName: "Signal Player",
+        avatar: "avatar_hash",
+        customization: {
+          callsign: "Night Viper",
+          accent: "magenta",
+        },
+      },
+    }),
+    recordMatch: async () => true,
+    uuid: () => "authenticated-connection",
+    logger: { error() {} },
+  });
+  const authenticatedSocket = new FakeSocket();
+  await authenticatedHub.connect(
+    authenticatedSocket,
+    request("NENA42", "authenticated-player"),
+  );
+  await flush();
+  const authenticatedJoin = authenticatedCommands.find((command) => command[0] === "EVAL");
+  assert.equal(authenticatedJoin[6], "neon-snake:players:active");
+  assert.equal(authenticatedJoin[12], "123456789012345678");
+  assert.equal(authenticatedJoin[15], "signal_player");
+  assert.equal(authenticatedJoin[16], "Night Viper");
+  assert.equal(authenticatedJoin[17], "magenta");
+  assert.ok(authenticatedCommands.some((command) => (
+    command[0] === "SET"
+    && command[1] === "neon-snake:activity:123456789012345678"
+  )));
+  assert.match(PRESENCE_SCRIPT, /ZADD", activePlayersKey, now, current\["userId"\]/);
+  assert.ok(authenticatedSocket.messages.some((message) => (
+    message.type === "welcome"
+    && message.players[0]?.profile?.username === "signal_player"
+    && message.players[0]?.profile?.callsign === "Night Viper"
+  )));
+  authenticatedHub.close();
+
   const healthyRedis = createFakeRedis();
   let redisError = null;
   const redisCommand = async (command) => {
@@ -355,7 +409,7 @@ async function flush() {
   const cleanupErrors = [];
   const cleanupHub = createRealtimeHub({
     redisCommand: async (command) => {
-      if (command[7] === "leave") {
+      if (command[8] === "leave") {
         const error = new Error("Redis cleanup timed out.");
         error.name = "TimeoutError";
         throw error;
@@ -395,7 +449,7 @@ async function flush() {
   let failReconnectLeave = false;
   const reconnectHub = createRealtimeHub({
     redisCommand: async (command) => {
-      if (failReconnectLeave && command[7] === "leave") {
+      if (failReconnectLeave && command[8] === "leave") {
         throw Object.assign(new Error("Redis leave timed out."), {
           name: "TimeoutError",
         });
@@ -491,6 +545,7 @@ async function flush() {
     opponentDirection: { x: -1, y: 0 },
     playerInputs: [],
     opponentInputs: [],
+    playerInputAck: 0,
     playerScore: 0,
     opponentScore: 0,
     guestInputAck: 0,
@@ -501,6 +556,23 @@ async function flush() {
     crashes: { player: "head-on", opponent: "head-on" },
     winner: null,
   });
+  unitSimulation.game = {
+    playerSnake: [{ x: 3, y: 3 }, { x: 2, y: 3 }, { x: 1, y: 3 }],
+    opponentSnake: [{ x: 16, y: 16 }, { x: 17, y: 16 }, { x: 18, y: 16 }],
+    playerDirection: { x: 1, y: 0 },
+    opponentDirection: { x: -1, y: 0 },
+    playerInputs: [{ sequence: 41, direction: { x: 0, y: -1 } }],
+    opponentInputs: [{ sequence: 52, direction: { x: 0, y: 1 } }],
+    playerInputAck: 0,
+    playerScore: 0,
+    opponentScore: 0,
+    guestInputAck: 0,
+    food: { x: 10, y: 10 },
+    over: false,
+  };
+  unitSimulation.resolveTick();
+  assert.equal(unitSimulation.game.playerInputAck, 41);
+  assert.equal(unitSimulation.game.guestInputAck, 52);
 
   firstHub.close();
   secondHub.close();

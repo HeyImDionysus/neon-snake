@@ -117,6 +117,8 @@ function request(url, {
   });
   assert.equal(recorded, true);
   assert.equal(matchCommands[0][0], "EVAL");
+  assert.match(matchCommands[0][1], /ZADD", leaderboardKey, "NX", 0, winner/);
+  assert.match(matchCommands[0][1], /ZADD", leaderboardKey, "NX", 0, loser/);
   await assert.rejects(
     recordMatchResult({ ...matchBody, winnerUserId: "999456789012345678" }, {
       now: () => matchBody.endedAt,
