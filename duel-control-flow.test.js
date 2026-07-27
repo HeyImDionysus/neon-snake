@@ -213,7 +213,45 @@ const tests = [
     assert.equal(context.roomReady, false);
     assert.equal(context.roomReadyConfirmed, false);
     assert.match(functionBody("roomIdentity"), /ready: roomReadyConfirmed/);
-    assert.match(functionBody("handleRoomStatus"), /reconcileLocalRoomReady\(status\.players\)/);
+    assert.match(functionBody("handleRoomStatus"), /applyAuthoritativeRoomRoster\(status\.players\)/);
+  }],
+  ["synchronized WebSocket rosters acknowledge the local Ready signal", () => {
+    const context = {
+      clientId: "local-player",
+      roomReady: true,
+      roomReadyConfirmed: false,
+      roomReadyDesired: true,
+      roomReadyUpdatePending: true,
+      roomRole: "player",
+      roomPeers: new Map(),
+      roomPlayers: [],
+      activeRoomRoster() {
+        return [
+          {
+            id: "local-player",
+            ready: context.roomReadyConfirmed,
+            slot: 0,
+          },
+          ...context.roomPeers.values(),
+        ];
+      },
+    };
+    const { applyAuthoritativeRoomRoster } = installFunctions(
+      ["reconcileLocalRoomReady", "applyAuthoritativeRoomRoster"],
+      context,
+    );
+    applyAuthoritativeRoomRoster([
+      { id: "local-player", ready: true, slot: 0, seenAt: 1 },
+      { id: "remote-player", ready: true, slot: 1, seenAt: 1 },
+    ]);
+    assert.equal(context.roomReadyConfirmed, true);
+    assert.equal(context.roomReadyUpdatePending, false);
+    assert.equal(context.roomPeers.get("remote-player").ready, true);
+    assert.equal(context.roomPlayers.length, 2);
+    assert.match(
+      functionBody("handleRoomStatus"),
+      /status\.state === "synchronized"[\s\S]*applyAuthoritativeRoomRoster\(status\.players\)/,
+    );
   }],
   ["newer local Ready intent wins over stale authoritative responses", () => {
     const context = {
@@ -271,8 +309,8 @@ const tests = [
     assert.match(status, /ROOM LINK RECONNECTING/);
     assert.match(status, /ROOM UPDATE REJECTED/);
     assert.match(status, /roomConnectionState/);
-    assert.match(status, /roomPeers = new Map\(status\.players/);
-    assert.match(status, /roomPlayers = activeRoomRoster\(\)\.slice\(0, 2\)/);
+    assert.match(functionBody("applyAuthoritativeRoomRoster"), /roomPeers = new Map\(players/);
+    assert.match(functionBody("applyAuthoritativeRoomRoster"), /roomPlayers = activeRoomRoster\(\)\.slice\(0, 2\)/);
     assert.match(status, /status\.state === "synchronized"/);
     assert.match(status, /if \(roomTransport\) syncLiveRoom\(\)/);
     assert.match(functionBody("disconnectLiveRoom"), /roomConnectionState = "disconnected"/);
