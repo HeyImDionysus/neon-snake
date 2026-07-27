@@ -23,19 +23,24 @@
     now = () => Date.now(),
     setTimeoutImpl = root.setTimeout,
     clearTimeoutImpl = root.clearTimeout,
-    fetchImpl = root.fetch,
+    locationHref = root.location?.href || "https://neon-snake.invalid/",
   } = {}) {
     if (typeof code !== "string" || !code.trim()) throw new TypeError("A room code is required.");
     if (typeof clientId !== "string" || !clientId.trim()) throw new TypeError("A client id is required.");
-    if (typeof endpoint !== "string" || !/^wss:\/\//i.test(endpoint)) {
-      throw new TypeError("A secure realtime endpoint is required.");
-    }
+    if (typeof endpoint !== "string" || !endpoint.trim()) throw new TypeError("A realtime endpoint is required.");
     if (typeof onMessage !== "function") throw new TypeError("A message handler is required.");
     if (typeof onStatus !== "function") throw new TypeError("A status handler is required.");
     if (typeof WebSocketImpl !== "function") throw new TypeError("WebSocket is not available.");
 
     const normalizedCode = code.trim().toUpperCase();
-    const baseEndpoint = endpoint.replace(/\/+$/, "");
+    const baseEndpoint = new URL(endpoint, locationHref);
+    if (baseEndpoint.protocol === "https:") baseEndpoint.protocol = "wss:";
+    if (baseEndpoint.protocol === "http:") baseEndpoint.protocol = "ws:";
+    const localSocket = baseEndpoint.protocol === "ws:"
+      && /^(localhost|127(?:\.\d{1,3}){3}|\[::1\])$/.test(baseEndpoint.hostname);
+    if (baseEndpoint.protocol !== "wss:" && !localSocket) {
+      throw new TypeError("A secure realtime endpoint is required.");
+    }
     let socket = null;
     let closed = false;
     let active = false;
@@ -49,9 +54,6 @@
     let connectionTimer = null;
     let lastPongAt = 0;
     let lastPingAt = 0;
-    let identityTicket = "";
-    let identityExpiresAt = 0;
-    let identityAccepted = false;
     let readySent = false;
 
     function clearSocketTimers() {
@@ -116,39 +118,16 @@
     }
 
     function socketUrl() {
-      const url = new URL(`${baseEndpoint}/room/${encodeURIComponent(normalizedCode)}`);
+      const url = new URL(baseEndpoint.href);
+      url.searchParams.set("room", normalizedCode);
       url.searchParams.set("clientId", clientId);
       return url.href;
     }
 
-    async function refreshIdentityTicket() {
-      if (typeof fetchImpl !== "function") return;
-      try {
-        const ticketResponse = await fetchImpl("/api/realtime-ticket", {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ clientId }),
-        });
-        if (!ticketResponse?.ok) return;
-        const payload = await ticketResponse.json();
-        if (typeof payload?.ticket !== "string") return;
-        identityTicket = payload.ticket;
-        identityExpiresAt = Number(payload.expiresAt) || 0;
-      } catch {
-        // Anonymous realtime play remains available if account services are offline.
-      }
-    }
-
     async function connect() {
-      if (closed) return;
-      if (!identityTicket || identityExpiresAt <= now() + 30_000) {
-        await refreshIdentityTicket();
-      }
       if (closed) return;
       const nextSocket = new WebSocketImpl(socketUrl());
       socket = nextSocket;
-      identityAccepted = false;
       readySent = false;
       connectionTimer = setTimeoutImpl(() => {
         connectionTimer = null;
@@ -158,9 +137,6 @@
         if (socket !== nextSocket || closed) return;
         failures = 0;
         onStatus({ state: "socket-open", role, slot, players: roster });
-        if (identityTicket) {
-          nextSocket.send(JSON.stringify({ type: "authenticate", ticket: identityTicket }));
-        }
         scheduleHeartbeat();
       });
       nextSocket.addEventListener("message", (event) => {
@@ -188,7 +164,7 @@
           lastPongAt = now();
           role = message.role === "player" ? "player" : "spectator";
           slot = role === "player" && Number.isInteger(message.slot) ? message.slot : -1;
-          if (role === "player" && (!identityTicket || identityAccepted)) {
+          if (role === "player") {
             nextSocket.send(JSON.stringify({ type: "ready", ready }));
             readySent = true;
           }
@@ -197,11 +173,6 @@
           return;
         }
         if (message.type === "authenticated") {
-          identityAccepted = true;
-          if (role === "player" && !readySent) {
-            nextSocket.send(JSON.stringify({ type: "ready", ready }));
-            readySent = true;
-          }
           return;
         }
         if (message.type === "roster") {
@@ -224,18 +195,6 @@
           return;
         }
         if (message.type === "rejected") {
-          if (
-            message.code === "authentication_invalid"
-            && role === "player"
-            && !readySent
-          ) {
-            identityTicket = "";
-            identityExpiresAt = 0;
-            nextSocket.send(JSON.stringify({ type: "ready", ready }));
-            readySent = true;
-            onStatus({ state: "identity-unavailable", role, slot, players: roster });
-            return;
-          }
           onStatus({ state: "rejected", role, slot, code: message.code || "invalid_message" });
           return;
         }
@@ -258,7 +217,7 @@
     await connect();
 
     return {
-      kind: "durable-object-websocket",
+      kind: "vercel-websocket",
       authoritative: true,
       send(message) {
         if (closed) return false;

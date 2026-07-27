@@ -1,14 +1,13 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { createHmac } = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const {
   accountAvailable,
   createAccountHandler,
-  matchSignaturePayload,
   publicProfile,
+  recordMatchResult,
 } = require("./server/account-core.cjs");
 
 function responseHarness() {
@@ -69,7 +68,6 @@ function request(url, {
     DISCORD_CLIENT_ID: "123456789012345678",
     DISCORD_CLIENT_SECRET: "discord-secret",
     DISCORD_REDIRECT_URI: "https://neon-snake-green-tau.vercel.app/api/auth/discord/callback",
-    REALTIME_SHARED_SECRET: "shared-secret-with-at-least-32-characters",
   };
   const handler = createAccountHandler({
     environment,
@@ -109,41 +107,25 @@ function request(url, {
     winnerUserId: "123456789012345678",
     endedAt: 1_785_124_800_000,
   };
-  const signature = createHmac("sha256", environment.REALTIME_SHARED_SECRET)
-    .update(matchSignaturePayload(matchBody))
-    .digest("base64url");
   const matchCommands = [];
-  const matchHandler = createAccountHandler({
-    environment,
+  const recorded = await recordMatchResult(matchBody, {
     now: () => matchBody.endedAt,
     redisCommand: async (command) => {
       matchCommands.push(command);
       return 1;
     },
   });
-  const matchResponse = responseHarness();
-  await matchHandler(request("/api/match-result", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-neon-signature": signature,
-    },
-    body: matchBody,
-  }), matchResponse);
-  assert.equal(matchResponse.statusCode, 200);
-  assert.equal(JSON.parse(matchResponse.body).recorded, true);
+  assert.equal(recorded, true);
   assert.equal(matchCommands[0][0], "EVAL");
-
-  const forgedResponse = responseHarness();
-  await matchHandler(request("/api/match-result", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-neon-signature": "forged",
-    },
-    body: matchBody,
-  }), forgedResponse);
-  assert.equal(forgedResponse.statusCode, 403);
+  await assert.rejects(
+    recordMatchResult({ ...matchBody, winnerUserId: "999456789012345678" }, {
+      now: () => matchBody.endedAt,
+      redisCommand: async () => 1,
+    }),
+    /invalid/i,
+  );
+  assert.equal(fs.existsSync(path.join(__dirname, "api", "match-result.mjs")), false);
+  assert.equal(fs.existsSync(path.join(__dirname, "api", "realtime-ticket.mjs")), false);
 
   const accountClient = fs.readFileSync(path.join(__dirname, "public", "account.js"), "utf8");
   const serviceWorker = fs.readFileSync(path.join(__dirname, "public", "sw.js"), "utf8");
@@ -151,7 +133,7 @@ function request(url, {
   assert.match(accountClient, /textContent/);
   assert.match(serviceWorker, /requestUrl\.pathname\.startsWith\("\/api\/"\)/);
 
-  process.stdout.write("PASS Discord OAuth, sessions, profiles, and match writes enforce secure boundaries\n");
+  process.stdout.write("PASS Discord OAuth, server-side sessions, profiles, and private match writes enforce secure boundaries\n");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

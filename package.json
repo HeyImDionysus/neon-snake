@@ -1,0 +1,12 @@
+{
+  "name": "neon-snake",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A deterministic neon snake experiment with authoritative Vercel WebSocket duels.",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "ws": "8.21.1"
+  }
+}

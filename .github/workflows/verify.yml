@@ -21,6 +21,9 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install server runtime
+        run: npm ci --ignore-scripts
+
       - name: Verify syntax
         run: |
           node --check public/game.js
@@ -33,8 +36,8 @@ jobs:
           node --check public/sw.js
           node --check server/room-core.cjs
           node --check server/account-core.cjs
+          node --check server/realtime-core.cjs
           for file in api/*.mjs api/auth/discord/*.mjs; do node --check "$file"; done
-          node --check realtime/worker.mjs
 
       - name: Verify deterministic behavior
         run: |

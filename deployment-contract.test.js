@@ -12,7 +12,10 @@ const serviceWorker = fs.readFileSync(path.join(publicRoot, "sw.js"), "utf8");
 const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
 const workflow = fs.readFileSync(path.join(root, ".github", "workflows", "verify.yml"), "utf8");
 const roomFunction = fs.readFileSync(path.join(root, "api", "room.mjs"), "utf8");
+const realtimeFunction = fs.readFileSync(path.join(root, "api", "realtime.mjs"), "utf8");
 const roomCore = fs.readFileSync(path.join(root, "server", "room-core.cjs"), "utf8");
+const realtimeCore = fs.readFileSync(path.join(root, "server", "realtime-core.cjs"), "utf8");
+const packageManifest = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 
 function publicPath(urlPath) {
   if (urlPath === "/") return path.join(publicRoot, "index.html");
@@ -40,16 +43,22 @@ function pngDimensions(file) {
 }
 
 const tests = [
-  ["Vercel publishes a dependency-free static shell with isolated server functions", () => {
+  ["Vercel publishes a dependency-free browser shell with isolated server functions", () => {
     assert.equal(vercel.outputDirectory, "public");
     assert.equal(vercel.cleanUrls, true);
-    assert.equal(fs.existsSync(path.join(root, "package.json")), false);
+    assert.equal(packageManifest.dependencies.ws, "8.21.1");
     assert.equal(fs.existsSync(path.join(publicRoot, "README.md")), false);
     assert.equal(fs.existsSync(path.join(publicRoot, "game-logic.test.js")), false);
     assert.match(roomFunction, /createRoomHandler/);
     assert.match(roomFunction, /maxDuration: 10/);
     assert.match(roomCore, /STORAGE_KV_REST_API_URL/);
     assert.match(roomCore, /STORAGE_KV_REST_API_TOKEN/);
+    assert.match(realtimeFunction, /WebSocketServer/);
+    assert.match(realtimeFunction, /maxDuration: 300/);
+    assert.match(realtimeCore, /PRESENCE_SCRIPT/);
+    assert.match(realtimeCore, /PUBLISH/);
+    assert.match(realtimeCore, /resolveDuelTick/);
+    assert.equal(fs.existsSync(path.join(root, "realtime", "wrangler.jsonc")), false);
     const publicSource = fs.readdirSync(publicRoot)
       .filter((name) => name.endsWith(".js") || name.endsWith(".html"))
       .map((name) => fs.readFileSync(path.join(publicRoot, name), "utf8"))
@@ -140,7 +149,8 @@ const tests = [
   ["deployment docs explain the production multiplayer boundary", () => {
     assert.match(readme, /PUBLIC LIVE ROOM/);
     assert.match(readme, /STORAGE_KV_REST_API_URL/);
-    assert.match(readme, /Durable Object WebSocket/i);
+    assert.match(readme, /native Vercel WebSocket/i);
+    assert.doesNotMatch(readme, /Cloudflare|workers\.dev|Durable Object/i);
     assert.match(readme, /two different networks/i);
     assert.match(readme, /dependency-free/i);
     assert.equal(manifest.start_url, "/");

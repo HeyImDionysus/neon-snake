@@ -6,7 +6,7 @@ The game itself is not AI. Its Autopilot and duel opponent are deterministic dec
 
 ## Run it
 
-Open `public/index.html` in a modern browser. Solo play, Autopilot runs, Autopilot duels, Canvas export, the browser wallpaper preview, and offline installation require no package manager, account, or network connection. Public Live Rooms use a persistent Cloudflare Durable Object WebSocket. Discord profiles, authenticated realtime tickets, and the verified leaderboard use isolated Vercel Functions plus Redis.
+Open `public/index.html` in a modern browser. The browser shell remains dependency-free: solo play, Autopilot runs, Autopilot duels, Canvas export, the browser wallpaper preview, and offline installation require no package manager, account, or network connection. Public Live Rooms use a native same-origin Vercel WebSocket with the project’s existing Redis resource for cross-instance relay. Discord profiles and the verified leaderboard stay inside isolated Vercel Functions plus Redis.
 
 To run the deterministic rules and control-flow suites:
 
@@ -71,9 +71,9 @@ Signal Codes make challenge generation equally inspectable. A six-character code
 
 That code also drives the site's Signal Cartography identity. A separate deterministic renderer turns the current Signal and protocol into flowing currents, contour fields, and orbiting nodes behind the interface. It is capped at 24 frames per second, pauses drawing in hidden tabs, becomes static when reduced motion is requested, and never participates in game state. The custom signal-serpent mark, protocol glyphs, and curved run trace carry the same visual grammar through solo and Duel surfaces without adding a framework or image payload.
 
-Signal Codes also name duel rooms. `PUBLIC LIVE ROOM` reserves exactly two server-assigned player slots in one persistent edge room, while additional visitors become read-only spectators. Both players publish bounded direction inputs over WebSocket; the browser never publishes authoritative state. The Durable Object owns the 138 ms simulation, applies inputs in sequence, resolves both snakes once, and broadcasts one verified snapshot to every screen. Countdown requires a healthy room link plus two server-roster-confirmed Ready players. A disconnect, missed heartbeat, or revoked Ready state cancels the round immediately.
+Signal Codes also name duel rooms. `PUBLIC LIVE ROOM` reserves exactly two server-assigned player slots in one Vercel WebSocket room, while additional visitors become read-only spectators. Both players publish bounded direction inputs over WebSocket; the browser never publishes authoritative state. The Player 1 Vercel Function owns the 138 ms simulation, applies both players' inputs in sequence, resolves both snakes once, and broadcasts one verified snapshot through the existing Redis event relay to every Function instance and screen. Countdown requires a healthy room link plus two server-roster-confirmed Ready players. A disconnect, missed heartbeat, replaced connection, or revoked Ready state cancels the round immediately.
 
-Discord sign-in is optional for play and required only for a verified profile or leaderboard result. The authorization-code flow requests the `identify` scope, validates a one-time state record, exchanges the code only on the server, and retains no Discord access or refresh token. Session cookies are `Secure`, `HttpOnly`, `SameSite=Lax`, and `__Host-` scoped. A short-lived HMAC ticket binds a signed-in profile to one realtime client identifier. The room signs completed two-account results back to the same-origin API; Redis atomically deduplicates each result before changing the leaderboard. Two clients signed into the same Discord account can play, but cannot record a result.
+Discord sign-in is optional for play and required only for a verified profile or leaderboard result. The authorization-code flow requests the `identify` scope, validates a one-time state record, exchanges the code only on the server, and retains no Discord access or refresh token. Session cookies are `Secure`, `HttpOnly`, `SameSite=Lax`, and `__Host-` scoped. The same-origin WebSocket reads that protected session server-side; no identity token or shared realtime secret enters browser code. The authoritative room writes a completed two-account result directly through the private account module, and Redis atomically deduplicates it before changing the leaderboard. Two clients signed into the same Discord account can play, but cannot record a result.
 
 ## Current rule set
 
@@ -96,7 +96,7 @@ Discord sign-in is optional for play and required only for a verified profile or
 - **Autopilot Duel:** two fluid snakes share a compressed 30 × 30 lethal arena; the first crash loses and simultaneous head-on or head-swap collisions draw.
 - **Public Live Room:** a six-character room Signal connects exactly two players across different devices; both must be connected and Ready before countdown, and a disconnect cancels or stops play.
 - **Verified profiles:** optional Discord identity adds a display name and avatar without exposing an OAuth token to game code or requesting email, guild, or social permissions.
-- **Online leaderboard:** only signed outcomes from the server-authoritative live simulation can change the public wins table.
+- **Online leaderboard:** only outcomes written privately by the server-authoritative live simulation can change the public wins table.
 - **Autonomous wallpapers:** the same survival-first controller runs without controls as a configurable Lively wallpaper on Windows and as a battery-aware native `WallpaperService` on Android.
 
 ## Source map
@@ -110,13 +110,13 @@ Discord sign-in is optional for play and required only for a verified profile or
 - `public/duel.html` — focused Autopilot/live duel interface.
 - `public/duel.css` — responsive duel arena and room-state presentation.
 - `public/duel.js` — autonomous duel and room-state orchestration.
-- `public/room-transport.js` — dependency-free WebSocket transport with bounded reconnect/heartbeat handling plus the legacy HTTP fallback.
+- `public/room-transport.js` — same-origin Vercel WebSocket transport with bounded reconnect/heartbeat handling plus the legacy HTTP fallback.
 - `public/account.js` — safe Discord profile and verified-leaderboard rendering.
 - `public/wallpaper.html`, `public/wallpaper.js`, `public/wallpaper.css` — the control-free autonomous wallpaper surface.
-- `realtime/worker.mjs` — origin-checked Durable Object WebSockets and the server-authoritative duel simulation.
-- `realtime/wrangler.jsonc` — free-tier Worker/Durable Object deployment configuration.
+- `api/realtime.mjs` — native Vercel WebSocket entry point with strict origin and payload boundaries.
+- `server/realtime-core.cjs` — authoritative duel simulation, atomic Redis presence, and cross-instance event relay.
 - `api/auth/discord/*`, `api/me.mjs`, `api/logout.mjs` — Discord authorization and session endpoints.
-- `api/realtime-ticket.mjs`, `api/match-result.mjs`, `api/leaderboard.mjs` — signed identity, verified result, and leaderboard endpoints.
+- `api/leaderboard.mjs` — public read-only verified leaderboard endpoint.
 - `server/account-core.cjs` — OAuth, cookie, HMAC, profile, and atomic leaderboard logic.
 - `api/room.mjs` — the isolated Vercel Function entry point.
 - `server/room-core.cjs` — request validation, Redis REST client, and atomic two-slot room protocol.
@@ -136,7 +136,7 @@ Discord sign-in is optional for play and required only for a verified profile or
 - `accessibility.test.js` — executable semantics, focus, touch-target, canvas-fallback, and reduced-motion regressions.
 - `service-worker.test.js` — executable install, upgrade, runtime-cache, and route-aware offline regressions.
 - `deployment-contract.test.js` — executable public-boundary, manifest, cache-shell, and hosted-verification regressions.
-- `realtime-worker.test.js` — executable ticket, input, authority, and signed-result boundary regressions.
+- `realtime-worker.test.js` — executable Vercel connection, Redis relay, input authority, and verified-result regressions.
 - `platform-security.test.js` — executable Discord data-minimization, state, cookie, HMAC, and leaderboard-write regressions.
 - `wallpaper-system.test.js` — executable Windows/Android packaging, pause, frame-budget, and permission regressions.
 
@@ -152,7 +152,7 @@ The wallpaper is not a browser tab left open in the background. Both packages st
 
 ### Android
 
-`wallpaper/android` is a native Android live wallpaper for Android 8.0 and newer. Opening the installed app launches the system live-wallpaper chooser. The service has no `INTERNET` permission, stops its frame callbacks whenever the wallpaper is hidden, and lowers rendering from roughly 24 fps to 15 fps in system power-save mode. CI builds an installable APK artifact; a public production APK must be signed with a persistent release key before it is offered as an updateable download.
+`wallpaper/android` is a native Android live wallpaper for Android 8.0 and newer. Opening the installed app launches the system live-wallpaper chooser. The service has no `INTERNET` permission, stops its frame callbacks whenever the wallpaper is hidden, and lowers rendering from roughly 24 fps to 15 fps in system power-save mode. CI builds an installable debug-signed APK artifact that can be downloaded and installed directly.
 
 ## Production deployment
 
@@ -164,36 +164,35 @@ The browser app and account endpoints deploy on Vercel:
 4. Leave the build command blank. `vercel.json` serves static files only from `public`; Vercel deploys the files under `api/` separately.
 5. Connect an Upstash Redis resource to the project so Vercel provides `STORAGE_KV_REST_API_URL` and `STORAGE_KV_REST_API_TOKEN`.
 6. Create a Discord application with the exact production callback URL and set `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, and `DISCORD_REDIRECT_URI`.
-7. Generate one high-entropy `REALTIME_SHARED_SECRET` and set the identical value in Vercel and the Cloudflare Worker. Never place it in `public/runtime-config.js`.
 
 `vercel.json` supplies security headers, service-worker cache behavior, and conservative asset caching. `manifest.webmanifest` and `sw.js` provide an installable, offline-capable shell after the first successful visit.
 
 Keeping the static app in `public` ensures tests, documentation, configuration, server code, and unrelated workspace files cannot become downloadable static artifacts. Database credentials are read only inside the server function and are never included in browser JavaScript.
 
-Deploy `realtime/worker.mjs` with `realtime/wrangler.jsonc` on Cloudflare's Workers Free plan. Set `APP_ORIGIN` to the exact Vercel site origin, `APP_API_ORIGIN` to that same HTTPS origin, and store `REALTIME_SHARED_SECRET` as a Worker secret. Then set `public/runtime-config.js` to the resulting `wss://…workers.dev` origin. The Worker rejects absent or mismatched browser Origins; Vercel's CSP permits secure WebSockets only beneath `workers.dev`.
+`api/realtime.mjs` deploys with the rest of the project and serves `/api/realtime` on the same Vercel domain. It uses the Redis resource already attached to the project for atomic room presence and low-latency cross-instance publish/subscribe. No second hosting provider, Worker deployment, shared realtime secret, or runtime URL configuration is required.
 
-Before attaching a custom domain, update the metadata in `index.html`, `APP_ORIGIN`, `APP_API_ORIGIN`, the Discord callback, and the exact realtime URL. Production acceptance requires exercising one room from two different networks after every network-layer change.
+Before attaching a custom domain, update the metadata in `index.html` and register the new Discord callback URL. Production acceptance requires exercising one room from two different networks after every network-layer change.
 
 ### Multiplayer transport boundary
 
-The production live-room adapter opens one secure WebSocket to the room's Durable Object. Direction inputs are sent immediately instead of waiting for a browser → Vercel → Redis → browser polling cycle. The room broadcasts a single authoritative snapshot after every 138 ms simulation tick. The adapter sends active heartbeats every five seconds, closes stale links, times out a silent connection after eight seconds, and reconnects with exponential backoff capped at four seconds. A legacy Vercel/Redis transport remains only as a deployment fallback when `runtime-config.js` has no realtime URL; it is not the production latency path.
+The production live-room adapter opens one secure same-origin WebSocket to Vercel. Direction inputs are sent immediately instead of waiting for a browser → HTTP polling → browser cycle. Local delivery is immediate; the existing Redis resource relays events only when the two players land on different Vercel Function instances. One server-side simulation broadcasts a single authoritative snapshot after every 138 ms tick. The adapter sends active heartbeats every five seconds, closes stale links, times out a silent connection after eight seconds, and reconnects with exponential backoff capped at four seconds. A legacy HTTP transport remains only as a local recovery path; it is not the production latency path.
 
 The server boundary enforces:
 
-- an exact allowed browser Origin, exact six-character room codes, and bounded client identifiers;
+- an exact same-host HTTPS browser Origin, exact six-character room codes, and bounded client identifiers;
 - a 32 KiB message ceiling and per-connection rate limit;
 - exactly two live player slots, with later visitors restricted to spectator reads;
 - Player 1-only countdowns, player-only direction inputs, and rejection of every browser state snapshot;
 - server-owned movement, collision, food, scores, and result signatures;
-- short-lived profile tickets bound to one client identifier;
-- generic failures that never expose credentials.
+- server-side session-cookie profile lookup without a browser-readable identity ticket;
+- private, direct verified-result writes and generic failures that never expose credentials.
 
 Solo play and Autopilot duels still work entirely in the browser. Live-room state is ephemeral and disappears after the room goes idle.
 
 ## Public-data boundary
 
 - Solo gameplay sends no run data anywhere.
-- Anonymous Public Live Rooms send only temporary presence, readiness, direction, countdown, and server snapshots to the room Worker.
+- Anonymous Public Live Rooms send only temporary presence, readiness, direction, countdown, and server snapshots to the Vercel WebSocket endpoint and existing Redis relay.
 - Signed-in profiles store only Discord id, username, display name, avatar hash, and aggregate duel results. Discord tokens, email, guilds, and friend data are not stored.
 - Room state is ephemeral; it is not a chat log or analytics stream.
 - Solo scores, settings, local leaderboard entries, and Echo paths stay in `localStorage`.
