@@ -114,12 +114,12 @@ async function main() {
   const shell = stores.get(activeName);
   assert.ok(activeName, "Expected a versioned shell cache");
   assert.equal(skipWaitingCalls, 1);
-  ["/index.html", "/duel.html", "/assets/icon-192.png", "/assets/icon-512.png"].forEach((url) => {
+  ["/index.html", "/duel.html", "/wallpaper.html", "/assets/icon-192.png", "/assets/icon-512.png"].forEach((url) => {
     assert.ok(shell.has(requestKey(url)), `Install omitted ${url}`);
   });
   process.stdout.write("PASS install primes the complete versioned app shell\n");
 
-  assert.match(source, /neon-snake-shell-v60/);
+  assert.match(source, /neon-snake-shell-v62/);
   process.stdout.write("PASS Duel robustness changes ship behind a fresh shell cache version\n");
 
   stores.set("neon-snake-shell-stale", new Map());
@@ -162,9 +162,15 @@ async function main() {
     mode: "navigate",
     url: `${origin}/duel?room=OFFLINE`,
   });
+  const wallpaperFallback = await dispatchFetch({
+    method: "GET",
+    mode: "navigate",
+    url: `${origin}/wallpaper`,
+  });
   assert.equal(soloFallback.body, "shell:/index.html");
   assert.equal(duelFallback.body, "shell:/duel.html");
-  process.stdout.write("PASS offline navigation preserves solo and Duel routes\n");
+  assert.equal(wallpaperFallback.body, "shell:/wallpaper.html");
+  process.stdout.write("PASS offline navigation preserves solo, Duel, and wallpaper routes\n");
 
   process.stdout.write("\n6 deterministic service-worker lifecycle tests passed.\n");
 }

@@ -1,0 +1,77 @@
+:root {
+  color-scheme: dark;
+  background: #06070b;
+  --acid: #adff66;
+  --cyan: #66e3ff;
+  --violet: #a98bff;
+  --ember: #ff7657;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+main,
+#wallpaperCanvas {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background:
+    radial-gradient(circle at 18% 14%, rgba(169, 139, 255, .12), transparent 34%),
+    radial-gradient(circle at 78% 82%, rgba(102, 227, 255, .08), transparent 32%),
+    #06070b;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+main {
+  position: relative;
+}
+
+#wallpaperCanvas {
+  display: block;
+}
+
+.wallpaper-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(3, 4, 7, .2), transparent 22%, transparent 70%, rgba(3, 4, 7, .58)),
+    radial-gradient(circle at center, transparent 45%, rgba(3, 4, 7, .5) 112%);
+}
+
+.wallpaper-mark {
+  position: absolute;
+  left: max(24px, 3.2vw);
+  bottom: max(22px, 3vw);
+  display: grid;
+  gap: 4px;
+  color: rgba(235, 242, 247, .58);
+  letter-spacing: .24em;
+  line-height: 1;
+  pointer-events: none;
+  text-shadow: 0 0 20px rgba(173, 255, 102, .12);
+}
+
+.wallpaper-mark span {
+  font-size: clamp(10px, .8vw, 14px);
+  font-weight: 700;
+}
+
+.wallpaper-mark strong {
+  color: rgba(173, 255, 102, .72);
+  font-size: clamp(8px, .62vw, 11px);
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wallpaper-mark {
+    text-shadow: none;
+  }
+}

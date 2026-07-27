@@ -40,6 +40,9 @@
         <span class="status-light" aria-hidden="true"></span>
         <span id="statusText">SYSTEM READY</span>
       </div>
+      <div class="account-control" data-account-control>
+        <a class="discord-login" href="/api/auth/discord/start">Sign in with Discord</a>
+      </div>
       <button class="sound-toggle" id="soundButton" type="button" aria-pressed="true" aria-label="Mute sound">
         <span class="sound-bars" aria-hidden="true"><i></i><i></i><i></i></span>
       </button>
@@ -172,6 +175,10 @@
             <span><strong>Enter Duel Lab</strong><small>VS AUTOPILOT · PUBLIC LIVE ROOM</small></span>
             <span aria-hidden="true">⚔</span>
           </a>
+          <a class="duel-launch wallpaper-launch" href="wallpaper.html">
+            <span><strong>Run Autonomous Wallpaper</strong><small>WINDOWS LIVELY · ANDROID LIVE WALLPAPER</small></span>
+            <span aria-hidden="true">◉</span>
+          </a>
         </div>
 
         <fieldset class="mode-selector" id="modeSelector">
@@ -253,6 +260,13 @@
             <div class="run-history-heading"><span>TOP RUNS</span><span>SCORE / MODE / RANK</span></div>
             <ol id="topRuns"><li class="empty-run">Complete a run to enter the board.</li></ol>
           </div>
+          <div class="run-history online-history">
+            <div class="run-history-heading">
+              <span>ONLINE DUEL BOARD</span>
+              <span id="onlineLeaderboardStatus">SERVER-VERIFIED LIVE WINS</span>
+            </div>
+            <ol id="onlineLeaderboard"><li class="empty-run">Loading verified players…</li></ol>
+          </div>
         </section>
 
         <div class="instructions" id="gameInstructions">
@@ -311,6 +325,7 @@
 
     <p class="sr-only" id="gameAnnouncement" aria-live="assertive"></p>
     <script src="signal-field.js"></script>
+    <script src="account.js"></script>
     <script src="game-logic.js"></script>
     <script src="game.js"></script>
   </body>

@@ -28,9 +28,13 @@ jobs:
           node --check public/room-transport.js
           node --check public/signal-field.js
           node --check public/duel.js
+          node --check public/account.js
+          node --check public/wallpaper.js
           node --check public/sw.js
           node --check server/room-core.cjs
-          node --check api/room.mjs
+          node --check server/account-core.cjs
+          for file in api/*.mjs api/auth/discord/*.mjs; do node --check "$file"; done
+          node --check realtime/worker.mjs
 
       - name: Verify deterministic behavior
         run: |
@@ -47,3 +51,47 @@ jobs:
           node accessibility.test.js
           node service-worker.test.js
           node deployment-contract.test.js
+          node realtime-worker.test.js
+          node platform-security.test.js
+          node wallpaper-system.test.js
+
+      - name: Build Windows wallpaper
+        run: node scripts/build-wallpapers.mjs
+
+      - name: Upload Windows wallpaper
+        uses: actions/upload-artifact@v4
+        with:
+          name: Neon-Snake-Lively
+          path: dist/wallpapers/Neon-Snake-Lively.zip
+          if-no-files-found: error
+          retention-days: 30
+
+  android-wallpaper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Use Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Use Gradle 8.13
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
+
+      - name: Build installable Android wallpaper
+        run: gradle -p wallpaper/android :app:assembleDebug --stacktrace
+
+      - name: Upload Android wallpaper
+        uses: actions/upload-artifact@v4
+        with:
+          name: Neon-Snake-Android
+          path: wallpaper/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30

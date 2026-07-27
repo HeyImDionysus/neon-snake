@@ -23,7 +23,11 @@ function localReferences(htmlFile) {
   const html = fs.readFileSync(htmlFile, "utf8");
   return [...html.matchAll(/\b(?:src|href)="([^"]+)"/g)]
     .map((match) => match[1])
-    .filter((reference) => !reference.startsWith("#") && !reference.includes("://"));
+    .filter((reference) => (
+      !reference.startsWith("#")
+      && !reference.startsWith("/api/")
+      && !reference.includes("://")
+    ));
 }
 
 function pngDimensions(file) {
@@ -36,7 +40,7 @@ function pngDimensions(file) {
 }
 
 const tests = [
-  ["Vercel publishes a dependency-free static shell plus one isolated room function", () => {
+  ["Vercel publishes a dependency-free static shell with isolated server functions", () => {
     assert.equal(vercel.outputDirectory, "public");
     assert.equal(vercel.cleanUrls, true);
     assert.equal(fs.existsSync(path.join(root, "package.json")), false);
@@ -91,16 +95,18 @@ const tests = [
       assert.match(html, /rel="apple-touch-icon" href="\/assets\/icon-180\.png"/);
     });
   }],
-  ["service-worker upgrades replace stale caches and preserve both offline routes", () => {
+  ["service-worker upgrades replace stale caches and preserve all offline routes", () => {
     assert.match(serviceWorker, /self\.skipWaiting\(\)/);
     assert.match(serviceWorker, /self\.clients\.claim\(\)/);
     assert.match(serviceWorker, /keys\.filter\(\(key\) => key !== CACHE_NAME\)/);
     assert.match(serviceWorker, /await cache\.put\(event\.request, response\.clone\(\)\)/);
     assert.match(serviceWorker, /quota or unsupported-response failure/i);
-    assert.match(serviceWorker, /requestUrl\.pathname\.startsWith\("\/duel"\) \? "\/duel\.html" : "\/index\.html"/);
+    assert.match(serviceWorker, /requestUrl\.pathname\.startsWith\("\/duel"\)/);
+    assert.match(serviceWorker, /requestUrl\.pathname\.startsWith\("\/wallpaper"\)/);
+    assert.match(serviceWorker, /requestUrl\.pathname\.startsWith\("\/api\/"\)/);
   }],
   ["every local HTML asset and navigation target stays inside public", () => {
-    ["index.html", "duel.html"].forEach((name) => {
+    ["index.html", "duel.html", "wallpaper.html"].forEach((name) => {
       const htmlFile = path.join(publicRoot, name);
       localReferences(htmlFile).forEach((reference) => {
         const pathname = reference.split(/[?#]/, 1)[0];
@@ -134,8 +140,8 @@ const tests = [
   ["deployment docs explain the production multiplayer boundary", () => {
     assert.match(readme, /PUBLIC LIVE ROOM/);
     assert.match(readme, /STORAGE_KV_REST_API_URL/);
-    assert.match(readme, /Redis-backed/i);
-    assert.match(readme, /two different devices/i);
+    assert.match(readme, /Durable Object WebSocket/i);
+    assert.match(readme, /two different networks/i);
     assert.match(readme, /dependency-free/i);
     assert.equal(manifest.start_url, "/");
     assert.equal(manifest.scope, "/");

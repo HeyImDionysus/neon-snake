@@ -30,6 +30,7 @@ const copyRoomButton = $("#copyRoomButton");
 const connectRoomButton = $("#connectRoomButton");
 const readyRoomButton = $("#readyRoomButton");
 const roomState = $("#roomState");
+const roomLatency = $("#roomLatency");
 const aiTraceMove = $("#aiTraceMove");
 const aiTraceRisk = $("#aiTraceRisk");
 const aiTraceDepth = $("#aiTraceDepth");
@@ -561,7 +562,22 @@ function requestDirection(next) {
   if (duelType === "live") {
     const localIndex = roomPlayers.findIndex((player) => player.id === clientId);
     if (localIndex < 0) return;
-    if (localIndex === 0) {
+    if (roomTransport?.authoritative) {
+      const currentDirection = localIndex === 0 ? playerDirection : opponentDirection;
+      const currentBuffer = localIndex === 0 ? playerInputBuffer : opponentInputBuffer;
+      const buffered = Rules.bufferDirection(currentBuffer, currentDirection, next);
+      if (buffered.length > currentBuffer.length) {
+        localInputSequence = Math.max(localInputSequence + 1, Date.now());
+        if (localIndex === 0) playerInputBuffer = buffered;
+        else opponentInputBuffer = buffered;
+        postRoomMessage({
+          type: "input",
+          round: liveRoundId,
+          sequence: localInputSequence,
+          direction: next,
+        });
+      }
+    } else if (localIndex === 0) {
       playerInputBuffer = Rules.bufferDirection(playerInputBuffer, playerDirection, next);
     } else {
       const buffered = Rules.bufferDirection(opponentInputBuffer, opponentDirection, next);
@@ -640,6 +656,7 @@ function roomIdentity() {
     ready: roomReadyConfirmed,
     slot: roomSlot,
     seenAt: Date.now(),
+    profile: globalThis.NeonSnakeAccount?.profile || null,
   };
 }
 
@@ -682,11 +699,14 @@ function postRoomMessage(message) {
 function updateRosterSlot(element, player, index) {
   element.classList.toggle("connected", Boolean(player));
   element.querySelector("span").textContent = `PLAYER ${index + 1}`;
-  element.querySelector("strong").textContent = player
-    ? player.id === clientId
-      ? player.ready ? "YOU · READY" : "YOU · CONNECTED"
-      : player.ready ? "RIVAL · READY" : "RIVAL · CONNECTED"
-    : "OPEN";
+  if (!player) {
+    element.querySelector("strong").textContent = "OPEN";
+    return;
+  }
+  const name = player.id === clientId
+    ? "YOU"
+    : String(player.profile?.displayName || "RIVAL").slice(0, 28).toUpperCase();
+  element.querySelector("strong").textContent = `${name} · ${player.ready ? "READY" : "CONNECTED"}`;
 }
 
 function activeRoomRoster() {
@@ -723,8 +743,8 @@ function syncLiveRoom() {
   readyRoomButton.disabled = !roomConnected || localIndex < 0 || runState === "running";
   readyRoomButton.setAttribute("aria-pressed", String(roomReady));
   readyRoomButton.querySelector("span").textContent = roomReady ? "Not ready" : "Ready";
-  connectRoomButton.querySelector("span").textContent = roomConnected ? "Disconnect" : "Connect room";
-  roomCodeInput.disabled = roomConnected;
+  connectRoomButton.querySelector("span").textContent = roomTransport ? "Disconnect" : "Connect room";
+  roomCodeInput.disabled = Boolean(roomTransport);
 
   if (roomFull) {
     roomState.textContent = "ROOM FULL · SPECTATING";
@@ -806,7 +826,9 @@ function handleRoomStatus(status) {
     return;
   }
   if (status.state === "reconnecting") {
+    roomConnected = false;
     roomConnectionState = "reconnecting";
+    roomLatency.textContent = "REALTIME PING · RECONNECTING";
     if (liveCountdownActive) abortLiveCountdown();
     roomState.textContent = "ROOM LINK RECONNECTING";
     announcement.textContent = status.code === "timeout"
@@ -819,6 +841,11 @@ function handleRoomStatus(status) {
     if (liveCountdownActive) abortLiveCountdown();
     roomState.textContent = "ROOM UPDATE REJECTED · RETRYING";
     announcement.textContent = "The room service rejected one update. It was discarded instead of retrying forever.";
+    return;
+  }
+  if (status.state === "latency") {
+    const latency = Math.max(0, Math.round(Number(status.latency) || 0));
+    roomLatency.textContent = `REALTIME PING · ${latency} MS`;
     return;
   }
   if (status.state !== "connected") return;
@@ -836,9 +863,11 @@ function handleRoomStatus(status) {
         ready: Boolean(player.ready),
         slot: Number.isInteger(player.slot) ? player.slot : -1,
         seenAt: Number.isFinite(Number(player.seenAt)) ? Number(player.seenAt) : Date.now(),
+        profile: player.profile && typeof player.profile === "object" ? player.profile : null,
       }]));
     roomPlayers = activeRoomRoster().slice(0, 2);
   }
+  if (roomTransport) syncLiveRoom();
 }
 
 async function connectLiveRoom() {
@@ -861,6 +890,7 @@ async function connectLiveRoom() {
   roomCodeInput.disabled = true;
   connectRoomButton.disabled = true;
   roomState.textContent = "CONNECTING TO LIVE ROOM";
+  roomLatency.textContent = "REALTIME PING · OPENING LINK";
   roomPeers = new Map();
   setRoomReadyIntent(false);
   roomRole = "disconnected";
@@ -868,12 +898,21 @@ async function connectLiveRoom() {
   roomConnectionState = "connecting";
 
   try {
-    roomTransport = await Transports.createRemoteRoomTransport({
-      code: normalized,
-      clientId,
-      onMessage: handleRoomMessage,
-      onStatus: handleRoomStatus,
-    });
+    const realtimeUrl = globalThis.NEON_SNAKE_CONFIG?.realtimeUrl;
+    roomTransport = realtimeUrl
+      ? await Transports.createWebSocketRoomTransport({
+        code: normalized,
+        clientId,
+        endpoint: realtimeUrl,
+        onMessage: handleRoomMessage,
+        onStatus: handleRoomStatus,
+      })
+      : await Transports.createRemoteRoomTransport({
+        code: normalized,
+        clientId,
+        onMessage: handleRoomMessage,
+        onStatus: handleRoomStatus,
+      });
     postRoomMessage({ type: "ready", ready: false });
   } catch (error) {
     roomTransport = null;
@@ -884,6 +923,7 @@ async function connectLiveRoom() {
     roomCodeInput.disabled = false;
     connectRoomButton.disabled = false;
     roomState.textContent = "LIVE ROOM SERVICE UNAVAILABLE";
+    roomLatency.textContent = "REALTIME PING · UNAVAILABLE";
     announcement.textContent = "The live room service could not connect.";
     console.warn("Live room transport could not start.", {
       name: typeof error?.name === "string" ? error.name : "Error",
@@ -891,7 +931,7 @@ async function connectLiveRoom() {
     return;
   }
 
-  roomConnected = true;
+  if (!roomTransport.authoritative) roomConnected = true;
   connectRoomButton.disabled = false;
   roomSweep = setInterval(syncLiveRoom, 700);
   const url = new URL(window.location.href);
@@ -900,7 +940,9 @@ async function connectLiveRoom() {
   url.searchParams.set("type", "live");
   history.replaceState(null, "", url);
   syncLiveRoom();
-  announcement.textContent = `Connected to room ${roomCode}.`;
+  announcement.textContent = roomConnected
+    ? `Connected to room ${roomCode}.`
+    : `Opening the realtime link for room ${roomCode}.`;
 }
 
 function disconnectLiveRoom() {
@@ -918,6 +960,7 @@ function disconnectLiveRoom() {
   roomRole = "disconnected";
   roomSlot = -1;
   roomConnectionState = "disconnected";
+  roomLatency.textContent = "REALTIME PING · NOT MEASURED";
   abortLiveCountdown();
   if (duelType === "live") {
     setRunState("ready", "LIVE ROOM STANDBY");
@@ -1001,10 +1044,12 @@ function startLiveDuel() {
   overlay.hidden = true;
   overlayTitle.classList.remove("countdown");
   lastMoveAt = performance.now();
-  nextMoveAt = roomPlayers[0]?.id === clientId ? lastMoveAt + TICK_DURATION : 0;
+  nextMoveAt = roomTransport?.authoritative
+    ? 0
+    : roomPlayers[0]?.id === clientId ? lastMoveAt + TICK_DURATION : 0;
   setRunState("running", "LIVE DUEL ACTIVE");
   roomState.textContent = "LIVE DUEL ACTIVE";
-  if (roomPlayers[0]?.id === clientId) {
+  if (!roomTransport?.authoritative && roomPlayers[0]?.id === clientId) {
     broadcastSnapshot({ crashes: { player: null, opponent: null }, over: false, winner: null });
   }
   announcement.textContent = "Live duel active. Both players connected.";
@@ -1034,7 +1079,10 @@ function broadcastSnapshot(result) {
 }
 
 function applyRemoteSnapshot(message) {
-  if (message.sequence <= lastRemoteSequence || roomPlayers[0]?.id === clientId) return;
+  if (
+    message.sequence <= lastRemoteSequence
+    || (!roomTransport?.authoritative && roomPlayers[0]?.id === clientId)
+  ) return;
   const state = message.state;
   if (state?.round !== liveRoundId) return;
   if (!state?.playerSnake?.length || !state?.opponentSnake?.length) return;
@@ -1077,6 +1125,7 @@ function handleRoomMessage(message) {
       ready: Boolean(message.ready),
       slot: Number.isInteger(message.slot) ? message.slot : -1,
       seenAt: Number.isFinite(Number(message.seenAt)) ? Number(message.seenAt) : Date.now(),
+      profile: message.profile && typeof message.profile === "object" ? message.profile : null,
     });
     if (roomTransport) syncLiveRoom();
     return;
@@ -1087,7 +1136,11 @@ function handleRoomMessage(message) {
     if (Number.isFinite(startsAt) && Number.isSafeInteger(round)) beginLiveCountdown(startsAt, round);
     return;
   }
-  if (message.type === "input" && roomPlayers[0]?.id === clientId) {
+  if (
+    message.type === "input"
+    && !roomTransport?.authoritative
+    && roomPlayers[0]?.id === clientId
+  ) {
     const next = message.direction;
     const round = Number(message.round);
     const sequence = Number(message.sequence);

@@ -1,13 +1,18 @@
 "use strict";
 
-const CACHE_NAME = "neon-snake-shell-v60";
+const CACHE_NAME = "neon-snake-shell-v62";
 const APP_SHELL = [
   "/",
   "/index.html",
   "/styles.css",
   "/duel.html",
+  "/wallpaper.html",
   "/duel.css",
   "/duel.js",
+  "/account.js",
+  "/runtime-config.js",
+  "/wallpaper.css",
+  "/wallpaper.js",
   "/room-transport.js",
   "/signal-field.js",
   "/game-logic.js",
@@ -35,7 +40,11 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   const requestUrl = new URL(event.request.url);
-  if (event.request.method !== "GET" || requestUrl.origin !== self.location.origin) return;
+  if (
+    event.request.method !== "GET"
+    || requestUrl.origin !== self.location.origin
+    || requestUrl.pathname.startsWith("/api/")
+  ) return;
 
   event.respondWith(
     (async () => {
@@ -54,7 +63,11 @@ self.addEventListener("fetch", (event) => {
         const cached = await caches.match(event.request);
         if (cached) return cached;
         if (event.request.mode === "navigate") {
-          const fallback = requestUrl.pathname.startsWith("/duel") ? "/duel.html" : "/index.html";
+          const fallback = requestUrl.pathname.startsWith("/duel")
+            ? "/duel.html"
+            : requestUrl.pathname.startsWith("/wallpaper")
+              ? "/wallpaper.html"
+              : "/index.html";
           return caches.match(fallback);
         }
         return Response.error();

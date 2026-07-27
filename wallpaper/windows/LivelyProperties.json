@@ -1,0 +1,40 @@
+{
+  "fps": {
+    "max": 30,
+    "min": 8,
+    "text": "Frame rate",
+    "type": "slider",
+    "value": 24
+  },
+  "pace": {
+    "max": 260,
+    "min": 70,
+    "text": "Snake pace",
+    "type": "slider",
+    "value": 132
+  },
+  "glow": {
+    "max": 100,
+    "min": 0,
+    "text": "Glow strength",
+    "type": "slider",
+    "value": 78
+  },
+  "palette": {
+    "items": ["acid", "aurora", "ultraviolet"],
+    "text": "Palette",
+    "type": "dropdown",
+    "value": "acid"
+  },
+  "mode": {
+    "items": ["classic", "portal"],
+    "text": "Boundary",
+    "type": "dropdown",
+    "value": "classic"
+  },
+  "mark": {
+    "text": "Show Neon Snake mark",
+    "type": "checkbox",
+    "value": true
+  }
+}

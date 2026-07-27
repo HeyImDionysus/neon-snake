@@ -1,0 +1,14 @@
+{
+  "AppVersion": "2.0.7.0",
+  "Title": "Neon Snake — Autonomous Signal",
+  "Thumbnail": "thumbnail.png",
+  "Desc": "The Neon Snake Autopilot runs as a responsive, offline desktop wallpaper.",
+  "Author": "Neon Snake",
+  "License": "MIT",
+  "Contact": "https://github.com/HeyImDionysus/neon-snake",
+  "Type": 1,
+  "FileName": "index.html",
+  "Arguments": "--pause-event true",
+  "Tags": ["game", "neon", "snake", "autonomous"],
+  "IsAbsolutePath": false
+}

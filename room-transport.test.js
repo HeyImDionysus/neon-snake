@@ -35,6 +35,43 @@ class FakeBroadcastChannel {
   }
 }
 
+class FakeWebSocket {
+  static OPEN = 1;
+  static instances = [];
+
+  constructor(url) {
+    this.url = url;
+    this.readyState = 0;
+    this.listeners = new Map();
+    this.messages = [];
+    this.closeCalls = [];
+    FakeWebSocket.instances.push(this);
+  }
+
+  addEventListener(type, listener) {
+    if (!this.listeners.has(type)) this.listeners.set(type, new Set());
+    this.listeners.get(type).add(listener);
+  }
+
+  send(value) {
+    this.messages.push(JSON.parse(value));
+  }
+
+  close(code, reason) {
+    this.closeCalls.push({ code, reason });
+    this.readyState = 3;
+  }
+
+  emit(type, value = {}) {
+    if (type === "open") this.readyState = FakeWebSocket.OPEN;
+    this.listeners.get(type)?.forEach((listener) => listener(value));
+  }
+
+  message(value) {
+    this.emit("message", { data: JSON.stringify(value) });
+  }
+}
+
 function createTimerHarness() {
   let nextId = 1;
   let currentTime = 0;
@@ -153,6 +190,146 @@ const tests = [
   ["remote support detection requires fetch", () => {
     assert.equal(transports.remoteRoomSupported({ fetch() {} }), true);
     assert.equal(transports.remoteRoomSupported({}), false);
+  }],
+  ["the realtime adapter sends inputs immediately and trusts only server snapshots", async () => {
+    FakeWebSocket.instances.length = 0;
+    const received = [];
+    const statuses = [];
+    const scheduled = new Map();
+    let timerId = 0;
+    const transport = await transports.createWebSocketRoomTransport({
+      code: "abc234",
+      clientId: "client-one",
+      endpoint: "wss://neon.example.test/",
+      onMessage: (message) => received.push(message),
+      onStatus: (status) => statuses.push(status),
+      WebSocketImpl: FakeWebSocket,
+      now: () => 1_000,
+      fetchImpl: async (url, options) => {
+        assert.equal(url, "/api/realtime-ticket");
+        assert.equal(options.method, "POST");
+        assert.deepEqual(JSON.parse(options.body), { clientId: "client-one" });
+        return {
+          ok: true,
+          json: async () => ({ ticket: "signed.identity.ticket" }),
+        };
+      },
+      setTimeoutImpl: (callback, delay) => {
+        timerId += 1;
+        scheduled.set(timerId, { callback, delay });
+        return timerId;
+      },
+      clearTimeoutImpl: (id) => scheduled.delete(id),
+    });
+    assert.equal(transport.kind, "durable-object-websocket");
+    assert.equal(transport.authoritative, true);
+    const socket = FakeWebSocket.instances[0];
+    const socketUrl = new URL(socket.url);
+    assert.equal(socketUrl.protocol, "wss:");
+    assert.equal(socketUrl.pathname, "/room/ABC234");
+    assert.equal(socketUrl.searchParams.get("clientId"), "client-one");
+    assert.equal(socketUrl.searchParams.get("ticket"), null);
+    assert.equal(transport.send({ type: "ready", ready: true }), false);
+
+    socket.emit("open");
+    assert.deepEqual(socket.messages, [
+      { type: "authenticate", ticket: "signed.identity.ticket" },
+    ]);
+    assert.equal(statuses.at(-1).state, "socket-open");
+    socket.message({
+      type: "welcome",
+      role: "player",
+      slot: 0,
+      players: [
+        {
+          id: "client-one",
+          slot: 0,
+          ready: true,
+          seenAt: 900,
+          profile: {
+            userId: "123456789012345678",
+            displayName: "Signal Player",
+            avatar: "avatar_hash",
+          },
+        },
+        { id: "client-two", slot: 1, ready: false, seenAt: 950 },
+      ],
+    });
+    assert.deepEqual(socket.messages.at(-1), {
+      type: "authenticate",
+      ticket: "signed.identity.ticket",
+    });
+    socket.message({
+      type: "authenticated",
+      profile: { displayName: "Signal Player", avatar: "avatar_hash" },
+    });
+    assert.deepEqual(socket.messages.at(-1), { type: "ready", ready: true });
+    assert.equal(statuses.at(-1).state, "connected");
+    assert.equal(statuses.at(-1).slot, 0);
+    assert.ok(received.some((message) => (
+      message.type === "presence"
+      && message.from === "client-two"
+      && message.slot === 1
+    )));
+
+    const input = {
+      type: "input",
+      round: 4,
+      sequence: 7,
+      direction: { x: 0, y: -1 },
+    };
+    assert.equal(transport.send(input), true);
+    assert.deepEqual(socket.messages.at(-1), input);
+    socket.message({
+      type: "state",
+      sequence: 8,
+      state: { round: 4 },
+    });
+    assert.deepEqual(received.at(-1), {
+      type: "state",
+      sequence: 8,
+      state: { round: 4 },
+      room: "ABC234",
+    });
+    transport.close();
+    assert.deepEqual(socket.closeCalls.at(-1), { code: 1000, reason: "Client left room" });
+    assert.equal(scheduled.size, 0);
+  }],
+  ["the realtime adapter times out a silent socket and reconnects with bounded backoff", async () => {
+    FakeWebSocket.instances.length = 0;
+    const statuses = [];
+    const timers = new Map();
+    let timerId = 0;
+    const transport = await transports.createWebSocketRoomTransport({
+      code: "ABC234",
+      clientId: "client-one",
+      endpoint: "wss://neon.example.test",
+      onMessage: () => {},
+      onStatus: (status) => statuses.push(status),
+      WebSocketImpl: FakeWebSocket,
+      fetchImpl: null,
+      setTimeoutImpl: (callback, delay) => {
+        timerId += 1;
+        timers.set(timerId, { callback, delay });
+        return timerId;
+      },
+      clearTimeoutImpl: (id) => timers.delete(id),
+    });
+    const first = FakeWebSocket.instances[0];
+    const connectionTimer = [...timers.entries()].find(([, timer]) => timer.delay === 8_000);
+    assert.ok(connectionTimer);
+    timers.delete(connectionTimer[0]);
+    connectionTimer[1].callback();
+    assert.equal(first.closeCalls.at(-1).code, 4000);
+    first.emit("close");
+    assert.equal(statuses.at(-1).state, "reconnecting");
+    const reconnect = [...timers.entries()].find(([, timer]) => timer.delay === 250);
+    assert.ok(reconnect);
+    timers.delete(reconnect[0]);
+    await reconnect[1].callback();
+    assert.equal(FakeWebSocket.instances.length, 2);
+    transport.close();
+    assert.equal(timers.size, 0);
   }],
   ["the remote adapter joins, syncs, and rebuilds server roster events", async () => {
     const requests = [];
