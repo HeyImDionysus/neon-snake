@@ -86,7 +86,8 @@ body.activity-mode .duel-header {
   background: #050806f2;
 }
 
-body.activity-mode .duel-header .site-nav { display: none; }
+body.activity-mode .duel-header .site-nav,
+body.activity-mode .duel-header .site-menu-toggle { display: none; }
 body.activity-mode .duel-header .brand { pointer-events: none; }
 body.activity-mode .duel-shell { padding-top: 24px; }
 

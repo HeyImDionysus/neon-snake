@@ -41,6 +41,8 @@ local avatar = ARGV[8]
 local username = ARGV[9]
 local callsign = ARGV[10]
 local accent = ARGV[11]
+local favoriteMode = ARGV[12]
+local snakeStyle = ARGV[13]
 local cutoff = now - ${CONNECTION_TTL_MS}
 
 local stale = redis.call("ZRANGEBYSCORE", presenceKey, "-inf", cutoff)
@@ -81,7 +83,9 @@ if action == "join" then
     avatar = avatar,
     username = username,
     callsign = callsign,
-    accent = accent
+    accent = accent,
+    favoriteMode = favoriteMode,
+    snakeStyle = snakeStyle
   }
   redis.call("ZADD", presenceKey, now, clientId)
   redis.call("HSET", metadataKey, clientId, cjson.encode(current))
@@ -120,6 +124,8 @@ elseif current and current["connectionId"] == connectionId then
       current["username"] = username
       current["callsign"] = callsign
       current["accent"] = accent
+      current["favoriteMode"] = favoriteMode
+      current["snakeStyle"] = snakeStyle
     end
     redis.call("ZADD", presenceKey, now, clientId)
     redis.call("HSET", metadataKey, clientId, cjson.encode(current))
@@ -163,12 +169,20 @@ function cleanProfile(profile) {
   const accent = ["acid", "cyan", "violet", "magenta", "ember"].includes(customization.accent)
     ? customization.accent
     : "acid";
+  const favoriteMode = ["classic", "portal", "rush", "canvas", "live"].includes(customization.favoriteMode)
+    ? customization.favoriteMode
+    : "classic";
+  const snakeStyle = ["signal", "spectral", "glass", "ember"].includes(customization.snakeStyle)
+    ? customization.snakeStyle
+    : "signal";
   return {
     userId,
     username,
     displayName,
     callsign,
     accent,
+    favoriteMode,
+    snakeStyle,
     avatar: String(profile.avatar || "").slice(0, 128),
   };
 }
@@ -187,6 +201,12 @@ function publicPlayer(value) {
         accent: ["acid", "cyan", "violet", "magenta", "ember"].includes(value.accent)
           ? value.accent
           : "acid",
+        favoriteMode: ["classic", "portal", "rush", "canvas", "live"].includes(value.favoriteMode)
+          ? value.favoriteMode
+          : "classic",
+        snakeStyle: ["signal", "spectral", "glass", "ember"].includes(value.snakeStyle)
+          ? value.snakeStyle
+          : "signal",
         avatar: String(value.avatar || "").slice(0, 128),
       }
       : null,
@@ -808,6 +828,8 @@ function createRealtimeHub({
       clean?.username || "",
       clean?.callsign || "",
       clean?.accent || "acid",
+      clean?.favoriteMode || "classic",
+      clean?.snakeStyle || "signal",
     ]);
     const payload = typeof result === "string" ? JSON.parse(result) : result;
     if (!payload || typeof payload !== "object") throw new Error("Invalid realtime presence response.");

@@ -72,6 +72,8 @@ function createFakeRedis() {
       username: command[15],
       callsign: command[16],
       accent: command[17],
+      favoriteMode: command[18],
+      snakeStyle: command[19],
     };
     let current = players.get(clientId);
     if (action === "join") {
@@ -266,6 +268,8 @@ async function flush() {
         customization: {
           callsign: "Night Viper",
           accent: "magenta",
+          favoriteMode: "rush",
+          snakeStyle: "spectral",
         },
       },
     }),
@@ -285,6 +289,8 @@ async function flush() {
   assert.equal(authenticatedJoin[15], "signal_player");
   assert.equal(authenticatedJoin[16], "Night Viper");
   assert.equal(authenticatedJoin[17], "magenta");
+  assert.equal(authenticatedJoin[18], "rush");
+  assert.equal(authenticatedJoin[19], "spectral");
   assert.ok(authenticatedCommands.some((command) => (
     command[0] === "SET"
     && command[1] === "neon-snake:activity:123456789012345678"
@@ -294,6 +300,8 @@ async function flush() {
     message.type === "welcome"
     && message.players[0]?.profile?.username === "signal_player"
     && message.players[0]?.profile?.callsign === "Night Viper"
+    && message.players[0]?.profile?.favoriteMode === "rush"
+    && message.players[0]?.profile?.snakeStyle === "spectral"
   )));
   const authenticatedSecond = new FakeSocket();
   await authenticatedHub.connect(

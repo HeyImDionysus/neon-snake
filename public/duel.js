@@ -54,6 +54,13 @@ const CANDIDATES = Object.entries(DIRECTIONS).map(([name, direction]) => ({
   name,
   ...direction,
 }));
+const DUEL_COLORS = {
+  acid: "#adff66",
+  cyan: "#66e3ff",
+  violet: "#a98bff",
+  magenta: "#ff6ed1",
+  ember: "#ff7657",
+};
 
 let tileSize = canvas.width / DUEL_GRID;
 let duelType = "ai";
@@ -239,7 +246,7 @@ function traceGroup(group) {
   }
 }
 
-function drawFluidSnake(current, previous, direction, color, now) {
+function drawFluidSnake(current, previous, direction, color, now, style = "signal") {
   if (!current.length) return;
   const path = Rules.fluidMotionPath(
     previous,
@@ -255,15 +262,31 @@ function drawFluidSnake(current, previous, direction, color, now) {
   context.lineCap = "round";
   context.lineJoin = "round";
   context.strokeStyle = color;
-  context.lineWidth = Math.max(7, tileSize * .67);
+  context.lineWidth = Math.max(7, tileSize * (
+    style === "ember" ? .76
+      : style === "spectral" ? .58
+        : style === "glass" ? .7
+          : .67
+  ));
   context.shadowColor = color;
-  context.shadowBlur = Math.max(8, tileSize * .48);
-  context.globalAlpha = .92;
+  context.shadowBlur = Math.max(8, tileSize * (style === "spectral" ? .7 : .48));
+  context.globalAlpha = style === "spectral" ? .72 : style === "glass" ? .38 : .92;
+  if (style === "spectral") context.setLineDash([tileSize * 1.25, tileSize * .3]);
   groups.forEach((group) => {
     context.beginPath();
     traceGroup(group);
     context.stroke();
   });
+  if (style === "glass") {
+    context.setLineDash([]);
+    context.globalAlpha = .9;
+    context.lineWidth = Math.max(2, tileSize * .15);
+    groups.forEach((group) => {
+      context.beginPath();
+      traceGroup(group);
+      context.stroke();
+    });
+  }
 
   context.translate(head.x, head.y);
   context.rotate(angle);
@@ -342,8 +365,24 @@ function render(now) {
   advanceGame(now);
   drawArena(now);
   drawFood(now);
-  drawFluidSnake(playerSnake, previousPlayerSnake, playerDirection, "#adff66", now);
-  drawFluidSnake(opponentSnake, previousOpponentSnake, opponentDirection, "#a98bff", now);
+  const firstProfile = duelType === "live" ? roomPlayers[0]?.profile : null;
+  const secondProfile = duelType === "live" ? roomPlayers[1]?.profile : null;
+  drawFluidSnake(
+    playerSnake,
+    previousPlayerSnake,
+    playerDirection,
+    DUEL_COLORS[firstProfile?.accent] || "#adff66",
+    now,
+    firstProfile?.snakeStyle || "signal",
+  );
+  drawFluidSnake(
+    opponentSnake,
+    previousOpponentSnake,
+    opponentDirection,
+    DUEL_COLORS[secondProfile?.accent] || "#a98bff",
+    now,
+    secondProfile?.snakeStyle || "signal",
+  );
   frameHandle = requestAnimationFrame(render);
 }
 
@@ -733,7 +772,7 @@ function postRoomMessage(message) {
 function updateRosterSlot(element, player, index) {
   element.classList.toggle("connected", Boolean(player));
   [...element.classList]
-    .filter((name) => name.startsWith("accent-"))
+    .filter((name) => name.startsWith("accent-") || name.startsWith("snake-"))
     .forEach((name) => element.classList.remove(name));
   element.querySelector("span").textContent = `PLAYER ${index + 1}`;
   if (!player) {
@@ -746,6 +785,10 @@ function updateRosterSlot(element, player, index) {
     : String(player.profile?.callsign || player.profile?.displayName || "RIVAL").slice(0, 24).toUpperCase();
   const identity = username ? `${name} · @${username}` : name;
   element.classList.add(`accent-${player.profile?.accent || "acid"}`);
+  element.classList.add(`snake-${player.profile?.snakeStyle || "signal"}`);
+  const favoriteMode = String(player.profile?.favoriteMode || "classic").toUpperCase();
+  const snakeStyle = String(player.profile?.snakeStyle || "signal").toUpperCase();
+  element.querySelector("span").textContent = `PLAYER ${index + 1} · ${snakeStyle} · ${favoriteMode}`;
   element.querySelector("strong").textContent = `${identity} · ${player.ready ? "READY" : "CONNECTED"}`;
 }
 

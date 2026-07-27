@@ -80,6 +80,7 @@
   document.querySelector(".wallpaper-mark").hidden = !settings.mark;
 
   function clampNumber(value, minimum, maximum, fallback) {
+    if (value === null || value === undefined || value === "") return fallback;
     const number = Number(value);
     return Number.isFinite(number) ? Math.min(maximum, Math.max(minimum, number)) : fallback;
   }
@@ -397,8 +398,12 @@
   }
 
   function render(now) {
+    if (!visible) {
+      animationFrame = 0;
+      return;
+    }
     animationFrame = requestAnimationFrame(render);
-    if (!visible || now - lastFrameAt < 1000 / settings.fps) return;
+    if (now - lastFrameAt < 1000 / settings.fps) return;
     lastFrameAt = now;
     let catchUp = 0;
     while (now >= nextStepAt && catchUp < 3) {
@@ -415,9 +420,15 @@
   function setVisibility(nextVisible) {
     const resumed = !visible && nextVisible;
     visible = nextVisible;
+    if (!visible) {
+      cancelAnimationFrame(animationFrame);
+      animationFrame = 0;
+      return;
+    }
     if (resumed) {
       lastStepAt = performance.now();
       nextStepAt = lastStepAt + settings.pace;
+      if (!animationFrame) animationFrame = requestAnimationFrame(render);
     }
   }
 
@@ -438,6 +449,56 @@
     }
   };
 
+  function updatePreviewStatus() {
+    const paceOutput = document.querySelector("#wallpaperPaceOutput");
+    const glowOutput = document.querySelector("#wallpaperGlowOutput");
+    const status = document.querySelector("#wallpaperPreviewStatus");
+    const speed = settings.pace <= 90 ? "FAST" : settings.pace <= 150 ? "QUICK" : "CALM";
+    if (paceOutput) paceOutput.textContent = speed;
+    if (glowOutput) glowOutput.textContent = `${Math.round(settings.glow * 100)}%`;
+    if (status) {
+      status.textContent = `${settings.palette.toUpperCase()} · ${settings.mode === "portal" ? "WRAP" : "WALLS"} · ${speed}`;
+    }
+    document.querySelectorAll("[data-wallpaper-palette]").forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.wallpaperPalette === settings.palette));
+    });
+    document.querySelectorAll("[data-wallpaper-mode]").forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.wallpaperMode === settings.mode));
+    });
+    const palette = PALETTES[settings.palette];
+    surface.style.setProperty("--wall-acid", palette.field);
+  }
+
+  document.querySelectorAll("[data-wallpaper-palette]").forEach((button) => {
+    button.addEventListener("click", () => {
+      root.livelyPropertyListener("palette", button.dataset.wallpaperPalette);
+      updatePreviewStatus();
+    });
+  });
+  document.querySelectorAll("[data-wallpaper-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      root.livelyPropertyListener("mode", button.dataset.wallpaperMode);
+      updatePreviewStatus();
+    });
+  });
+  const paceControl = document.querySelector("#wallpaperPace");
+  const glowControl = document.querySelector("#wallpaperGlow");
+  paceControl?.addEventListener("input", () => {
+    root.livelyPropertyListener("pace", paceControl.value);
+    updatePreviewStatus();
+  });
+  glowControl?.addEventListener("input", () => {
+    root.livelyPropertyListener("glow", glowControl.value);
+    updatePreviewStatus();
+  });
+  root.NeonSnakeWallpaperPreview = {
+    settings: () => ({ ...settings }),
+    update(name, value) {
+      root.livelyPropertyListener(name, value);
+      updatePreviewStatus();
+    },
+  };
+
   root.livelyWallpaperPlaybackChanged = (data) => {
     const playbackState = typeof data === "string" ? Number(data) : Number(data?.state ?? data);
     setVisibility(playbackState !== 0);
@@ -452,5 +513,6 @@
 
   resize();
   updateHud();
-  animationFrame = requestAnimationFrame(render);
+  updatePreviewStatus();
+  if (visible) animationFrame = requestAnimationFrame(render);
 })(globalThis);

@@ -24,13 +24,17 @@
         <span class="brand-glyph" aria-hidden="true"><img src="assets/signal-mark.svg" alt="" /></span>
         <span>NEON SNAKE</span>
       </a>
-      <nav class="site-nav" aria-label="Primary navigation">
+      <nav class="site-nav" id="primaryNavigation" aria-label="Primary navigation">
         <a href="./">GAME</a>
         <a href="duel.html" aria-current="page">LIVE DUEL</a>
         <a href="./#leaderboard">RANKINGS</a>
         <a href="downloads.html">WALLPAPERS</a>
         <a href="profile.html">PROFILE</a>
       </nav>
+      <button class="site-menu-toggle" type="button" aria-controls="primaryNavigation" aria-expanded="false" aria-label="Open navigation">
+        <span aria-hidden="true"><i></i><i></i></span>
+        <small>MENU</small>
+      </button>
       <div class="header-actions">
         <div class="system-status" aria-live="polite">
           <span class="status-light" aria-hidden="true"></span>
@@ -127,19 +131,19 @@
           <p>It can read the board, but it cannot read your next move.</p>
           <section class="system-trace ai-system-trace" aria-labelledby="aiTraceTitle">
             <header>
-              <span id="aiTraceTitle">DECISION TRACE</span>
-              <strong>LOCAL / DETERMINISTIC</strong>
+              <span id="aiTraceTitle">AUTOPILOT READ</span>
+              <strong>UPDATES EVERY MOVE</strong>
             </header>
-            <div class="trace-flow" aria-label="Planner stages">
-              <span>READ BOTH BODIES</span><i aria-hidden="true">→</i>
-              <span>BRANCH REPLIES</span><i aria-hidden="true">→</i>
-              <span>SCORE SPACE</span><i aria-hidden="true">→</i>
-              <span>COMMIT</span>
+            <div class="trace-flow" aria-label="How the Autopilot chooses a move">
+              <span>READ THE BOARD</span><i aria-hidden="true">→</i>
+              <span>PREDICT REPLIES</span><i aria-hidden="true">→</i>
+              <span>FIND OPEN SPACE</span><i aria-hidden="true">→</i>
+              <span>MOVE</span>
             </div>
             <dl class="trace-readout">
               <div><dt>MOVE</dt><dd id="aiTraceMove">WAITING</dd></div>
-              <div><dt>COUNTER RISK</dt><dd id="aiTraceRisk">NOT SAMPLED</dd></div>
-              <div><dt>FORECAST</dt><dd id="aiTraceDepth">0 TURNS</dd></div>
+              <div><dt>RISK</dt><dd id="aiTraceRisk">WAITING</dd></div>
+              <div><dt>LOOKAHEAD</dt><dd id="aiTraceDepth">0 TURNS</dd></div>
             </dl>
           </section>
           <dl class="duel-facts">
@@ -169,16 +173,16 @@
           <p>Share one room code. Both players connect, both press Ready, and the server owns the match.</p>
           <section class="system-trace room-system-trace" aria-labelledby="roomTraceTitle">
             <header>
-              <span id="roomTraceTitle">ROOM ARCHITECTURE</span>
-              <strong>EDGE / SERVER-AUTHORITATIVE</strong>
+              <span id="roomTraceTitle">FAIR MATCH</span>
+              <strong>ONE SHARED RESULT</strong>
             </header>
-            <div class="trace-flow" aria-label="Live room data path">
-              <span>PLAYER INPUT</span><i aria-hidden="true">→</i>
-              <span>EDGE SOCKET</span><i aria-hidden="true">→</i>
-              <span>ROOM SIMULATION</span><i aria-hidden="true">→</i>
-              <span>VERIFIED SNAPSHOT</span>
+            <div class="trace-flow" aria-label="How a live match stays synchronized">
+              <span>YOUR MOVE</span><i aria-hidden="true">→</i>
+              <span>SERVER CHECK</span><i aria-hidden="true">→</i>
+              <span>SAME BOARD</span><i aria-hidden="true">→</i>
+              <span>VERIFIED RESULT</span>
             </div>
-            <p>Inputs go up. One verified result comes back. Signed-in players build a public record.</p>
+            <p>Both players see the same match. Only completed live games can change a public record.</p>
           </section>
 
           <label class="room-code-label" for="roomCodeInput">ROOM SIGNAL</label>
@@ -221,6 +225,7 @@
 
     <p class="sr-only" id="duelAnnouncement" aria-live="assertive"></p>
     <script src="signal-field.js"></script>
+    <script src="site-shell.js"></script>
     <script src="runtime-config.js"></script>
     <script src="activity-sdk.js"></script>
     <script src="account.js"></script>

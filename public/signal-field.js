@@ -3,6 +3,7 @@
 
   const TAU = Math.PI * 2;
   const FRAME_INTERVAL = 1000 / 24;
+  const COMPACT_FRAME_INTERVAL = 1000 / 15;
   const PALETTES = {
     classic: ["#aaff67", "#59f0bd", "#d8ff9d"],
     portal: ["#8d7bff", "#62e8ff", "#c7baff"],
@@ -82,6 +83,7 @@
     let lastFrame = -FRAME_INTERVAL;
     let pointerX = .5;
     let pointerY = .5;
+    let compact = false;
 
     function currentSignal() {
       const fromControl = signalElement?.textContent || roomElement?.value;
@@ -105,7 +107,8 @@
     function resize() {
       width = Math.max(1, root.innerWidth);
       height = Math.max(1, root.innerHeight);
-      pixelRatio = Math.min(1.5, root.devicePixelRatio || 1);
+      compact = width <= 820 || Boolean(root.matchMedia?.("(pointer: coarse)")?.matches);
+      pixelRatio = compact ? 1 : Math.min(1.5, root.devicePixelRatio || 1);
       canvas.width = Math.round(width * pixelRatio);
       canvas.height = Math.round(height * pixelRatio);
       canvas.style.width = `${width}px`;
@@ -116,11 +119,13 @@
 
     function drawContours(time) {
       field.attractors.forEach((attractor, attractorIndex) => {
-        for (let ring = 0; ring < 5; ring += 1) {
+        const ringCount = compact ? 3 : 5;
+        const stepCount = compact ? 36 : 64;
+        for (let ring = 0; ring < ringCount; ring += 1) {
           const radius = attractor.radius * (.55 + ring * .26);
           context.beginPath();
-          for (let step = 0; step <= 64; step += 1) {
-            const angle = step / 64 * TAU;
+          for (let step = 0; step <= stepCount; step += 1) {
+            const angle = step / stepCount * TAU;
             const ripple = Math.sin(angle * (3 + attractorIndex) + time * .17 + attractor.phase)
               * radius * .045;
             const driftX = (pointerX - .5) * (5 + attractorIndex * 2);
@@ -139,12 +144,14 @@
     }
 
     function drawCurrents(time) {
-      for (let line = 0; line < field.currents; line += 1) {
-        const vertical = (line + 1) / (field.currents + 1);
+      const currentCount = compact ? Math.min(7, field.currents) : field.currents;
+      const stepCount = compact ? 28 : 42;
+      for (let line = 0; line < currentCount; line += 1) {
+        const vertical = (line + 1) / (currentCount + 1);
         const phase = (field.seed % 997) * .001 + line * .83;
         context.beginPath();
-        for (let step = 0; step <= 42; step += 1) {
-          const progress = step / 42;
+        for (let step = 0; step <= stepCount; step += 1) {
+          const progress = step / stepCount;
           const wave = Math.sin(progress * TAU * 1.25 + phase + time * .12)
             + Math.sin(progress * TAU * 2.7 - phase + time * .07) * .33;
           const x = progress * width + (pointerX - .5) * 12;
@@ -160,7 +167,8 @@
 
     function drawNodes(time) {
       const random = randomGenerator(field.seed ^ 0xa5a5a5a5);
-      for (let index = 0; index < field.nodes; index += 1) {
+      const nodeCount = compact ? Math.min(12, field.nodes) : field.nodes;
+      for (let index = 0; index < nodeCount; index += 1) {
         const originX = random() * width;
         const originY = random() * height;
         const orbit = 5 + random() * 18;
@@ -195,14 +203,27 @@
 
     function animate(timestamp) {
       if (root.document.hidden) {
-        frame = root.requestAnimationFrame(animate);
+        frame = 0;
         return;
       }
-      if (timestamp - lastFrame >= FRAME_INTERVAL) {
+      const interval = compact ? COMPACT_FRAME_INTERVAL : FRAME_INTERVAL;
+      if (timestamp - lastFrame >= interval) {
         lastFrame = timestamp;
         draw(timestamp);
       }
       frame = root.requestAnimationFrame(animate);
+    }
+
+    function handleVisibility() {
+      if (root.document.hidden) {
+        root.cancelAnimationFrame?.(frame);
+        frame = 0;
+        return;
+      }
+      if (!reduceMotion && !frame) {
+        lastFrame = -(compact ? COMPACT_FRAME_INTERVAL : FRAME_INTERVAL);
+        frame = root.requestAnimationFrame(animate);
+      }
     }
 
     function handleMotionPreference(event) {
@@ -233,11 +254,12 @@
     roomElement?.addEventListener("input", refreshField);
     root.addEventListener("resize", resize, { passive: true });
     root.addEventListener("pointermove", handlePointerMove, { passive: true });
+    root.document.addEventListener("visibilitychange", handleVisibility);
     motionQuery?.addEventListener("change", handleMotionPreference);
 
     resize();
     canvas.dataset.visualReady = "true";
-    if (!reduceMotion) frame = root.requestAnimationFrame(animate);
+    if (!reduceMotion && !root.document.hidden) frame = root.requestAnimationFrame(animate);
 
     return {
       destroy() {
@@ -246,6 +268,7 @@
         roomElement?.removeEventListener("input", refreshField);
         root.removeEventListener("resize", resize);
         root.removeEventListener("pointermove", handlePointerMove);
+        root.document.removeEventListener("visibilitychange", handleVisibility);
         motionQuery?.removeEventListener("change", handleMotionPreference);
       },
       refresh: refreshField,

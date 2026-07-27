@@ -121,6 +121,12 @@
               accent: ["acid", "cyan", "violet", "magenta", "ember"].includes(player.profile.accent)
                 ? player.profile.accent
                 : "acid",
+              favoriteMode: ["classic", "portal", "rush", "canvas", "live"].includes(player.profile.favoriteMode)
+                ? player.profile.favoriteMode
+                : "classic",
+              snakeStyle: ["signal", "spectral", "glass", "ember"].includes(player.profile.snakeStyle)
+                ? player.profile.snakeStyle
+                : "signal",
               avatar: String(player.profile.avatar || "").slice(0, 128),
             }
             : null,
