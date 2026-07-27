@@ -1,6 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const { execFileSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -9,6 +10,11 @@ const root = __dirname;
 const read = (...segments) => fs.readFileSync(path.join(root, ...segments), "utf8");
 const readBytes = (...segments) => fs.readFileSync(path.join(root, ...segments));
 const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
+const readArchiveText = (archive, file) => execFileSync(
+  "unzip",
+  ["-p", path.join(root, ...archive), file],
+  { encoding: "utf8" },
+);
 
 const wallpaperHtml = read("public", "wallpaper.html");
 const wallpaperScript = read("public", "wallpaper.js");
@@ -31,16 +37,25 @@ const androidService = read(
   "wallpaper",
   "NeonWallpaperService.java",
 );
-const permanentReadme = read("downloads", "v1.1.0", "README.md");
+const permanentWindowsReadme = read("downloads", "v1.1.1", "README.md");
+const permanentAndroidReadme = read("downloads", "v1.1.0", "README.md");
 const permanentWindows = readBytes(
   "downloads",
-  "v1.1.0",
-  "Neon-Snake-Lively-v1.1.0.zip",
+  "v1.1.1",
+  "Neon-Snake-Lively-v1.1.1.zip",
 );
 const permanentAndroid = readBytes(
   "downloads",
   "v1.1.0",
   "Neon-Snake-Android-v1.1.0.apk",
+);
+const shippedLivelyProperties = JSON.parse(readArchiveText(
+  ["downloads", "v1.1.1", "Neon-Snake-Lively-v1.1.1.zip"],
+  "LivelyProperties.json",
+));
+const shippedWallpaperScript = readArchiveText(
+  ["downloads", "v1.1.1", "Neon-Snake-Lively-v1.1.1.zip"],
+  "wallpaper.js",
 );
 
 assert.match(wallpaperHtml, /wallpaperCanvas/);
@@ -48,7 +63,7 @@ assert.match(homeHtml, /href="downloads\.html"/);
 assert.doesNotMatch(homeHtml, /href="wallpaper\.html"/);
 assert.match(homeHtml, /WINDOWS LIVELY · ANDROID LIVE WALLPAPER/);
 assert.match(downloadsHtml, /Neon-Snake-Android-v1\.1\.0\.apk/);
-assert.match(downloadsHtml, /Neon-Snake-Lively-v1\.1\.0\.zip/);
+assert.match(downloadsHtml, /Neon-Snake-Lively-v1\.1\.1\.zip/);
 assert.equal((downloadsHtml.match(/<a class="download-button"[^>]*\bdownload="/g) || []).length, 2);
 assert.match(downloadsHtml, /Download for Android/);
 assert.match(downloadsHtml, /Download for Windows/);
@@ -59,6 +74,8 @@ assert.doesNotMatch(wallpaperHtml, /button|input|select/);
 assert.match(wallpaperScript, /requestAnimationFrame\(render\)/);
 assert.match(wallpaperScript, /visibilitychange/);
 assert.match(wallpaperScript, /livelyPropertyListener/);
+assert.match(wallpaperScript, /resolveLivelyChoice\(value, PALETTE_CHOICES\)/);
+assert.match(wallpaperScript, /resolveLivelyChoice\(value, MODE_CHOICES\)/);
 assert.match(wallpaperScript, /livelyWallpaperPlaybackChanged/);
 assert.match(wallpaperScript, /Math\.min\(2, Math\.max\(1, devicePixelRatio/);
 assert.match(wallpaperScript, /fps: clampNumber\(query\.get\("fps"\), 8, 30, 24\)/);
@@ -109,6 +126,14 @@ assert.match(livelyInfo.Arguments, /--pause-event true/);
 assert.equal(livelyProperties.fps.max, 30);
 assert.equal(livelyProperties.fps.min, 8);
 assert.deepEqual(livelyProperties.mode.items, ["classic", "portal"]);
+for (const [name, property] of Object.entries(livelyProperties)) {
+  if (property.type !== "dropdown") continue;
+  assert.ok(Number.isInteger(property.value), `${name} dropdown default must be an integer`);
+  assert.ok(property.value >= 0 && property.value < property.items.length);
+  assert.deepEqual(shippedLivelyProperties[name], property);
+}
+assert.match(shippedWallpaperScript, /resolveLivelyChoice\(value, PALETTE_CHOICES\)/);
+assert.match(shippedWallpaperScript, /resolveLivelyChoice\(value, MODE_CHOICES\)/);
 
 assert.match(androidManifest, /android\.software\.live_wallpaper/);
 assert.match(androidManifest, /android\.permission\.BIND_WALLPAPER/);
@@ -124,8 +149,8 @@ assert.match(androidService, /drawPickupEffects/);
 assert.match(androidService, /quadTo/);
 assert.match(androidService, /snake\.foodsEaten\(\)/);
 assert.match(read("wallpaper", "android", "app", "src", "main", "java", "app", "neonsnake", "wallpaper", "AutonomousSnake.java"), /shortestFoodMove/);
-assert.match(permanentReadme, new RegExp(sha256(permanentWindows)));
-assert.match(permanentReadme, new RegExp(sha256(permanentAndroid)));
+assert.match(permanentWindowsReadme, new RegExp(sha256(permanentWindows)));
+assert.match(permanentAndroidReadme, new RegExp(sha256(permanentAndroid)));
 assert.equal(permanentWindows.subarray(0, 2).toString("ascii"), "PK");
 assert.equal(permanentAndroid.subarray(0, 2).toString("ascii"), "PK");
 assert.ok(permanentWindows.length > 25_000);

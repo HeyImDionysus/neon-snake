@@ -147,7 +147,8 @@ const tests = [
     assert.match(headers["Content-Security-Policy"], /connect-src 'self'/);
     assert.doesNotMatch(headers["Content-Security-Policy"], /unsafe-inline|unsafe-eval/);
     assert.equal(headers["X-Content-Type-Options"], "nosniff");
-    assert.equal(headers["X-Frame-Options"], "DENY");
+    assert.match(headers["Content-Security-Policy"], /frame-ancestors https:\/\/discord\.com https:\/\/\*\.discord\.com/);
+    assert.equal(headers["X-Frame-Options"], undefined);
     assert.match(headers["Permissions-Policy"], /camera=\(\)/);
     assert.match(headers["Permissions-Policy"], /microphone=\(\)/);
   }],

@@ -179,6 +179,14 @@
     profile: null,
     refresh: () => Promise.all([loadAccount(), loadLeaderboard()]),
   };
+  root.addEventListener("neon-activity-ready", () => {
+    void root.NeonSnakeAccount.refresh();
+  });
+  if (root.NeonSnakeActivity?.embedded) {
+    void root.NeonSnakeActivity.ready
+      .then(() => root.NeonSnakeAccount.refresh())
+      .catch(() => {});
+  }
   void root.NeonSnakeAccount.refresh();
   if (leaderboard) {
     setInterval(() => {

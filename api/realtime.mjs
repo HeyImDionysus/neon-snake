@@ -30,7 +30,7 @@ const webSockets = new WebSocketServer({
   maxPayload: realtimeCore.MAX_MESSAGE_BYTES,
   perMessageDeflate: false,
   verifyClient(info, done) {
-    if (!realtimeCore.requestIsSameOrigin(info.req)) {
+    if (!realtimeCore.requestIsAllowedOrigin(info.req, process.env)) {
       done(false, 403, "Origin not allowed");
       return;
     }

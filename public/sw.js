@@ -1,11 +1,13 @@
 "use strict";
 
-const CACHE_NAME = "neon-snake-shell-v73";
+const CACHE_NAME = "neon-snake-shell-v74";
 const APP_SHELL = [
   "/",
   "/index.html",
   "/styles.css",
   "/duel.html",
+  "/activity-redirect.js",
+  "/activity-sdk.js",
   "/downloads.html",
   "/profile.html",
   "/wallpaper.html",
