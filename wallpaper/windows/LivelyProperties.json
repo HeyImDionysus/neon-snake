@@ -11,7 +11,7 @@
     "min": 70,
     "text": "Snake pace",
     "type": "slider",
-    "value": 132
+    "value": 112
   },
   "glow": {
     "max": 100,

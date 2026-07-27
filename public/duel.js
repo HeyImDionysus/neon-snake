@@ -720,15 +720,21 @@ function postRoomMessage(message) {
 
 function updateRosterSlot(element, player, index) {
   element.classList.toggle("connected", Boolean(player));
+  [...element.classList]
+    .filter((name) => name.startsWith("accent-"))
+    .forEach((name) => element.classList.remove(name));
   element.querySelector("span").textContent = `PLAYER ${index + 1}`;
   if (!player) {
     element.querySelector("strong").textContent = "OPEN";
     return;
   }
+  const username = String(player.profile?.username || "").slice(0, 32);
   const name = player.id === clientId
     ? "YOU"
-    : String(player.profile?.displayName || "RIVAL").slice(0, 28).toUpperCase();
-  element.querySelector("strong").textContent = `${name} · ${player.ready ? "READY" : "CONNECTED"}`;
+    : String(player.profile?.callsign || player.profile?.displayName || "RIVAL").slice(0, 24).toUpperCase();
+  const identity = username ? `${name} · @${username}` : name;
+  element.classList.add(`accent-${player.profile?.accent || "acid"}`);
+  element.querySelector("strong").textContent = `${identity} · ${player.ready ? "READY" : "CONNECTED"}`;
 }
 
 function activeRoomRoster() {

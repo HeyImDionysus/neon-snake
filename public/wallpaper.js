@@ -2,54 +2,77 @@
   "use strict";
 
   const Rules = root.SnakeRules;
+  const Engine = root.NeonWallpaperEngine;
+  const surface = document.querySelector(".wallpaper-surface");
   const canvas = document.querySelector("#wallpaperCanvas");
   const signalLabel = document.querySelector("#wallpaperSignal");
+  const scoreLabel = document.querySelector("#wallpaperScore");
+  const chainLabel = document.querySelector("#wallpaperChain");
+  const pickup = document.querySelector("#wallpaperPickup");
+  const pickupName = document.querySelector("#wallpaperPickupName");
+  const pickupPoints = document.querySelector("#wallpaperPickupPoints");
   const context = canvas?.getContext("2d", { alpha: false });
-  if (!Rules || !canvas || !context) return;
+  if (!Rules || !Engine || !surface || !canvas || !context) return;
 
-  const GRID = 20;
-  const DIRECTIONS = [
-    { name: "up", x: 0, y: -1 },
-    { name: "right", x: 1, y: 0 },
-    { name: "down", x: 0, y: 1 },
-    { name: "left", x: -1, y: 0 },
-  ];
   const PALETTES = {
-    acid: ["#adff66", "#66e3ff", "#a98bff", "#ff7657"],
-    aurora: ["#66e3ff", "#8affd1", "#a98bff", "#ffd166"],
-    ultraviolet: ["#c797ff", "#ff6ed1", "#7ce7ff", "#adff66"],
+    acid: {
+      body: "#8ddd55",
+      bodyDark: "#294b2c",
+      bodyLight: "#d4ffa8",
+      secondary: "#66e3ff",
+      field: "#adff66",
+      food: "#ff7657",
+      core: "#ffd166",
+      atmosphere: "35, 78, 45",
+    },
+    aurora: {
+      body: "#69e5c0",
+      bodyDark: "#214c46",
+      bodyLight: "#d8fff4",
+      secondary: "#66e3ff",
+      field: "#8affd1",
+      food: "#ff8870",
+      core: "#ffd166",
+      atmosphere: "31, 77, 73",
+    },
+    ultraviolet: {
+      body: "#c797ff",
+      bodyDark: "#4c3266",
+      bodyLight: "#f2e6ff",
+      secondary: "#ff6ed1",
+      field: "#a98bff",
+      food: "#ff7657",
+      core: "#ffd166",
+      atmosphere: "64, 42, 91",
+    },
   };
   const query = new URLSearchParams(location.search);
+  const signal = Rules.normalizeSignalCode(query.get("signal")) || createSignal();
   const settings = {
     fps: clampNumber(query.get("fps"), 8, 30, 24),
-    pace: clampNumber(query.get("pace"), 70, 260, 132),
+    pace: clampNumber(query.get("pace"), 70, 260, 112),
     mode: query.get("mode") === "portal" ? "portal" : "classic",
     palette: PALETTES[query.get("palette")] ? query.get("palette") : "acid",
     glow: clampNumber(query.get("glow"), 0, 1, .78),
     mark: query.get("mark") !== "off",
   };
-
+  let engine = Engine.createWallpaperEngine({ rules: Rules, signal, mode: settings.mode });
+  let state = engine.snapshot();
+  let previousSnake = state.snake.map((point) => ({ ...point }));
   let width = 1;
   let height = 1;
-  let scale = 1;
+  let pixelRatio = 1;
   let tile = 1;
   let boardSize = 1;
   let boardX = 0;
   let boardY = 0;
-  let snake = [];
-  let previousSnake = [];
-  let direction = { x: 1, y: 0 };
-  let food = null;
-  let signal = Rules.normalizeSignalCode(query.get("signal")) || createSignal();
-  let randomState = Rules.signalState(signal);
-  let recentHeads = [];
-  let plan = [];
-  let planTarget = "";
   let lastStepAt = performance.now();
   let nextStepAt = lastStepAt + settings.pace;
   let lastFrameAt = 0;
   let animationFrame = 0;
   let visible = !document.hidden;
+  let pickupTimer = 0;
+  let pickupEffects = [];
 
   signalLabel.textContent = `SIGNAL ${signal}`;
   document.querySelector(".wallpaper-mark").hidden = !settings.mark;
@@ -61,219 +84,282 @@
 
   function createSignal() {
     const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
-    let state = (Date.now() ^ Math.floor(performance.now() * 1000)) >>> 0;
+    let seed = (Date.now() ^ Math.floor(performance.now() * 1000)) >>> 0;
     let result = "";
     for (let index = 0; index < 6; index += 1) {
-      const next = Rules.nextSignalRandom(state);
-      state = next.state;
+      const next = Rules.nextSignalRandom(seed);
+      seed = next.state;
       result += alphabet[Math.floor(next.value * alphabet.length)];
     }
     return result;
   }
 
-  function nextRandom() {
-    const next = Rules.nextSignalRandom(randomState);
-    randomState = next.state;
-    return next.value;
-  }
-
-  function reset() {
-    snake = [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }];
-    previousSnake = snake.map((segment) => ({ ...segment }));
-    direction = { x: 1, y: 0 };
-    recentHeads = [];
-    plan = [];
-    planTarget = "";
-    placeFood();
+  function rebuildEngine() {
+    engine = Engine.createWallpaperEngine({ rules: Rules, signal, mode: settings.mode });
+    state = engine.snapshot();
+    previousSnake = state.snake.map((point) => ({ ...point }));
     lastStepAt = performance.now();
     nextStepAt = lastStepAt + settings.pace;
+    updateHud();
   }
 
-  function placeFood() {
-    const occupied = new Set(snake.map((segment) => `${segment.x},${segment.y}`));
-    const free = [];
-    for (let y = 0; y < GRID; y += 1) {
-      for (let x = 0; x < GRID; x += 1) {
-        if (!occupied.has(`${x},${y}`)) free.push({ x, y });
-      }
-    }
-    food = free.length ? free[Math.floor(nextRandom() * free.length)] : null;
+  function updateHud() {
+    scoreLabel.textContent = String(state.score).padStart(5, "0");
+    chainLabel.textContent = String(state.snake.length).padStart(3, "0");
   }
 
-  function legalPlannedMove(move) {
-    if (!move || Rules.isReverseDirection(move, direction)) return false;
-    const head = Rules.nextHead(snake[0], move, settings.mode, GRID);
-    const growing = Boolean(food && head.x === food.x && head.y === food.y);
-    return !Rules.collisionType(head, snake, growing, settings.mode, GRID);
+  function boardPoint(point) {
+    return {
+      x: boardX + (point.x + .5) * tile,
+      y: boardY + (point.y + .5) * tile,
+    };
   }
 
-  function chooseDirection() {
-    const target = food ? `${food.x},${food.y}` : "none";
-    if (planTarget !== target || !plan.length || !legalPlannedMove(plan[0])) {
-      const evaluations = Rules.evaluateMoves({
-        snake,
-        direction,
-        food,
-        mode: settings.mode,
-        gridSize: GRID,
-        candidates: DIRECTIONS,
-        recentHeads,
-      });
-      const choice = Rules.chooseBestMove(evaluations);
-      plan = choice?.route?.length
-        ? choice.route.map((move) => ({ x: move.x, y: move.y }))
-        : choice?.direction ? [{ ...choice.direction }] : [];
-      planTarget = target;
-    }
-    const next = plan.shift();
-    return legalPlannedMove(next) ? next : direction;
+  function resize() {
+    const bounds = surface.getBoundingClientRect();
+    width = Math.max(1, bounds.width);
+    height = Math.max(1, bounds.height);
+    pixelRatio = Math.min(2, Math.max(1, devicePixelRatio || 1));
+    canvas.width = Math.round(width * pixelRatio);
+    canvas.height = Math.round(height * pixelRatio);
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+    const landscape = width / height > 1.18;
+    boardSize = Math.min(width * (landscape ? .72 : .9), height * (landscape ? .84 : .72));
+    tile = boardSize / 20;
+    boardX = (width - boardSize) / 2;
+    boardY = (height - boardSize) / 2 + (landscape ? height * .025 : height * .055);
+  }
+
+  function spawnPickupEffects(event) {
+    const origin = boardPoint(event.food);
+    const palette = PALETTES[settings.palette];
+    const color = event.food.kind === "core" ? palette.core : palette.food;
+    pickupEffects.push({
+      x: origin.x,
+      y: origin.y,
+      born: performance.now(),
+      color,
+      points: event.points,
+    });
+    pickupName.textContent = event.food.kind === "core" ? "CORE ACQUIRED" : "SIGNAL ACQUIRED";
+    pickupPoints.textContent = `+${event.points}`;
+    pickup.classList.add("is-visible");
+    clearTimeout(pickupTimer);
+    pickupTimer = setTimeout(() => pickup.classList.remove("is-visible"), 850);
   }
 
   function step(now) {
-    previousSnake = snake.map((segment) => ({ ...segment }));
-    direction = chooseDirection();
-    const head = Rules.nextHead(snake[0], direction, settings.mode, GRID);
-    const growing = Boolean(food && head.x === food.x && head.y === food.y);
-    if (Rules.collisionType(head, snake, growing, settings.mode, GRID)) {
-      reset();
-      return;
-    }
-    snake.unshift(head);
-    recentHeads.push({ ...head });
-    if (recentHeads.length > 192) recentHeads.shift();
-    if (growing) {
-      placeFood();
-      plan = [];
-    } else {
-      snake.pop();
-    }
-    if (!food) {
-      signal = createSignal();
-      randomState = Rules.signalState(signal);
-      signalLabel.textContent = `SIGNAL ${signal}`;
-      reset();
-      return;
-    }
+    previousSnake = state.snake.map((point) => ({ ...point }));
+    const event = engine.step();
+    state = engine.snapshot();
+    if (event?.type === "eat" || event?.type === "complete") spawnPickupEffects(event);
+    updateHud();
     lastStepAt = now;
     nextStepAt = now + settings.pace;
   }
 
-  function resize() {
-    width = Math.max(1, innerWidth);
-    height = Math.max(1, innerHeight);
-    scale = Math.min(2, Math.max(1, devicePixelRatio || 1));
-    canvas.width = Math.round(width * scale);
-    canvas.height = Math.round(height * scale);
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
-    context.setTransform(scale, 0, 0, scale, 0, 0);
-    boardSize = Math.min(width, height) * (width / height > 2 ? .78 : .86);
-    tile = boardSize / GRID;
-    boardX = (width - boardSize) / 2;
-    boardY = (height - boardSize) / 2;
-  }
-
   function drawBackground(now) {
     const palette = PALETTES[settings.palette];
+    const driftX = width * (.3 + Math.sin(now * .00008) * .08);
+    const driftY = height * (.22 + Math.cos(now * .00007) * .07);
     const gradient = context.createRadialGradient(
-      width * (.35 + Math.sin(now * .00008) * .08),
-      height * (.28 + Math.cos(now * .00007) * .06),
+      driftX,
+      driftY,
       0,
       width * .5,
       height * .5,
-      Math.max(width, height) * .82,
+      Math.max(width, height) * .86,
     );
-    gradient.addColorStop(0, "rgba(30, 35, 52, 1)");
-    gradient.addColorStop(.46, "rgba(9, 11, 18, 1)");
-    gradient.addColorStop(1, "rgba(3, 4, 7, 1)");
+    gradient.addColorStop(0, `rgba(${palette.atmosphere}, .48)`);
+    gradient.addColorStop(.4, "rgba(7, 15, 9, 1)");
+    gradient.addColorStop(1, "rgba(2, 5, 3, 1)");
     context.fillStyle = gradient;
     context.fillRect(0, 0, width, height);
 
     context.save();
-    context.translate(boardX, boardY);
-    context.strokeStyle = `${palette[1]}12`;
+    context.globalCompositeOperation = "lighter";
+    for (let index = 0; index < 34; index += 1) {
+      const x = ((index * 223 + 91) % 997) / 997 * width;
+      const baseY = ((index * 167 + 47) % 991) / 991 * height;
+      const y = (baseY + Math.sin(now * .0004 + index) * 8 + height) % height;
+      context.globalAlpha = .04 + (index % 5 === 0 ? .05 : 0);
+      context.fillStyle = index % 6 === 0 ? palette.secondary : palette.field;
+      context.beginPath();
+      context.arc(x, y, index % 7 === 0 ? 1.5 : .8, 0, Math.PI * 2);
+      context.fill();
+    }
+    context.restore();
+
+    const boardGlow = context.createRadialGradient(
+      boardX + boardSize * .5,
+      boardY + boardSize * .45,
+      boardSize * .08,
+      boardX + boardSize * .5,
+      boardY + boardSize * .5,
+      boardSize * .72,
+    );
+    boardGlow.addColorStop(0, `rgba(${palette.atmosphere}, .12)`);
+    boardGlow.addColorStop(1, "rgba(2, 7, 4, .04)");
+    context.fillStyle = boardGlow;
+    context.fillRect(boardX, boardY, boardSize, boardSize);
+    context.strokeStyle = `${palette.field}20`;
     context.lineWidth = 1;
-    for (let index = 0; index <= GRID; index += 1) {
-      const offset = Math.round(index * tile) + .5;
+    context.strokeRect(boardX + .5, boardY + .5, boardSize - 1, boardSize - 1);
+
+    const corner = Math.max(12, tile * .8);
+    context.strokeStyle = `${palette.field}66`;
+    context.lineWidth = 2;
+    [
+      [boardX, boardY, 1, 1],
+      [boardX + boardSize, boardY, -1, 1],
+      [boardX, boardY + boardSize, 1, -1],
+      [boardX + boardSize, boardY + boardSize, -1, -1],
+    ].forEach(([x, y, sx, sy]) => {
       context.beginPath();
-      context.moveTo(offset, 0);
-      context.lineTo(offset, boardSize);
+      context.moveTo(x, y + sy * corner);
+      context.lineTo(x, y);
+      context.lineTo(x + sx * corner, y);
       context.stroke();
+    });
+  }
+
+  function drawFood(now) {
+    if (!state.food) return;
+    const palette = PALETTES[settings.palette];
+    const point = boardPoint(state.food);
+    const core = state.food.kind === "core";
+    const color = core ? palette.core : palette.food;
+    const pulse = 1 + Math.sin(now / 150) * .1;
+    context.save();
+    context.translate(point.x, point.y);
+    context.rotate(core ? now / 650 : 0);
+    context.shadowColor = color;
+    context.shadowBlur = tile * (core ? 1.1 : .8) * settings.glow;
+    context.strokeStyle = color;
+    context.lineWidth = Math.max(1.5, tile * .055);
+    context.globalAlpha = .34;
+    context.beginPath();
+    context.arc(0, 0, tile * .42 * pulse, 0, Math.PI * 2);
+    context.stroke();
+    context.globalAlpha = 1;
+    context.fillStyle = color;
+    if (core) {
+      const size = tile * .26 * pulse;
       context.beginPath();
-      context.moveTo(0, offset);
-      context.lineTo(boardSize, offset);
-      context.stroke();
+      context.moveTo(0, -size);
+      context.lineTo(size, 0);
+      context.lineTo(0, size);
+      context.lineTo(-size, 0);
+      context.closePath();
+      context.fill();
+    } else {
+      context.beginPath();
+      context.arc(0, 0, tile * .21 * pulse, 0, Math.PI * 2);
+      context.fill();
     }
     context.restore();
   }
 
-  function drawFood(now) {
-    if (!food) return;
-    const palette = PALETTES[settings.palette];
-    const pulse = .82 + Math.sin(now * .004) * .18;
-    const x = boardX + (food.x + .5) * tile;
-    const y = boardY + (food.y + .5) * tile;
-    context.save();
-    context.shadowBlur = tile * (1.1 + settings.glow);
-    context.shadowColor = palette[3];
-    context.fillStyle = palette[3];
-    context.beginPath();
-    context.arc(x, y, Math.max(2.5, tile * .17 * pulse), 0, Math.PI * 2);
-    context.fill();
-    context.strokeStyle = `${palette[0]}9e`;
-    context.lineWidth = Math.max(1, tile * .035);
-    context.beginPath();
-    context.arc(x, y, tile * (.32 + pulse * .08), 0, Math.PI * 2);
-    context.stroke();
-    context.restore();
+  function interpolatedSnake(now) {
+    const progress = Math.min(1, Math.max(0, (now - lastStepAt) / settings.pace));
+    return Rules.fluidMotionPath(previousSnake, state.snake, progress, 20);
   }
 
-  function interpolatedSnake(progress) {
-    return snake.map((segment, index) => {
-      const previous = previousSnake[index] || previousSnake[previousSnake.length - 1] || segment;
-      let dx = segment.x - previous.x;
-      let dy = segment.y - previous.y;
-      if (settings.mode === "portal") {
-        if (Math.abs(dx) > 1) dx = dx > 0 ? dx - GRID : dx + GRID;
-        if (Math.abs(dy) > 1) dy = dy > 0 ? dy - GRID : dy + GRID;
-      }
-      return {
-        x: previous.x + dx * progress,
-        y: previous.y + dy * progress,
-      };
+  function strokeSnakeGroups(points, color, widthRatio, alpha = 1) {
+    const groups = Rules.splitFluidPath(points, 20);
+    context.globalAlpha = alpha;
+    context.strokeStyle = color;
+    context.lineWidth = Math.max(2, tile * widthRatio);
+    groups.forEach((group) => {
+      if (!group.length) return;
+      context.beginPath();
+      group.forEach((point, index) => {
+        const pixel = boardPoint(point);
+        if (!index) context.moveTo(pixel.x, pixel.y);
+        else context.lineTo(pixel.x, pixel.y);
+      });
+      context.stroke();
     });
+  }
+
+  function drawSnakeHead(point, now) {
+    const palette = PALETTES[settings.palette];
+    const head = boardPoint(point);
+    const angle = Math.atan2(state.direction.y, state.direction.x);
+    context.save();
+    context.translate(head.x, head.y);
+    context.rotate(angle);
+    context.globalAlpha = .18;
+    context.fillStyle = palette.field;
+    context.beginPath();
+    context.arc(0, 0, tile * .52, 0, Math.PI * 2);
+    context.fill();
+    context.globalAlpha = 1;
+    context.shadowColor = palette.field;
+    context.shadowBlur = tile * settings.glow * .62;
+    context.fillStyle = palette.bodyLight;
+    context.beginPath();
+    context.arc(0, 0, tile * .39, 0, Math.PI * 2);
+    context.fill();
+    context.shadowBlur = 0;
+    context.fillStyle = "#122015";
+    [-1, 1].forEach((side) => {
+      context.beginPath();
+      context.arc(tile * .16, side * tile * .12, Math.max(1.5, tile * .055), 0, Math.PI * 2);
+      context.fill();
+    });
+    context.restore();
   }
 
   function drawSnake(now) {
     const palette = PALETTES[settings.palette];
-    const progress = Math.min(1, Math.max(0, (now - lastStepAt) / settings.pace));
-    const points = interpolatedSnake(progress);
-    const radius = Math.max(2.5, tile * .23);
+    const points = interpolatedSnake(now);
+    if (!points.length) return;
     context.save();
     context.lineCap = "round";
     context.lineJoin = "round";
-    context.lineWidth = Math.max(4, tile * .48);
-    context.shadowBlur = tile * settings.glow;
-    context.shadowColor = palette[0];
-    context.strokeStyle = palette[0];
-    context.beginPath();
-    points.forEach((point, index) => {
-      const x = boardX + (point.x + .5) * tile;
-      const y = boardY + (point.y + .5) * tile;
-      if (!index) context.moveTo(x, y);
-      else context.lineTo(x, y);
-    });
-    context.stroke();
-    points.forEach((point, index) => {
-      const x = boardX + (point.x + .5) * tile;
-      const y = boardY + (point.y + .5) * tile;
-      context.globalAlpha = Math.max(.16, 1 - index / Math.max(points.length, 12));
-      context.fillStyle = index ? palette[index % 3] : "#f4ffe9";
-      context.beginPath();
-      context.arc(x, y, index ? radius * .72 : radius, 0, Math.PI * 2);
-      context.fill();
-    });
+    context.shadowColor = palette.field;
+    context.shadowBlur = tile * settings.glow * .34;
+    strokeSnakeGroups(points, palette.field, 1.08, .13);
+    context.shadowBlur = 0;
+    strokeSnakeGroups(points, palette.bodyDark, .82);
+    strokeSnakeGroups(points, palette.body, .64);
+    strokeSnakeGroups(points, palette.bodyLight, .08, .22);
     context.restore();
+    drawSnakeHead(points[0], now);
+  }
+
+  function drawPickupEffects(now) {
+    pickupEffects = pickupEffects.filter((effect) => now - effect.born < 900);
+    pickupEffects.forEach((effect) => {
+      const progress = Math.min(1, (now - effect.born) / 900);
+      context.save();
+      context.globalAlpha = (1 - progress) * .8;
+      context.strokeStyle = effect.color;
+      context.lineWidth = Math.max(1, tile * .05);
+      context.shadowColor = effect.color;
+      context.shadowBlur = tile * .5;
+      context.beginPath();
+      context.arc(effect.x, effect.y, tile * (.2 + progress * 1.4), 0, Math.PI * 2);
+      context.stroke();
+      for (let index = 0; index < 8; index += 1) {
+        const angle = index / 8 * Math.PI * 2;
+        const distance = tile * progress * 1.8;
+        context.fillStyle = effect.color;
+        context.beginPath();
+        context.arc(
+          effect.x + Math.cos(angle) * distance,
+          effect.y + Math.sin(angle) * distance,
+          Math.max(1, tile * .06 * (1 - progress)),
+          0,
+          Math.PI * 2,
+        );
+        context.fill();
+      }
+      context.restore();
+    });
   }
 
   function render(now) {
@@ -289,6 +375,7 @@
     drawBackground(now);
     drawFood(now);
     drawSnake(now);
+    drawPickupEffects(now);
   }
 
   function setVisibility(nextVisible) {
@@ -307,7 +394,7 @@
     if (name === "palette" && PALETTES[value]) settings.palette = value;
     if (name === "mode" && ["classic", "portal"].includes(value)) {
       settings.mode = value;
-      reset();
+      rebuildEngine();
     }
     if (name === "mark") {
       settings.mark = Boolean(value);
@@ -316,15 +403,18 @@
   };
 
   root.livelyWallpaperPlaybackChanged = (data) => {
-    const state = typeof data === "string" ? Number(data) : Number(data?.state ?? data);
-    setVisibility(state !== 0);
+    const playbackState = typeof data === "string" ? Number(data) : Number(data?.state ?? data);
+    setVisibility(playbackState !== 0);
   };
 
   addEventListener("resize", resize, { passive: true });
   document.addEventListener("visibilitychange", () => setVisibility(!document.hidden));
-  addEventListener("pagehide", () => cancelAnimationFrame(animationFrame), { once: true });
+  addEventListener("pagehide", () => {
+    cancelAnimationFrame(animationFrame);
+    clearTimeout(pickupTimer);
+  }, { once: true });
 
   resize();
-  reset();
+  updateHud();
   animationFrame = requestAnimationFrame(render);
 })(globalThis);

@@ -19,29 +19,36 @@
     <div class="ambient ambient-one" aria-hidden="true"></div>
     <div class="ambient ambient-two" aria-hidden="true"></div>
 
-    <header class="site-header duel-header">
+    <header class="site-header product-header duel-header">
       <a class="brand" href="./" aria-label="Return to Neon Snake">
         <span class="brand-glyph" aria-hidden="true"><img src="assets/signal-mark.svg" alt="" /></span>
         <span>NEON SNAKE</span>
       </a>
-      <div class="system-status" aria-live="polite">
-        <span class="status-light" aria-hidden="true"></span>
-        <span id="duelStatus">DUEL LAB READY</span>
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a href="./">PLAY</a>
+        <a href="duel.html" aria-current="page">MULTIPLAYER</a>
+        <a href="downloads.html">WALLPAPERS</a>
+        <a href="./#leaderboard">LEADERBOARD</a>
+      </nav>
+      <div class="header-actions">
+        <div class="system-status" aria-live="polite">
+          <span class="status-light" aria-hidden="true"></span>
+          <span id="duelStatus">DUEL READY</span>
+        </div>
+        <div class="account-control" data-account-control>
+          <a class="discord-login" href="/api/auth/discord/start">Sign in with Discord</a>
+        </div>
       </div>
-      <div class="account-control" data-account-control>
-        <a class="discord-login" href="/api/auth/discord/start">Sign in with Discord</a>
-      </div>
-      <a class="duel-back" href="./">SOLO LAB ↗</a>
     </header>
 
     <main class="duel-shell">
       <section class="duel-stage" aria-labelledby="duelTitle">
         <header class="duel-intro">
           <div>
-            <p class="section-kicker">EXPERIMENT 02 / SHARED SPACE</p>
-            <h1 id="duelTitle">TWO SIGNALS.<br /><em>ONE ARENA.</em></h1>
+            <p class="section-kicker">DUEL LAB</p>
+            <h1 id="duelTitle">TWO SNAKES.<br /><em>ONE LAST MOVE.</em></h1>
           </div>
-          <p>Same canvas footprint. A 30 × 30 logical field. Smaller bodies, 125% more room, and every collision resolved on the same tick.</p>
+          <p>Both snakes move on the same server tick. First crash loses. A shared collision ends in a draw.</p>
         </header>
 
         <div class="duel-console">
@@ -75,7 +82,7 @@
               <div>
                 <p class="overlay-kicker" id="duelKicker">DUEL PROTOCOL</p>
                 <h2 id="duelOverlayTitle">FACE THE<br /><em>ENGINE</em></h2>
-                <p id="duelMessage">You steer the acid signal. The violet rival is deterministic code built to read, predict, and survive.</p>
+                <p id="duelMessage">You are acid. The Autopilot is violet. Outlast it.</p>
                 <button class="primary-button" id="aiStartButton" type="button">
                   <span>Play vs Autopilot</span><span aria-hidden="true">⚔</span>
                 </button>
@@ -109,9 +116,9 @@
         </div>
 
         <section class="duel-panel" id="aiPanel" role="tabpanel" aria-labelledby="aiTab">
-          <p class="section-kicker">AUTONOMOUS CONTROLLER</p>
-          <h2>Outlive the engine.</h2>
-          <p>This deterministic decision system runs entirely in your browser. It rejects collisions, compares your legal replies, measures future space, and commits to the strongest bounded line it can find.</p>
+          <p class="section-kicker">VS AUTOPILOT</p>
+          <h2>Beat the machine.</h2>
+          <p>It can read the board, but it cannot read your next move.</p>
           <section class="system-trace ai-system-trace" aria-labelledby="aiTraceTitle">
             <header>
               <span id="aiTraceTitle">DECISION TRACE</span>
@@ -149,11 +156,11 @@
 
         <section class="duel-panel live-panel" id="livePanel" role="tabpanel" aria-labelledby="liveTab" hidden>
           <div class="room-status-row">
-            <p class="section-kicker">ROOM PROTOCOL</p>
+          <p class="section-kicker">LIVE MULTIPLAYER</p>
             <span>PUBLIC LIVE ROOM</span>
           </div>
-          <h2>Wait for your rival.</h2>
-          <p>Share one Signal Code across phones, tablets, or computers. The room reserves two player slots and stops the duel if either rival disconnects.</p>
+          <h2>Bring a rival.</h2>
+          <p>Share one room code. Both players connect, both press Ready, and the server owns the match.</p>
           <section class="system-trace room-system-trace" aria-labelledby="roomTraceTitle">
             <header>
               <span id="roomTraceTitle">ROOM ARCHITECTURE</span>
@@ -165,7 +172,7 @@
               <span>ROOM SIMULATION</span><i aria-hidden="true">→</i>
               <span>VERIFIED SNAPSHOT</span>
             </div>
-            <p>A native Vercel WebSocket room owns every 138 ms tick, validates both players' inputs, resolves collisions once, and publishes the same result to both screens. Signed-in outcomes can enter the verified leaderboard.</p>
+            <p>Inputs go up. One verified result comes back. Signed-in players build a public record.</p>
           </section>
 
           <label class="room-code-label" for="roomCodeInput">ROOM SIGNAL</label>
@@ -193,9 +200,9 @@
         </section>
 
         <section class="duel-method">
-          <p class="section-kicker">HONEST BOUNDARY</p>
-          <h3>Local Autopilot. Authoritative live rooms.</h3>
-          <p>The Autopilot stays on-device. Public Live Rooms use a persistent Vercel WebSocket simulation and require two connected players plus two Ready signals before countdown.</p>
+          <p class="section-kicker">WHAT COUNTS</p>
+          <h3>Only the server records wins.</h3>
+          <p>Local duels are practice. Verified leaderboard results come only from completed live rooms between two different signed-in players.</p>
         </section>
 
         <div class="instructions duel-instructions" id="duelInstructions">

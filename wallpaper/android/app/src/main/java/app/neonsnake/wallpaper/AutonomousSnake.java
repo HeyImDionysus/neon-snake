@@ -1,9 +1,10 @@
 package app.neonsnake.wallpaper;
 
-import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 final class AutonomousSnake {
@@ -23,22 +24,20 @@ final class AutonomousSnake {
         }
     }
 
-    private static final Point[] DIRECTIONS = {
-        new Point(0, -1),
-        new Point(1, 0),
-        new Point(0, 1),
-        new Point(-1, 0),
-    };
-
     private final ArrayList<Point> body = new ArrayList<>();
-    private final ArrayDeque<Point> recentHeads = new ArrayDeque<>();
+    private final ArrayList<Point> cycle = new ArrayList<>();
+    private final Map<String, Integer> cycleIndexes = new HashMap<>();
     private int randomState;
     private Point direction = new Point(1, 0);
     private Point food;
+    private int foodsEaten;
+    private int score;
+    private int lastPoints;
 
     AutonomousSnake(int seed) {
         randomState = seed == 0 ? 0x6d2b79f5 : seed;
-        reset();
+        buildCycle();
+        reset(false);
     }
 
     List<Point> body() {
@@ -49,129 +48,114 @@ final class AutonomousSnake {
         return food;
     }
 
-    void reset() {
+    Point direction() {
+        return direction;
+    }
+
+    int foodsEaten() {
+        return foodsEaten;
+    }
+
+    int score() {
+        return score;
+    }
+
+    int lastPoints() {
+        return lastPoints;
+    }
+
+    boolean foodIsCore() {
+        return food != null && (foodsEaten + 1) % 5 == 0;
+    }
+
+    void reset(boolean preserveCareer) {
+        if (!preserveCareer) {
+            foodsEaten = 0;
+            score = 0;
+            lastPoints = 0;
+        }
         body.clear();
         body.add(new Point(10, 10));
         body.add(new Point(9, 10));
         body.add(new Point(8, 10));
-        recentHeads.clear();
         direction = new Point(1, 0);
-        placeFood();
+        placeFood(true);
     }
 
-    void step() {
-        Point nextDirection = chooseDirection();
-        Point head = nextHead(body.get(0), nextDirection);
+    boolean step() {
+        Point nextDirection = shortestFoodMove();
+        Point head = new Point(body.get(0).x + nextDirection.x, body.get(0).y + nextDirection.y);
         boolean growing = food != null && head.x == food.x && head.y == food.y;
-        if (collision(head, growing)) {
-            reset();
-            return;
+        if (!inside(head) || occupied(growing).contains(head.key())) {
+            reset(true);
+            return false;
         }
+
         direction = nextDirection;
         body.add(0, head);
-        recentHeads.addLast(head);
-        while (recentHeads.size() > 160) recentHeads.removeFirst();
-        if (growing) {
-            placeFood();
-        } else {
+        if (!growing) {
             body.remove(body.size() - 1);
+            return false;
         }
-        if (food == null) reset();
+
+        foodsEaten += 1;
+        lastPoints = foodsEaten % 5 == 0 ? 50 : 10;
+        score += lastPoints;
+        if (body.size() >= cycle.size()) reset(true);
+        else placeFood(false);
+        return true;
     }
 
-    private Point chooseDirection() {
-        Point best = direction;
-        long bestScore = Long.MIN_VALUE;
-        for (int index = 0; index < DIRECTIONS.length; index += 1) {
-            Point candidate = DIRECTIONS[index];
-            if (candidate.x == -direction.x && candidate.y == -direction.y) continue;
-            Point head = nextHead(body.get(0), candidate);
-            boolean growing = food != null && head.x == food.x && head.y == food.y;
-            if (collision(head, growing)) continue;
-            int area = reachableArea(head, growing);
-            int exits = legalExits(head, growing);
-            int foodDistance = food == null ? 0 : Math.abs(head.x - food.x) + Math.abs(head.y - food.y);
-            int repeatPenalty = 0;
-            for (Point recent : recentHeads) {
-                if (recent.x == head.x && recent.y == head.y) repeatPenalty += 1;
-            }
-            long score = area * 10_000L + exits * 900L - foodDistance * 18L - repeatPenalty * 40L - index;
-            if (growing) score += 2_000L;
-            if (score > bestScore) {
-                bestScore = score;
-                best = candidate;
+    private void buildCycle() {
+        for (int x = 0; x < GRID; x += 1) cycle.add(new Point(x, 0));
+        for (int y = 1; y < GRID; y += 1) {
+            if (y % 2 == 1) {
+                for (int x = GRID - 1; x >= 1; x -= 1) cycle.add(new Point(x, y));
+            } else {
+                for (int x = 1; x < GRID; x += 1) cycle.add(new Point(x, y));
             }
         }
-        return best;
-    }
-
-    private int legalExits(Point head, boolean growing) {
-        int exits = 0;
-        for (Point candidate : DIRECTIONS) {
-            Point next = nextHead(head, candidate);
-            if (!collisionFrom(next, growing, head)) exits += 1;
+        cycle.add(new Point(0, GRID - 1));
+        for (int y = GRID - 2; y >= 1; y -= 1) cycle.add(new Point(0, y));
+        for (int index = 0; index < cycle.size(); index += 1) {
+            cycleIndexes.put(cycle.get(index).key(), index);
         }
-        return exits;
     }
 
-    private int reachableArea(Point start, boolean growing) {
-        if (!inside(start)) return 0;
-        Set<String> blocked = occupied(growing);
-        blocked.remove(start.key());
-        ArrayDeque<Point> queue = new ArrayDeque<>();
-        Set<String> visited = new HashSet<>();
-        queue.add(start);
-        visited.add(start.key());
-        while (!queue.isEmpty()) {
-            Point cursor = queue.removeFirst();
-            for (Point move : DIRECTIONS) {
-                Point next = nextHead(cursor, move);
-                if (!inside(next)) continue;
-                String key = next.key();
-                if (blocked.contains(key) || !visited.add(key)) continue;
-                queue.addLast(next);
-            }
-        }
-        return visited.size();
-    }
-
-    private boolean collision(Point head, boolean growing) {
-        return !inside(head) || occupied(growing).contains(head.key());
-    }
-
-    private boolean collisionFrom(Point head, boolean growing, Point replacementHead) {
-        if (!inside(head)) return true;
-        Set<String> occupied = occupied(growing);
-        occupied.remove(body.get(0).key());
-        occupied.add(replacementHead.key());
-        return occupied.contains(head.key());
+    private Point shortestFoodMove() {
+        Point head = body.get(0);
+        int index = cycleIndexes.get(head.key());
+        Point target = cycle.get((index + 1) % cycle.size());
+        return new Point(target.x - head.x, target.y - head.y);
     }
 
     private Set<String> occupied(boolean growing) {
         Set<String> occupied = new HashSet<>();
         int limit = growing ? body.size() : Math.max(0, body.size() - 1);
-        for (int index = 0; index < limit; index += 1) occupied.add(body.get(index).key());
+        for (int index = 0; index < limit; index += 1) {
+            occupied.add(body.get(index).key());
+        }
         return occupied;
-    }
-
-    private Point nextHead(Point point, Point move) {
-        return new Point(point.x + move.x, point.y + move.y);
     }
 
     private boolean inside(Point point) {
         return point.x >= 0 && point.y >= 0 && point.x < GRID && point.y < GRID;
     }
 
-    private void placeFood() {
+    private void placeFood(boolean initial) {
         Set<String> occupied = occupied(true);
-        ArrayList<Point> free = new ArrayList<>();
-        for (int y = 0; y < GRID; y += 1) {
-            for (int x = 0; x < GRID; x += 1) {
-                Point point = new Point(x, y);
-                if (!occupied.contains(point.key())) free.add(point);
+        int headIndex = cycleIndexes.get(body.get(0).key());
+        int minimum = initial ? 4 : 10;
+        int range = initial ? 1 : 24;
+        int desired = minimum + Math.floorMod(nextRandom(), range);
+        for (int extra = 0; extra < cycle.size(); extra += 1) {
+            Point candidate = cycle.get((headIndex + desired + extra) % cycle.size());
+            if (!occupied.contains(candidate.key())) {
+                food = candidate;
+                return;
             }
         }
-        food = free.isEmpty() ? null : free.get(Math.floorMod(nextRandom(), free.size()));
+        food = null;
     }
 
     private int nextRandom() {

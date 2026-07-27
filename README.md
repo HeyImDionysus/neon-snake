@@ -6,7 +6,7 @@ The game itself is not AI. Its Autopilot and duel opponent are deterministic dec
 
 ## Run it
 
-Open `public/index.html` in a modern browser. The browser shell remains dependency-free: solo play, Autopilot runs, Autopilot duels, Canvas export, the browser wallpaper preview, and offline installation require no package manager, account, or network connection. Public Live Rooms use a native same-origin Vercel WebSocket with the project’s existing Redis resource for cross-instance relay. Discord profiles and the verified leaderboard stay inside isolated Vercel Functions plus Redis.
+Open `public/index.html` in a modern browser. The browser shell remains dependency-free: solo play, Autopilot runs, Autopilot duels, Canvas export, the live wallpaper preview, and offline installation require no package manager or account. Public Live Rooms use a native same-origin Vercel WebSocket with the project’s existing Redis resource for cross-instance relay. Discord profiles and the verified leaderboard stay inside isolated Vercel Functions plus Redis.
 
 To run the deterministic rules and control-flow suites:
 
@@ -26,6 +26,8 @@ node service-worker.test.js
 node deployment-contract.test.js
 node realtime-worker.test.js
 node platform-security.test.js
+node profile-system.test.js
+node product-experience.test.js
 node wallpaper-system.test.js
 ```
 
@@ -95,9 +97,9 @@ Discord sign-in is optional for play and required only for a verified profile or
 - **Run integrity:** movement never starts until the owner choice and visible countdown complete; hiding the page suspends a player countdown, and career runs increment only when play actually begins.
 - **Autopilot Duel:** two fluid snakes share a compressed 30 × 30 lethal arena; the first crash loses and simultaneous head-on or head-swap collisions draw.
 - **Public Live Room:** a six-character room Signal connects exactly two players across different devices; both must be connected and Ready before countdown, and a disconnect cancels or stops play.
-- **Verified profiles:** optional Discord identity adds a display name and avatar without exposing an OAuth token to game code or requesting email, guild, or social permissions.
-- **Online leaderboard:** only outcomes written privately by the server-authoritative live simulation can change the public wins table.
-- **Autonomous wallpapers:** the same survival-first controller runs without controls as a configurable Lively wallpaper on Windows and as a battery-aware native `WallpaperService` on Android.
+- **Verified profiles:** optional Discord identity anchors a dedicated public profile with a visible username, custom callsign, bio, color, favorite mode, snake style, avatar, verified record, and live-room presence. OAuth tokens never enter game code, and the flow requests no email, guild, or social permissions.
+- **Online leaderboard:** public rows link to profiles, show callsigns plus verified Discord usernames and current live-room activity, and can change only through outcomes written privately by the server-authoritative live simulation.
+- **Autonomous wallpapers:** the real eat, grow, score, Core, and pickup-feedback loop runs without controls as a configurable Lively wallpaper on Windows and as a battery-aware native `WallpaperService` on Android.
 
 ## Source map
 
@@ -112,10 +114,13 @@ Discord sign-in is optional for play and required only for a verified profile or
 - `public/duel.js` — autonomous duel and room-state orchestration.
 - `public/room-transport.js` — same-origin Vercel WebSocket transport with bounded reconnect/heartbeat handling plus the legacy HTTP fallback.
 - `public/account.js` — safe Discord profile and verified-leaderboard rendering.
+- `public/profile.html`, `public/profile.js`, `public/profile.css` — dedicated public-player surface and authenticated profile customization.
+- `public/downloads.html`, `public/downloads.css` — direct Windows/Android downloads plus the live wallpaper preview.
 - `public/wallpaper.html`, `public/wallpaper.js`, `public/wallpaper.css` — the control-free autonomous wallpaper surface.
+- `public/wallpaper-engine.js` — deterministic eat-and-grow wallpaper state shared by the browser and Windows package.
 - `api/realtime.mjs` — native Vercel WebSocket entry point with strict origin and payload boundaries.
 - `server/realtime-core.cjs` — authoritative duel simulation, atomic Redis presence, and cross-instance event relay.
-- `api/auth/discord/*`, `api/me.mjs`, `api/logout.mjs` — Discord authorization and session endpoints.
+- `api/auth/discord/*`, `api/me.mjs`, `api/profile.mjs`, `api/logout.mjs` — Discord authorization, public profile, customization, and session endpoints.
 - `api/leaderboard.mjs` — public read-only verified leaderboard endpoint.
 - `server/account-core.cjs` — OAuth, cookie, HMAC, profile, and atomic leaderboard logic.
 - `api/room.mjs` — the isolated Vercel Function entry point.
@@ -138,7 +143,9 @@ Discord sign-in is optional for play and required only for a verified profile or
 - `deployment-contract.test.js` — executable public-boundary, manifest, cache-shell, and hosted-verification regressions.
 - `realtime-worker.test.js` — executable Vercel connection, Redis relay, input authority, and verified-result regressions.
 - `platform-security.test.js` — executable Discord data-minimization, state, cookie, HMAC, and leaderboard-write regressions.
-- `wallpaper-system.test.js` — executable Windows/Android packaging, pause, frame-budget, and permission regressions.
+- `profile-system.test.js` — executable profile customization, public identity, live activity, and origin-bound write regressions.
+- `product-experience.test.js` — executable navigation, download routing, copy, responsive-header, profile, and leaderboard regressions.
+- `wallpaper-system.test.js` — executable eat/grow behavior plus Windows/Android packaging, pause, frame-budget, visual, and permission regressions.
 
 The environment intentionally remains plain HTML, CSS, and JavaScript so every experiment is inspectable and reversible.
 
@@ -148,11 +155,11 @@ The wallpaper is not a browser tab left open in the background. Both packages st
 
 ### Windows
 
-`node scripts/build-wallpapers.mjs` creates `dist/wallpapers/Neon-Snake-Lively.zip`. Import that archive with Lively Wallpaper's `Add Wallpaper` flow. The package is fully offline and exposes frame rate, snake pace, glow, palette, Classic/Portal boundary, and mark visibility through Lively's wallpaper settings. Lively's pause event and document visibility both stop animation work.
+`node scripts/build-wallpapers.mjs` creates `dist/wallpapers/Neon-Snake-Lively.zip`. Import that archive with Lively Wallpaper's `Add Wallpaper` flow. The package is fully offline, visibly eats nearby Signals and Cores, grows, scores, and exposes frame rate, snake pace, glow, palette, Classic/Portal boundary, and mark visibility through Lively's wallpaper settings. Lively's pause event and document visibility both stop animation work.
 
 ### Android
 
-`wallpaper/android` is a native Android live wallpaper for Android 8.0 and newer. Opening the installed app launches the system live-wallpaper chooser. The service has no `INTERNET` permission, stops its frame callbacks whenever the wallpaper is hidden, and lowers rendering from roughly 24 fps to 15 fps in system power-save mode. CI builds an installable debug-signed APK artifact that can be downloaded and installed directly.
+`wallpaper/android` is a native Android live wallpaper for Android 8.0 and newer. Its offline autonomous engine uses the same guaranteed eat/grow rhythm and renders the same layered snake, face, Signals, Cores, pickup burst, and score HUD as the browser surface. Opening the installed app launches the system live-wallpaper chooser. The service has no `INTERNET` permission, stops its frame callbacks whenever the wallpaper is hidden, and lowers rendering from roughly 24 fps to 15 fps in system power-save mode. CI builds an installable debug-signed APK artifact that can be downloaded and installed directly.
 
 ## Production deployment
 
@@ -193,7 +200,7 @@ Solo play and Autopilot duels still work entirely in the browser. Live-room stat
 
 - Solo gameplay sends no run data anywhere.
 - Anonymous Public Live Rooms send only temporary presence, readiness, direction, countdown, and server snapshots to the Vercel WebSocket endpoint and existing Redis relay.
-- Signed-in profiles store only Discord id, username, display name, avatar hash, and aggregate duel results. Discord tokens, email, guilds, and friend data are not stored.
+- Signed-in profiles store only Discord id, username, display name, avatar hash, constrained public customization, current-room activity with a short expiry, and aggregate duel results. Discord tokens, email, guilds, and friend data are not stored.
 - Room state is ephemeral; it is not a chat log or analytics stream.
 - Solo scores, settings, local leaderboard entries, and Echo paths stay in `localStorage`.
 - The service worker caches only same-origin public game files.

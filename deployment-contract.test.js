@@ -78,7 +78,7 @@ const tests = [
     urls.forEach((urlPath) => {
       assert.equal(fs.existsSync(publicPath(urlPath)), true, `Missing app-shell file: ${urlPath}`);
     });
-    ["index.html", "duel.html"].forEach((name) => {
+    ["index.html", "duel.html", "downloads.html", "profile.html"].forEach((name) => {
       const htmlFile = path.join(publicRoot, name);
       localReferences(htmlFile).forEach((reference) => {
         const urlPath = new URL(reference, `https://neon-snake.invalid/${name}`).pathname;
@@ -98,7 +98,7 @@ const tests = [
     manifest.icons.forEach((icon) => {
       assert.equal(fs.existsSync(publicPath(icon.src)), true, `Missing manifest icon: ${icon.src}`);
     });
-    ["index.html", "duel.html"].forEach((name) => {
+    ["index.html", "duel.html", "downloads.html", "profile.html"].forEach((name) => {
       const html = fs.readFileSync(path.join(publicRoot, name), "utf8");
       assert.match(html, /rel="manifest" href="\/manifest\.webmanifest"/);
       assert.match(html, /rel="apple-touch-icon" href="\/assets\/icon-180\.png"/);
@@ -115,7 +115,7 @@ const tests = [
     assert.match(serviceWorker, /requestUrl\.pathname\.startsWith\("\/api\/"\)/);
   }],
   ["every local HTML asset and navigation target stays inside public", () => {
-    ["index.html", "duel.html", "wallpaper.html"].forEach((name) => {
+    ["index.html", "duel.html", "downloads.html", "profile.html", "wallpaper.html"].forEach((name) => {
       const htmlFile = path.join(publicRoot, name);
       localReferences(htmlFile).forEach((reference) => {
         const pathname = reference.split(/[?#]/, 1)[0];

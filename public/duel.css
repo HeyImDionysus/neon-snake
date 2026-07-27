@@ -4,8 +4,9 @@
 }
 
 .duel-header {
-  position: relative;
-  z-index: 4;
+  position: sticky;
+  top: 0;
+  z-index: 20;
 }
 
 .duel-back {
@@ -539,6 +540,18 @@
 .room-roster > div.connected strong {
   color: var(--paper);
 }
+
+.room-roster > div strong {
+  max-width: 250px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room-roster > div.connected.accent-cyan i { background: #66e3ff; box-shadow: 0 0 10px #66e3ff99; }
+.room-roster > div.connected.accent-violet i { background: #a98bff; box-shadow: 0 0 10px #a98bff99; }
+.room-roster > div.connected.accent-magenta i { background: #ff6ed1; box-shadow: 0 0 10px #ff6ed199; }
+.room-roster > div.connected.accent-ember i { background: #ff7657; box-shadow: 0 0 10px #ff765799; }
 
 .room-state {
   min-height: 16px;

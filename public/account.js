@@ -35,6 +35,9 @@
     if (root.NeonSnakeAccount) root.NeonSnakeAccount.profile = profile;
     controls.forEach((control) => {
       control.replaceChildren();
+      const profileLink = element("a", "account-profile-link");
+      profileLink.href = `/profile.html?user=${encodeURIComponent(profile.username || "")}`;
+      profileLink.setAttribute("aria-label", `Open profile for ${profile.callsign || profile.displayName || "Discord Player"}`);
       const identity = element("span", "account-identity");
       if (profile.avatarUrl) {
         const avatar = document.createElement("img");
@@ -45,25 +48,14 @@
         avatar.referrerPolicy = "no-referrer";
         identity.append(avatar);
       }
-      identity.append(element("strong", "", profile.displayName || "Discord Player"));
-      const logout = element("button", "account-logout", "Sign out");
-      logout.type = "button";
-      logout.addEventListener("click", async () => {
-        logout.disabled = true;
-        try {
-          const response = await fetch("/api/logout", {
-            method: "POST",
-            credentials: "same-origin",
-            headers: { "Content-Type": "application/json" },
-            body: "{}",
-          });
-          if (!response.ok) throw new Error("Logout failed");
-          renderSignedOut();
-        } catch {
-          logout.disabled = false;
-        }
-      });
-      control.append(identity, logout);
+      const copy = element("span", "account-identity-copy");
+      copy.append(
+        element("strong", "", profile.callsign || profile.displayName || "Discord Player"),
+        element("small", "", `@${profile.username || "player"}`),
+      );
+      identity.append(copy);
+      profileLink.append(identity, element("span", "account-profile-arrow", "↗"));
+      control.append(profileLink);
     });
   }
 
@@ -76,8 +68,11 @@
     }
     entries.forEach((entry) => {
       const item = document.createElement("li");
+      item.className = `online-entry accent-${entry.accent || "acid"}`;
       const rank = element("span", "run-position", String(entry.rank).padStart(2, "0"));
-      const player = element("span", "online-player");
+      const player = element("a", "online-player");
+      player.href = `/profile.html?user=${encodeURIComponent(entry.username || "")}`;
+      player.setAttribute("aria-label", `View profile for ${entry.callsign || entry.displayName || "Discord Player"}`);
       if (entry.avatarUrl) {
         const avatar = document.createElement("img");
         avatar.src = entry.avatarUrl;
@@ -88,9 +83,20 @@
         avatar.referrerPolicy = "no-referrer";
         player.append(avatar);
       }
-      player.append(element("strong", "", entry.displayName || "Discord Player"));
-      const wins = element("strong", "online-wins", String(entry.wins || 0).padStart(2, "0"));
-      item.append(rank, player, wins);
+      const playerCopy = element("span", "online-player-copy");
+      playerCopy.append(
+        element("strong", "", entry.callsign || entry.displayName || "Discord Player"),
+        element("small", "", `@${entry.username || "player"}`),
+      );
+      player.append(playerCopy);
+      if (entry.online) player.append(element("i", "online-now", "LIVE"));
+      const record = entry.record || { wins: entry.wins || 0, losses: 0, draws: 0 };
+      const result = element("span", "online-record");
+      result.append(
+        element("strong", "", `${String(record.wins || 0).padStart(2, "0")}W`),
+        element("small", "", `${record.losses || 0}L · ${record.draws || 0}D`),
+      );
+      item.append(rank, player, result);
       leaderboard.append(item);
     });
   }
@@ -128,4 +134,9 @@
     refresh: () => Promise.all([loadAccount(), loadLeaderboard()]),
   };
   void root.NeonSnakeAccount.refresh();
+  if (leaderboard) {
+    setInterval(() => {
+      if (!document.hidden) void loadLeaderboard();
+    }, 12_000);
+  }
 })(globalThis);

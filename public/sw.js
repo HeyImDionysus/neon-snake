@@ -1,17 +1,23 @@
 "use strict";
 
-const CACHE_NAME = "neon-snake-shell-v70";
+const CACHE_NAME = "neon-snake-shell-v71";
 const APP_SHELL = [
   "/",
   "/index.html",
   "/styles.css",
   "/duel.html",
+  "/downloads.html",
+  "/profile.html",
   "/wallpaper.html",
   "/duel.css",
+  "/downloads.css",
+  "/profile.css",
   "/duel.js",
   "/account.js",
+  "/profile.js",
   "/runtime-config.js",
   "/wallpaper.css",
+  "/wallpaper-engine.js",
   "/wallpaper.js",
   "/room-transport.js",
   "/signal-field.js",
@@ -65,6 +71,10 @@ self.addEventListener("fetch", (event) => {
         if (event.request.mode === "navigate") {
           const fallback = requestUrl.pathname.startsWith("/duel")
             ? "/duel.html"
+            : requestUrl.pathname.startsWith("/downloads")
+              ? "/downloads.html"
+              : requestUrl.pathname.startsWith("/profile")
+                ? "/profile.html"
             : requestUrl.pathname.startsWith("/wallpaper")
               ? "/wallpaper.html"
               : "/index.html";

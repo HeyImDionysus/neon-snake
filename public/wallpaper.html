@@ -4,20 +4,39 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="dark" />
-    <meta name="theme-color" content="#06070b" />
+    <meta name="theme-color" content="#060a07" />
     <title>Neon Snake — Autonomous Wallpaper</title>
     <link rel="stylesheet" href="wallpaper.css" />
   </head>
-  <body>
-    <main aria-label="Autonomous Neon Snake wallpaper">
+  <body class="wallpaper-runtime">
+    <main class="wallpaper-surface" aria-label="Autonomous Neon Snake wallpaper">
       <canvas id="wallpaperCanvas" aria-hidden="true"></canvas>
       <div class="wallpaper-vignette" aria-hidden="true"></div>
+      <section class="wallpaper-hud" aria-hidden="true">
+        <div>
+          <span>AUTOPILOT</span>
+          <strong>ONLINE</strong>
+        </div>
+        <div>
+          <span>SCORE</span>
+          <strong id="wallpaperScore">00000</strong>
+        </div>
+        <div>
+          <span>CHAIN</span>
+          <strong id="wallpaperChain">003</strong>
+        </div>
+      </section>
+      <div class="wallpaper-pickup" id="wallpaperPickup" aria-hidden="true">
+        <span id="wallpaperPickupName">SIGNAL ACQUIRED</span>
+        <strong id="wallpaperPickupPoints">+10</strong>
+      </div>
       <div class="wallpaper-mark" aria-hidden="true">
         <span>NEON SNAKE</span>
         <strong id="wallpaperSignal">SIGNAL</strong>
       </div>
     </main>
     <script src="game-logic.js"></script>
+    <script src="wallpaper-engine.js"></script>
     <script src="wallpaper.js"></script>
   </body>
 </html>

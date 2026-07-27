@@ -32,6 +32,8 @@ jobs:
           node --check public/signal-field.js
           node --check public/duel.js
           node --check public/account.js
+          node --check public/profile.js
+          node --check public/wallpaper-engine.js
           node --check public/wallpaper.js
           node --check public/sw.js
           node --check server/room-core.cjs
@@ -56,6 +58,8 @@ jobs:
           node deployment-contract.test.js
           node realtime-worker.test.js
           node platform-security.test.js
+          node profile-system.test.js
+          node product-experience.test.js
           node wallpaper-system.test.js
 
       - name: Build Windows wallpaper

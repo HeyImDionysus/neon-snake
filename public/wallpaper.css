@@ -1,10 +1,10 @@
 :root {
   color-scheme: dark;
-  background: #06070b;
-  --acid: #adff66;
-  --cyan: #66e3ff;
-  --violet: #a98bff;
-  --ember: #ff7657;
+  background: #060a07;
+  --wall-acid: #adff66;
+  --wall-paper: #efffe5;
+  --wall-muted: #7d9384;
+  --wall-line: rgba(173, 255, 102, .18);
 }
 
 * {
@@ -12,29 +12,31 @@
 }
 
 html,
-body,
-main,
-#wallpaperCanvas {
+body.wallpaper-runtime {
   width: 100%;
   height: 100%;
   margin: 0;
   overflow: hidden;
+  background: #060a07;
 }
 
-body {
-  background:
-    radial-gradient(circle at 18% 14%, rgba(169, 139, 255, .12), transparent 34%),
-    radial-gradient(circle at 78% 82%, rgba(102, 227, 255, .08), transparent 32%),
-    #06070b;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-}
-
-main {
+.wallpaper-surface {
   position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 320px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(173, 255, 102, .09), transparent 36%),
+    radial-gradient(circle at 82% 78%, rgba(169, 139, 255, .1), transparent 35%),
+    #060a07;
+  font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
 }
 
 #wallpaperCanvas {
   display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .wallpaper-vignette {
@@ -42,36 +44,111 @@ main {
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(180deg, rgba(3, 4, 7, .2), transparent 22%, transparent 70%, rgba(3, 4, 7, .58)),
-    radial-gradient(circle at center, transparent 45%, rgba(3, 4, 7, .5) 112%);
+    linear-gradient(180deg, rgba(3, 7, 4, .14), transparent 20%, transparent 72%, rgba(3, 7, 4, .62)),
+    radial-gradient(circle at center, transparent 48%, rgba(1, 4, 2, .62) 120%);
+}
+
+.wallpaper-hud {
+  position: absolute;
+  top: max(24px, 3vw);
+  left: max(24px, 3.2vw);
+  display: flex;
+  gap: clamp(18px, 3vw, 46px);
+  padding: 14px 16px;
+  border: 1px solid var(--wall-line);
+  background: rgba(5, 12, 7, .46);
+  backdrop-filter: blur(12px);
+  pointer-events: none;
+}
+
+.wallpaper-hud div {
+  display: grid;
+  gap: 5px;
+  min-width: 58px;
+}
+
+.wallpaper-hud span,
+.wallpaper-mark span {
+  color: var(--wall-muted);
+  font-size: clamp(7px, .55vw, 10px);
+  font-weight: 700;
+  letter-spacing: .18em;
+}
+
+.wallpaper-hud strong {
+  color: var(--wall-paper);
+  font-size: clamp(11px, .92vw, 16px);
+  font-weight: 650;
+  letter-spacing: .09em;
+}
+
+.wallpaper-hud div:first-child strong,
+.wallpaper-hud div:nth-child(2) strong {
+  color: var(--wall-acid);
 }
 
 .wallpaper-mark {
   position: absolute;
-  left: max(24px, 3.2vw);
+  right: max(24px, 3.2vw);
   bottom: max(22px, 3vw);
   display: grid;
-  gap: 4px;
-  color: rgba(235, 242, 247, .58);
-  letter-spacing: .24em;
-  line-height: 1;
+  justify-items: end;
+  gap: 5px;
   pointer-events: none;
-  text-shadow: 0 0 20px rgba(173, 255, 102, .12);
-}
-
-.wallpaper-mark span {
-  font-size: clamp(10px, .8vw, 14px);
-  font-weight: 700;
+  text-shadow: 0 0 24px rgba(173, 255, 102, .18);
 }
 
 .wallpaper-mark strong {
-  color: rgba(173, 255, 102, .72);
+  color: rgba(173, 255, 102, .78);
   font-size: clamp(8px, .62vw, 11px);
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: .2em;
+}
+
+.wallpaper-pickup {
+  position: absolute;
+  left: 50%;
+  bottom: max(28px, 4vw);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 118, 87, .4);
+  color: #ffe4dc;
+  background: rgba(20, 8, 6, .74);
+  font-size: clamp(8px, .62vw, 11px);
+  letter-spacing: .14em;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 10px);
+  transition: opacity .18s ease, transform .18s ease;
+}
+
+.wallpaper-pickup strong {
+  color: #ff7657;
+  font-size: 1.2em;
+}
+
+.wallpaper-pickup.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+@media (max-width: 620px) {
+  .wallpaper-hud {
+    right: 18px;
+    left: 18px;
+    justify-content: space-between;
+  }
+
+  .wallpaper-mark {
+    right: 18px;
+    bottom: 18px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .wallpaper-mark {
-    text-shadow: none;
+  .wallpaper-pickup {
+    transition: none;
   }
 }

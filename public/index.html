@@ -6,24 +6,24 @@
     <meta name="theme-color" content="#070b09" />
     <meta name="color-scheme" content="dark" />
     <meta name="application-name" content="Neon Snake" />
-    <meta name="description" content="Play Neon Snake, a public test of how far an AI can push one simple browser game through engineering, autonomy, visual design, and systems depth." />
+    <meta name="description" content="Play Neon Snake solo, challenge live players, build a public profile, climb the verified leaderboard, or run the game as a Windows and Android wallpaper." />
     <meta name="robots" content="index,follow,max-image-preview:large" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Neon Snake" />
-    <meta property="og:title" content="Neon Snake — An AI-Built Systems Experiment" />
-    <meta property="og:description" content="One familiar game, pushed through autonomous control, realtime multiplayer, generative identity, and production engineering by Codex." />
+    <meta property="og:title" content="Neon Snake — Play, Duel, Grow" />
+    <meta property="og:description" content="Four solo modes, server-authoritative multiplayer, public player profiles, verified rankings, and autonomous wallpapers." />
     <meta property="og:image" content="/assets/neon-snake-social-fluid.png" />
     <meta property="og:image:width" content="1734" />
     <meta property="og:image:height" content="907" />
     <meta property="og:image:alt" content="A fluid neon snake arcs through atmospheric green and violet light toward a golden Core and glowing portal." />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Neon Snake — An AI-Built Systems Experiment" />
-    <meta name="twitter:description" content="Judge the artifact: a familiar browser game pushed through autonomous control, multiplayer, visual systems, and production engineering by Codex." />
+    <meta name="twitter:title" content="Neon Snake — Play, Duel, Grow" />
+    <meta name="twitter:description" content="Play solo, enter live rooms, climb the verified board, and put the Autopilot on your wallpaper." />
     <meta name="twitter:image" content="/assets/neon-snake-social-fluid.png" />
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/assets/icon-180.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <title>Neon Snake — An AI-Built Systems Experiment</title>
+    <title>Neon Snake — Play, Duel, Grow</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body data-game-state="ready">
@@ -31,24 +31,32 @@
     <div class="ambient ambient-one" aria-hidden="true"></div>
     <div class="ambient ambient-two" aria-hidden="true"></div>
 
-    <header class="site-header">
+    <header class="site-header product-header game-header">
       <a class="brand" href="./" aria-label="Reset Neon Snake">
         <span class="brand-glyph" aria-hidden="true"><img src="assets/signal-mark.svg" alt="" /></span>
         <span>NEON SNAKE</span>
       </a>
-      <div class="system-status" aria-live="polite">
-        <span class="status-light" aria-hidden="true"></span>
-        <span id="statusText">SYSTEM READY</span>
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a href="#play" aria-current="page">PLAY</a>
+        <a href="duel.html">MULTIPLAYER</a>
+        <a href="downloads.html">WALLPAPERS</a>
+        <a href="#leaderboard">LEADERBOARD</a>
+      </nav>
+      <div class="header-actions">
+        <div class="system-status" aria-live="polite">
+          <span class="status-light" aria-hidden="true"></span>
+          <span id="statusText">READY</span>
+        </div>
+        <div class="account-control" data-account-control>
+          <a class="discord-login" href="/api/auth/discord/start">Sign in with Discord</a>
+        </div>
+        <button class="sound-toggle" id="soundButton" type="button" aria-pressed="true" aria-label="Mute sound">
+          <span class="sound-bars" aria-hidden="true"><i></i><i></i><i></i></span>
+        </button>
       </div>
-      <div class="account-control" data-account-control>
-        <a class="discord-login" href="/api/auth/discord/start">Sign in with Discord</a>
-      </div>
-      <button class="sound-toggle" id="soundButton" type="button" aria-pressed="true" aria-label="Mute sound">
-        <span class="sound-bars" aria-hidden="true"><i></i><i></i><i></i></span>
-      </button>
     </header>
 
-    <main class="arcade-shell">
+    <main class="arcade-shell" id="play">
       <section class="game-column" aria-label="Neon Snake game">
         <div class="game-console">
           <header class="console-hud">
@@ -105,9 +113,9 @@
                 <div class="snake-mark" aria-hidden="true">
                   <span></span><span></span><span></span><span></span>
                 </div>
-                <p class="overlay-kicker" id="overlayKicker">ARCADE SYSTEM 01</p>
+                <p class="overlay-kicker" id="overlayKicker">READY TO RUN</p>
                 <h1 id="overlayTitle">NEON<br /><em>SNAKE</em></h1>
-                <p id="overlayMessage">Eat the signal. Grow the chain. Don't break the line.</p>
+                <p id="overlayMessage">Eat. Grow. Stay alive.</p>
                 <div class="run-rank" id="runRank" hidden>
                   <span>RUN RANK</span>
                   <strong id="rankValue">S</strong>
@@ -168,15 +176,15 @@
 
       <aside class="control-deck">
         <div class="deck-intro">
-          <p class="section-kicker">SELECT PROTOCOL</p>
+          <p class="section-kicker">PLAY YOUR WAY</p>
           <h2>Choose your run.</h2>
-          <p>Four protocols. One familiar gesture: choose what movement means.</p>
+          <p>Four modes, one snake. Pick the rule that changes the board.</p>
           <a class="duel-launch" href="duel.html">
             <span><strong>Enter Duel Lab</strong><small>VS AUTOPILOT · PUBLIC LIVE ROOM</small></span>
             <span aria-hidden="true">⚔</span>
           </a>
-          <a class="duel-launch wallpaper-launch" href="wallpaper.html">
-            <span><strong>Run Autonomous Wallpaper</strong><small>WINDOWS LIVELY · ANDROID LIVE WALLPAPER</small></span>
+          <a class="duel-launch wallpaper-launch" href="downloads.html">
+            <span><strong>Download Wallpapers</strong><small>WINDOWS LIVELY · ANDROID LIVE WALLPAPER</small></span>
             <span aria-hidden="true">◉</span>
           </a>
         </div>
@@ -241,7 +249,7 @@
             <span>Decision Lens · hints only</span><span id="lensState">OFF ◎</span>
           </button>
           <button class="text-button" id="restartButton" type="button">Restart current run <span aria-hidden="true">↻</span></button>
-          <button class="text-button share-button" id="shareButton" type="button">Share this experiment <span aria-hidden="true">↗</span></button>
+          <button class="text-button share-button" id="shareButton" type="button">Share this run <span aria-hidden="true">↗</span></button>
           <button class="text-button export-button" id="exportButton" type="button" hidden>Save canvas artwork <span aria-hidden="true">⇩</span></button>
         </div>
 
@@ -260,13 +268,7 @@
             <div class="run-history-heading"><span>TOP RUNS</span><span>SCORE / MODE / RANK</span></div>
             <ol id="topRuns"><li class="empty-run">Complete a run to enter the board.</li></ol>
           </div>
-          <div class="run-history online-history">
-            <div class="run-history-heading">
-              <span>ONLINE DUEL BOARD</span>
-              <span id="onlineLeaderboardStatus">SERVER-VERIFIED LIVE WINS</span>
-            </div>
-            <ol id="onlineLeaderboard"><li class="empty-run">Loading verified players…</li></ol>
-          </div>
+          <a class="career-profile-link" href="profile.html">Open your player profile <span aria-hidden="true">↗</span></a>
         </section>
 
         <div class="instructions" id="gameInstructions">
@@ -280,11 +282,29 @@
       </aside>
     </main>
 
+    <section class="public-board" id="leaderboard" aria-labelledby="leaderboardTitle">
+      <header class="public-board-heading">
+        <div>
+          <p class="section-kicker">VERIFIED LIVE RANKINGS</p>
+          <h2 id="leaderboardTitle">Players, not placeholders.</h2>
+        </div>
+        <p>Every name links to a public profile. A LIVE marker means that player is currently connected to a room. Only completed server-run matches change the record.</p>
+      </header>
+      <div class="public-board-table">
+        <div class="public-board-columns" aria-hidden="true"><span>RANK</span><span>PLAYER</span><span>RECORD</span></div>
+        <ol id="onlineLeaderboard"><li class="empty-run">Loading verified players…</li></ol>
+      </div>
+      <div class="public-board-footer">
+        <span id="onlineLeaderboardStatus">SERVER-VERIFIED LIVE WINS</span>
+        <a href="/api/auth/discord/start">Sign in to claim your profile ↗</a>
+      </div>
+    </section>
+
     <section class="showcase" id="how-it-works" aria-labelledby="showcaseTitle">
       <div class="showcase-heading">
-        <p class="section-kicker">THE CODEX EXPERIMENT / BUILD 01</p>
-        <h2 id="showcaseTitle">One simple game.<br />No simple execution.</h2>
-        <p>The test is deliberately easy to understand: give an AI the rules of Snake, then judge how far it can push the finished artifact—engineering, autonomy, game feel, backend, visual identity, and proof.</p>
+        <p class="section-kicker">EVERY WAY TO PLAY</p>
+        <h2 id="showcaseTitle">One snake.<br />Four places to take it.</h2>
+        <p>Start a solo run, fight the Autopilot, meet another player in a live room, or let the snake keep moving behind your desktop and phone.</p>
       </div>
       <div class="signal-atlas">
         <svg class="atlas-route" viewBox="0 0 1000 520" preserveAspectRatio="none" aria-hidden="true">
@@ -292,35 +312,35 @@
           <path class="atlas-route__flow" d="M54 414 C156 75 298 86 409 292 S635 474 760 178 S900 79 948 244" />
         </svg>
         <article class="atlas-entry" data-step="01">
-          <span class="showcase-number">01 / CONSTRAINT</span>
-          <h3>Keep the premise legible</h3>
-          <p>Snake is the control group: four directions, food, growth, collision. Complexity must deepen that idea without hiding it.</p>
+          <span class="showcase-number">01 / SOLO</span>
+          <h3>Classic rules, different pressure</h3>
+          <p>Walls, portals, a sixty-second rush, or an endless painting mode. Your local runs stay on your device.</p>
         </article>
         <article class="atlas-entry" data-step="02">
-          <span class="showcase-number">02 / AUTONOMY</span>
-          <h3>A brain made of code</h3>
-          <p>The Autopilot is deterministic software authored for this game. Its routes, risk scores, alternatives, and failures are visible; no model is hidden inside it.</p>
+          <span class="showcase-number">02 / DUEL</span>
+          <h3>Fight code or a real player</h3>
+          <p>Challenge the local Autopilot or open a temporary two-player room with one shared code.</p>
         </article>
         <article class="atlas-entry" data-step="03">
-          <span class="showcase-number">03 / SYSTEMS</span>
-          <h3>Depth beyond the board</h3>
-          <p>Seeded runs, replay memory, generative visuals, fluid rendering, offline play, and temporary realtime rooms turn one mechanic into a connected product.</p>
+          <span class="showcase-number">03 / PROFILE</span>
+          <h3>Make your record public</h3>
+          <p>Use your verified Discord identity, customize your callsign and snake, and let every win build your profile.</p>
         </article>
         <article class="atlas-entry" data-step="04">
-          <span class="showcase-number">04 / RESULT</span>
-          <h3>Judge the artifact</h3>
-          <p>The game is the report. Play it, stress it, inspect its decisions, test its rooms, and decide what the AI behind its construction was capable of producing.</p>
+          <span class="showcase-number">04 / WALLPAPER</span>
+          <h3>Let the run continue</h3>
+          <p>The same eat, grow, score, and survive loop runs natively on Android and through Lively on Windows.</p>
         </article>
       </div>
       <div class="atlas-legend" aria-hidden="true">
         <span><i></i> YOUR SIGNAL</span>
-        <span>AI-BUILT ARTIFACT / DETERMINISTIC ENGINE / VERIFIED SYSTEMS</span>
+        <span>SOLO / MULTIPLAYER / PROFILES / WALLPAPERS</span>
       </div>
     </section>
 
     <footer class="site-footer">
-      <span>NS-01 / CODEX CAPABILITY STUDY</span>
-      <span><a href="#how-it-works">THE EXPERIMENT</a> · LOCAL SAVE · PLAY ANYWHERE</span>
+      <span>NEON SNAKE / LIVE BUILD</span>
+      <span><a href="#play">PLAY</a> · <a href="duel.html">MULTIPLAYER</a> · <a href="downloads.html">WALLPAPERS</a></span>
     </footer>
 
     <p class="sr-only" id="gameAnnouncement" aria-live="assertive"></p>

@@ -14,6 +14,7 @@ await Promise.all([
   cp(path.join(root, "wallpaper", "windows", "LivelyInfo.json"), path.join(windowsRoot, "LivelyInfo.json")),
   cp(path.join(root, "wallpaper", "windows", "LivelyProperties.json"), path.join(windowsRoot, "LivelyProperties.json")),
   cp(path.join(root, "public", "game-logic.js"), path.join(windowsRoot, "game-logic.js")),
+  cp(path.join(root, "public", "wallpaper-engine.js"), path.join(windowsRoot, "wallpaper-engine.js")),
   cp(path.join(root, "public", "wallpaper.js"), path.join(windowsRoot, "wallpaper.js")),
   cp(path.join(root, "public", "wallpaper.css"), path.join(windowsRoot, "wallpaper.css")),
   cp(path.join(root, "public", "assets", "icon-512.png"), path.join(windowsRoot, "thumbnail.png")),

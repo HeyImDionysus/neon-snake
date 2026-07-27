@@ -37,6 +37,9 @@ local ready = ARGV[5] == "1"
 local userId = ARGV[6]
 local displayName = ARGV[7]
 local avatar = ARGV[8]
+local username = ARGV[9]
+local callsign = ARGV[10]
+local accent = ARGV[11]
 local cutoff = now - ${CONNECTION_TTL_MS}
 
 local stale = redis.call("ZRANGEBYSCORE", presenceKey, "-inf", cutoff)
@@ -74,7 +77,10 @@ if action == "join" then
     seenAt = now,
     userId = userId,
     displayName = displayName,
-    avatar = avatar
+    avatar = avatar,
+    username = username,
+    callsign = callsign,
+    accent = accent
   }
   redis.call("ZADD", presenceKey, now, clientId)
   redis.call("HSET", metadataKey, clientId, cjson.encode(current))
@@ -110,6 +116,9 @@ elseif current and current["connectionId"] == connectionId then
       current["userId"] = userId
       current["displayName"] = displayName
       current["avatar"] = avatar
+      current["username"] = username
+      current["callsign"] = callsign
+      current["accent"] = accent
     end
     redis.call("ZADD", presenceKey, now, clientId)
     redis.call("HSET", metadataKey, clientId, cjson.encode(current))
@@ -139,9 +148,21 @@ return cjson.encode({
 function cleanProfile(profile) {
   const userId = String(profile?.id || profile?.userId || "");
   if (!/^[0-9]{15,24}$/.test(userId)) return null;
+  const customization = profile?.customization && typeof profile.customization === "object"
+    ? profile.customization
+    : profile;
+  const username = String(profile.username || "").slice(0, 32);
+  const displayName = String(profile.displayName || "Discord Player").slice(0, 64);
+  const callsign = String(customization.callsign || displayName).slice(0, 24);
+  const accent = ["acid", "cyan", "violet", "magenta", "ember"].includes(customization.accent)
+    ? customization.accent
+    : "acid";
   return {
     userId,
-    displayName: String(profile.displayName || "Discord Player").slice(0, 64),
+    username,
+    displayName,
+    callsign,
+    accent,
     avatar: String(profile.avatar || "").slice(0, 128),
   };
 }
@@ -155,6 +176,11 @@ function publicPlayer(value) {
     profile: value.userId
       ? {
         displayName: String(value.displayName || "Discord Player").slice(0, 64),
+        username: String(value.username || "").slice(0, 32),
+        callsign: String(value.callsign || value.displayName || "Discord Player").slice(0, 24),
+        accent: ["acid", "cyan", "violet", "magenta", "ember"].includes(value.accent)
+          ? value.accent
+          : "acid",
         avatar: String(value.avatar || "").slice(0, 128),
       }
       : null,
@@ -759,9 +785,27 @@ function createRealtimeHub({
       clean?.userId || "",
       clean?.displayName || "",
       clean?.avatar || "",
+      clean?.username || "",
+      clean?.callsign || "",
+      clean?.accent || "acid",
     ]);
     const payload = typeof result === "string" ? JSON.parse(result) : result;
     if (!payload || typeof payload !== "object") throw new Error("Invalid realtime presence response.");
+    if (clean?.userId && action !== "leave") {
+      try {
+        await runRedis([
+          "SET",
+          `neon-snake:activity:${clean.userId}`,
+          String(now()),
+          "EX",
+          "35",
+        ]);
+      } catch (error) {
+        logger.error("Realtime profile activity refresh failed.", {
+          name: typeof error?.name === "string" ? error.name : "Error",
+        });
+      }
+    }
     return payload;
   }
 
