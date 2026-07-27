@@ -96,6 +96,16 @@ elseif current and current["connectionId"] == connectionId then
     if action == "ready" and tonumber(current["slot"]) >= 0 then
       current["ready"] = ready
       current["readyEpoch"] = ready and tonumber(redis.call("GET", generationKey) or "0") or 0
+      if not ready then
+        for _, id in ipairs(redis.call("ZRANGE", presenceKey, 0, -1)) do
+          local item = read(id)
+          if item then
+            item["ready"] = false
+            item["readyEpoch"] = 0
+            redis.call("HSET", metadataKey, id, cjson.encode(item))
+          end
+        end
+      end
     elseif action == "authenticate" and userId ~= "" then
       current["userId"] = userId
       current["displayName"] = displayName

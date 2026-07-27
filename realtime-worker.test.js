@@ -98,6 +98,12 @@ function createFakeRedis() {
         if (action === "ready" && current.slot >= 0) {
           current.ready = ready;
           current.readyEpoch = ready ? roomGeneration.get(room) || 0 : 0;
+          if (!ready) {
+            players.forEach((player) => {
+              player.ready = false;
+              player.readyEpoch = 0;
+            });
+          }
         }
       }
     }
@@ -450,6 +456,16 @@ async function flush() {
   await flush();
   echoHost.message({ type: "ready", ready: false });
   await flush();
+  assert.equal(
+    echoHub.roomAllReady("KLM789"),
+    false,
+    "One Not Ready action must atomically reset both players",
+  );
+  assert.ok(echoGuest.messages.some((message) => (
+    message.type === "roster"
+    && message.players.length === 2
+    && message.players.every((player) => !player.ready)
+  )), "The remote player must receive the authoritative all-not-ready roster");
   const firstCancelCount = echoBus.published.filter(({ payload }) => payload.kind === "cancel").length;
   assert.equal(firstCancelCount, 1);
   echoHost.message({ type: "ready", ready: false });
