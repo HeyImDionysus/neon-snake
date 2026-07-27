@@ -5,7 +5,7 @@
   const timers = new WeakMap();
 
   links.forEach((link) => {
-    const status = document.querySelector(link.getAttribute("aria-describedby"));
+    const status = document.getElementById(link.getAttribute("aria-describedby"));
     if (!status) return;
     link.addEventListener("click", () => {
       const previous = timers.get(link);

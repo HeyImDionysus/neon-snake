@@ -60,6 +60,7 @@ assert.equal((downloads.match(/data-wallpaper-download=/g) || []).length, 2);
 assert.match(downloads, /id="windowsDownloadStatus"/);
 assert.match(downloads, /id="androidDownloadStatus"/);
 assert.match(downloadsScript, /DOWNLOAD STARTED/);
+assert.match(downloadsScript, /document\.getElementById\(link\.getAttribute\("aria-describedby"\)\)/);
 assert.match(wallpaperScript, /NeonSnakeWallpaperPreview/);
 assert.match(downloads, /href="\/downloads\/v1\.1\.2\/Neon-Snake-Lively-v1\.1\.2\.zip"/);
 assert.match(downloads, /href="\/downloads\/v1\.1\.1\/Neon-Snake-Android-v1\.1\.1\.apk"/);
