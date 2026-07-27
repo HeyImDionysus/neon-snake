@@ -80,6 +80,7 @@
   document.querySelector(".wallpaper-mark").hidden = !settings.mark;
 
   function clampNumber(value, minimum, maximum, fallback) {
+    if (value === null || value === undefined || value === "") return fallback;
     const number = Number(value);
     return Number.isFinite(number) ? Math.min(maximum, Math.max(minimum, number)) : fallback;
   }
