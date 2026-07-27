@@ -27,7 +27,7 @@ function contrastRatio(first, second) {
   return (values[0] + .05) / (values[1] + .05);
 }
 
-function movementSteps({ nextMoveAt, now, moveBefore, stepDuration = 10 }) {
+function movementHarness({ nextMoveAt, stepDuration = 10 }) {
   const steps = [];
   const context = {
     expireCore() {},
@@ -36,6 +36,8 @@ function movementSteps({ nextMoveAt, now, moveBefore, stepDuration = 10 }) {
       return stepDuration;
     },
     lastMoveAt: 0,
+    MAX_DEADLINE_DRAIN_STEPS: 8,
+    MAX_FRAME_CATCH_UP_STEPS: 3,
     nextMoveAt,
     previousSnake: [],
     runState: "running",
@@ -49,14 +51,24 @@ function movementSteps({ nextMoveAt, now, moveBefore, stepDuration = 10 }) {
     },
   };
   vm.runInNewContext(`${functionBody("advanceMovement")}\nthis.advanceMovement = advanceMovement;`, context);
-  context.advanceMovement(now, moveBefore);
-  return { nextMoveAt: context.nextMoveAt, steps };
+  return {
+    advance(now, moveBefore) {
+      const pending = context.advanceMovement(now, moveBefore);
+      return { nextMoveAt: context.nextMoveAt, pending, steps: [...steps] };
+    },
+  };
+}
+
+function movementSteps({ nextMoveAt, now, moveBefore, stepDuration = 10 }) {
+  return movementHarness({ nextMoveAt, stepDuration }).advance(now, moveBefore);
 }
 
 const tests = [
   ["direction input cannot start or replace a run", () => {
     const body = functionBody("requestDirection");
     assert.ok(!body.includes("prepareRun("));
+    assert.ok(body.indexOf("rushDrainPending") < body.indexOf("Rules.bufferDirection"));
+    assert.ok(body.indexOf("rushDeadlineReached()") < body.indexOf("Rules.bufferDirection"));
     assert.match(body, /runState === "ready" \|\| runState === "over"/);
     assert.match(body, /if \(demoMode\)/);
   }],
@@ -135,8 +147,9 @@ const tests = [
     const advance = functionBody("advanceMovement");
     const movementIndex = render.indexOf("advanceMovement(");
     assert.ok(movementIndex >= 0);
-    assert.ok(movementIndex < render.indexOf("expireCore(now)"));
-    assert.ok(movementIndex < render.indexOf("expireMutation(now)"));
+    assert.ok(movementIndex < render.indexOf("expireCore(gameplayNow)"));
+    assert.ok(movementIndex < render.indexOf("expireMutation(gameplayNow)"));
+    assert.match(render, /const gameplayNow = rushDrainPending \? lastMoveAt : now/);
     assert.ok(advance.indexOf("expireCore(stepAt)") < advance.indexOf("tick(stepAt)"));
     assert.ok(advance.indexOf("expireMutation(stepAt)") < advance.indexOf("tick(stepAt)"));
     assert.match(advance, /stepDuration = getTickDelay\(stepAt\)/);
@@ -146,32 +159,134 @@ const tests = [
     const render = functionBody("render");
     const timer = functionBody("updateRushTimer");
     const advance = functionBody("advanceMovement");
-    assert.ok(render.indexOf("advanceMovement(") < render.indexOf("updateRushTimer(now)"));
+    assert.ok(render.indexOf("advanceMovement(") < render.indexOf("updateRushTimer(now, rushDrainPending)"));
     assert.match(render, /moveBefore = activeMode === "rush"[\s\S]*\? rushDeadline[\s\S]*advanceMovement\(Math\.min\(now, moveBefore\), moveBefore\)/);
     assert.match(advance, /nextMoveAt < moveBefore/);
+    assert.match(source, /const MAX_FRAME_CATCH_UP_STEPS = 3/);
+    assert.match(source, /const MAX_DEADLINE_DRAIN_STEPS = 8/);
+    assert.match(advance, /catchUpSteps < catchUpLimit/);
+    assert.match(advance, /if \(\s*!drainingCutoff\s*&& pendingCutoffMove/);
     assert.match(timer, /rushRemaining = Math\.max\(0, rushDeadline - now\)/);
-    assert.match(timer, /if \(rushRemaining <= 0\) endGame\("time"\)/);
+    assert.match(timer, /if \(rushRemaining <= 0 && !drainPending\) endGame\("time"\)/);
+    assert.match(functionBody("rushDeadlineReached"), /activeMode === "rush" && runState === "running" && now >= rushDeadline/);
     assert.ok(!functionBody("updateTimeSystems").includes("mutation.expiresAt"));
     assert.match(source, /const PACES = Rules\.paceProfiles\(\)/);
     assert.match(source, /Rules\.soloTiming\(\)/);
     assert.doesNotMatch(source, /const RUSH_DURATION = 60_000/);
   }],
   ["Rush resolves pending pre-deadline ticks but excludes its boundary", () => {
-    assert.deepEqual(
-      movementSteps({ nextMoveAt: 70, now: 100, moveBefore: 100 }),
-      { nextMoveAt: 100, steps: [70, 80, 90] },
-    );
+    const delayed = movementHarness({ nextMoveAt: 10 });
+    assert.deepEqual(delayed.advance(100, 100), {
+      nextMoveAt: 90,
+      pending: true,
+      steps: [10, 20, 30, 40, 50, 60, 70, 80],
+    });
+    assert.deepEqual(delayed.advance(100, 100), {
+      nextMoveAt: 100,
+      pending: false,
+      steps: [10, 20, 30, 40, 50, 60, 70, 80, 90],
+    });
     assert.deepEqual(
       movementSteps({ nextMoveAt: 99, now: 100, moveBefore: 100 }),
-      { nextMoveAt: 109, steps: [99] },
+      { nextMoveAt: 109, pending: false, steps: [99] },
     );
     assert.deepEqual(
       movementSteps({ nextMoveAt: 100, now: 100, moveBefore: 100 }),
-      { nextMoveAt: 100, steps: [] },
+      { nextMoveAt: 100, pending: false, steps: [] },
     );
     assert.deepEqual(
       movementSteps({ nextMoveAt: 101, now: 101, moveBefore: 100 }),
-      { nextMoveAt: 101, steps: [] },
+      { nextMoveAt: 101, pending: false, steps: [] },
+    );
+  }],
+  ["Rush waits to end until its bounded deadline drain completes", () => {
+    const endings = [];
+    const context = {
+      activeMode: "rush",
+      endGame(reason) {
+        endings.push(reason);
+      },
+      runState: "running",
+      rushDeadline: 100,
+      rushRemaining: 20,
+      rushTimeEl: { textContent: "" },
+    };
+    vm.runInNewContext(`${functionBody("updateRushTimer")}\nthis.updateRushTimer = updateRushTimer;`, context);
+    context.updateRushTimer(120, true);
+    assert.equal(context.rushRemaining, 0);
+    assert.equal(context.rushTimeEl.textContent, "0.0");
+    assert.deepEqual(endings, []);
+    context.updateRushTimer(121, false);
+    assert.deepEqual(endings, ["time"]);
+  }],
+  ["Rush deadline draining locks historical player input but preserves Stop", () => {
+    let buffered = 0;
+    const directionClock = { now: 101 };
+    const directionContext = {
+      activeMode: "rush",
+      announcement: { textContent: "" },
+      demoMode: false,
+      direction: { x: 1, y: 0 },
+      directionBuffer: [],
+      performance: {
+        now() {
+          return directionClock.now;
+        },
+      },
+      Rules: {
+        bufferDirection() {
+          buffered += 1;
+          return [];
+        },
+      },
+      runState: "running",
+      rushDeadline: 100,
+      rushDrainPending: false,
+    };
+    vm.runInNewContext(
+      `${functionBody("rushDeadlineReached")}\n${functionBody("requestDirection")}\nthis.requestDirection = requestDirection;`,
+      directionContext,
+    );
+    directionContext.requestDirection({ x: 0, y: 1 });
+    assert.equal(buffered, 0);
+    assert.match(directionContext.announcement.textContent, /resolving moves scheduled/);
+    directionClock.now = 99;
+    directionContext.requestDirection({ x: 0, y: 1 });
+    assert.equal(buffered, 1);
+
+    let stopped = 0;
+    const pauseClock = { now: 101 };
+    const pauseContext = {
+      activeMode: "rush",
+      announcement: { textContent: "" },
+      demoMode: false,
+      performance: {
+        now() {
+          return pauseClock.now;
+        },
+      },
+      rushDeadline: 100,
+      rushDrainPending: false,
+      runState: "running",
+      stopDemo() {
+        stopped += 1;
+      },
+    };
+    vm.runInNewContext(
+      `${functionBody("rushDeadlineReached")}\n${functionBody("togglePause")}\nthis.togglePause = togglePause;`,
+      pauseContext,
+    );
+    pauseContext.togglePause();
+    assert.match(pauseContext.announcement.textContent, /resolving moves scheduled/);
+    pauseContext.demoMode = true;
+    pauseContext.togglePause();
+    assert.equal(stopped, 1);
+    assert.match(functionBody("resetRun"), /rushDrainPending = false/);
+  }],
+  ["non-deadline frames retain bounded movement catch-up", () => {
+    assert.deepEqual(
+      movementSteps({ nextMoveAt: 10, now: 80, moveBefore: 100 }),
+      { nextMoveAt: 90, pending: false, steps: [10, 20, 30] },
     );
   }],
   ["Canvas paint cost stays constant as permanent strokes accumulate", () => {
@@ -234,7 +349,7 @@ const tests = [
   }],
   ["pause controls expose only actionable states", () => {
     const body = functionBody("updateActionLabels");
-    assert.match(body, /const canPause = runState === "running" \|\| paused/);
+    assert.match(body, /const canPause = aiPlaying \|\| \(\(runState === "running" \|\| paused\) && !rushDrainPending\)/);
     assert.match(body, /pauseButton\.disabled = !canPause/);
     assert.match(body, /mobilePause\.disabled = !canPause/);
   }],
