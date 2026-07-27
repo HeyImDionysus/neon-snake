@@ -272,7 +272,9 @@ async function main() {
   {
     const script = core.ROOM_SCRIPT;
     assert.match(script, /ZREMRANGEBYSCORE/);
-    assert.match(script, /slot == 0 and \(eventType == "state" or eventType == "countdown"\)/);
+    assert.match(script, /slot == 0 and eventType == "countdown"/);
+    assert.match(script, /if allPlayersReady\(\) then/);
+    assert.match(script, /#candidates ~= 2/);
     assert.match(script, /not ready and redis\.call\("HEXISTS", dataKey, "countdown"\) == 1/);
     assert.match(script, /#stale > 0 and redis\.call\("HEXISTS", dataKey, "countdown"\) == 1/);
     assert.ok(

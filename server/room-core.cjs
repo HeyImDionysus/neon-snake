@@ -63,6 +63,15 @@ local session = ""
 local duplicateClient = false
 local used = {}
 
+local function allPlayersReady()
+  local candidates = redis.call("ZRANGEBYSCORE", playersKey, cutoff, "+inf")
+  if #candidates ~= 2 then return false end
+  for _, candidate in ipairs(candidates) do
+    if redis.call("HGET", readyKey, candidate) ~= "1" then return false end
+  end
+  return true
+end
+
 for _, candidate in ipairs(active) do
   local candidateSlot, candidateId, candidateToken = parseMember(candidate)
   used[candidateSlot] = true
@@ -99,13 +108,15 @@ if action == "sync" and member ~= nil then
 
   for _, event in ipairs(events) do
     local eventType = event["type"]
-    if slot == 0 and (eventType == "state" or eventType == "countdown") then
-      if eventType == "countdown" then
+    if slot == 0 and eventType == "countdown" then
+      if allPlayersReady() then
         redis.call("DEL", inputKey)
-      elseif eventType == "state" then
-        local inputAck = tonumber(event["state"]["guestInputAck"] or "0")
-        if inputAck > 0 then redis.call("ZREMRANGEBYSCORE", inputKey, "-inf", inputAck) end
+        redis.call("HSET", dataKey, eventType, cjson.encode(event))
+        redis.call("HINCRBY", dataKey, eventType .. "Rev", 1)
       end
+    elseif slot == 0 and eventType == "state" then
+      local inputAck = tonumber(event["state"]["guestInputAck"] or "0")
+      if inputAck > 0 then redis.call("ZREMRANGEBYSCORE", inputKey, "-inf", inputAck) end
       redis.call("HSET", dataKey, eventType, cjson.encode(event))
       redis.call("HINCRBY", dataKey, eventType .. "Rev", 1)
     elseif slot == 1 and eventType == "input" then
