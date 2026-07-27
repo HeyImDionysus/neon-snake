@@ -39,6 +39,7 @@ const scripts = [
   read("public", "game-logic.js"),
   read("public", "wallpaper-engine.js"),
   read("public", "wallpaper.js"),
+  read("public", "downloads.js"),
 ];
 
 const browserTest = String.raw`
@@ -71,6 +72,9 @@ const browserTest = String.raw`
   pace.dispatchEvent(new Event("input", { bubbles: true }));
   glow.value = "35";
   glow.dispatchEvent(new Event("input", { bubbles: true }));
+  const windowsDownload = document.querySelector('[data-wallpaper-download="Windows"]');
+  windowsDownload.addEventListener("click", (event) => event.preventDefault(), { once: true });
+  windowsDownload.click();
 
   resultNode.dataset.json = encodeURIComponent(JSON.stringify({
     menuOpen,
@@ -82,6 +86,10 @@ const browserTest = String.raw`
       paceOutput: document.querySelector("#wallpaperPaceOutput").textContent,
       glowOutput: document.querySelector("#wallpaperGlowOutput").textContent,
       status: document.querySelector("#wallpaperPreviewStatus").textContent,
+    },
+    download: {
+      status: document.querySelector("#windowsDownloadStatus").textContent,
+      started: windowsDownload.closest(".download-platform").classList.contains("download-started"),
     },
   }));
   resultNode.textContent = "complete";
@@ -152,7 +160,9 @@ try {
   assert.equal(result.preview.paceOutput, "CALM");
   assert.equal(result.preview.glowOutput, "35%");
   assert.equal(result.preview.status, "ULTRAVIOLET · WRAP · CALM");
-  process.stdout.write("PASS mobile navigation and wallpaper controls work in a real browser\n");
+  assert.equal(result.download.status, "WINDOWS DOWNLOAD STARTED · CHECK YOUR BROWSER DOWNLOADS");
+  assert.equal(result.download.started, true);
+  process.stdout.write("PASS mobile navigation, wallpaper controls, and download feedback work in a real browser\n");
 } finally {
   fs.rmSync(temporaryDirectory, { recursive: true, force: true });
 }
