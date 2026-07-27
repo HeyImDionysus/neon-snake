@@ -26,7 +26,7 @@
       </a>
       <nav class="site-nav" id="primaryNavigation" aria-label="Primary navigation">
         <a href="./">GAME</a>
-        <a href="duel.html">LIVE DUEL</a>
+        <a href="duel.html">MULTIPLAYER</a>
         <a href="./#leaderboard">RANKINGS</a>
         <a href="downloads.html">WALLPAPERS</a>
         <a href="profile.html" aria-current="page">PROFILE</a>
@@ -50,12 +50,12 @@
 
       <section class="profile-error" id="profileError" hidden>
         <p>YOUR PLAYER IDENTITY</p>
-        <h1>Claim your place on the grid.</h1>
-        <p class="profile-error-copy">Discord verifies the player. You choose the callsign, color, favorite mode, and signature snake everyone sees in rooms and rankings.</p>
+        <h1>Your name. Your snake. Your record.</h1>
+        <p class="profile-error-copy">Sign in once with Discord, then choose the callsign, color, favorite mode, and snake style everyone sees in multiplayer and rankings.</p>
         <div class="profile-error-features" aria-label="Profile features">
           <span>PUBLIC CALLSIGN</span><span>LIVE ROOM STATUS</span><span>VERIFIED RECORD</span>
         </div>
-        <a class="primary-link" href="/api/auth/discord/start">Build my profile with Discord <span aria-hidden="true">↗</span></a>
+        <a class="primary-link" href="/api/auth/discord/start">Create my player profile <span aria-hidden="true">↗</span></a>
       </section>
 
       <article class="profile-card" id="profileCard" hidden>
@@ -117,8 +117,8 @@
           <form class="profile-editor" id="profileEditor" hidden>
             <header>
               <p class="section-kicker">PROFILE STUDIO</p>
-              <h2>Tune every public detail.</h2>
-              <p>Every option previews instantly on your player card. Save once when it feels right; your verified Discord username always remains visible.</p>
+              <h2>Make it yours.</h2>
+              <p>Every choice previews instantly. Save once to update the snake, name, and color other players see; your verified Discord username remains visible.</p>
             </header>
 
             <div class="profile-field-heading"><label for="callsignInput">CALLSIGN</label><span id="callsignCount">0 / 24</span></div>
@@ -144,7 +144,7 @@
               <label><input type="radio" name="favoriteMode" value="portal" /><span><strong>PORTAL</strong><small>Loop the edges</small></span></label>
               <label><input type="radio" name="favoriteMode" value="rush" /><span><strong>RUSH</strong><small>Beat the clock</small></span></label>
               <label><input type="radio" name="favoriteMode" value="canvas" /><span><strong>CANVAS</strong><small>Paint the route</small></span></label>
-              <label><input type="radio" name="favoriteMode" value="live" /><span><strong>LIVE DUEL</strong><small>Another player</small></span></label>
+              <label><input type="radio" name="favoriteMode" value="live" /><span><strong>MULTIPLAYER</strong><small>Another player</small></span></label>
             </fieldset>
 
             <fieldset class="profile-choice-grid snake-choice-grid">

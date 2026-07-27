@@ -15,8 +15,12 @@ const styles = read("public", "styles.css");
 const siteShell = read("public", "site-shell.js");
 const profileScript = read("public", "profile.js");
 const wallpaperScript = read("public", "wallpaper.js");
+const downloadsScript = read("public", "downloads.js");
 const wallpaperStyles = read("public", "wallpaper.css");
 const wallpaperPage = read("public", "wallpaper.html");
+const manifest = read("public", "manifest.webmanifest");
+const gameScript = read("public", "game.js");
+const duelScript = read("public", "duel.js");
 const vercel = read("vercel.json");
 
 for (const [name, html] of pages) {
@@ -33,6 +37,10 @@ for (const [name, html] of pages) {
 }
 
 assert.doesNotMatch(home, /AI-Built Systems Experiment|THE CODEX EXPERIMENT|Judge the artifact/);
+for (const source of [home, manifest, gameScript, duelScript]) {
+  assert.doesNotMatch(source, /AI-Built Systems Experiment|THE CODEX EXPERIMENT|Judge the artifact|DUEL LAB/);
+}
+assert.equal(JSON.parse(manifest).name, "Neon Snake");
 assert.match(home, /href="downloads\.html"/);
 assert.doesNotMatch(home, /href="wallpaper\.html"/);
 assert.match(home, /id="leaderboard"/);
@@ -48,11 +56,15 @@ assert.match(downloads, /class="wallpaper-surface"/);
 assert.match(downloads, /same autonomous snake from the game/i);
 assert.match(downloads, /data-wallpaper-palette="acid"/);
 assert.match(downloads, /id="wallpaperPace"/);
+assert.equal((downloads.match(/data-wallpaper-download=/g) || []).length, 2);
+assert.match(downloads, /id="windowsDownloadStatus"/);
+assert.match(downloads, /id="androidDownloadStatus"/);
+assert.match(downloadsScript, /DOWNLOAD STARTED/);
 assert.match(wallpaperScript, /NeonSnakeWallpaperPreview/);
-assert.match(downloads, /href="\/downloads\/v1\.1\.1\/Neon-Snake-Lively-v1\.1\.1\.zip"/);
+assert.match(downloads, /href="\/downloads\/v1\.1\.2\/Neon-Snake-Lively-v1\.1\.2\.zip"/);
 assert.match(downloads, /href="\/downloads\/v1\.1\.0\/Neon-Snake-Android-v1\.1\.0\.apk"/);
 assert.doesNotMatch(downloads, /github\.com\/HeyImDionysus\/neon-snake\/raw/);
-assert.equal(fs.existsSync(path.join(__dirname, "public", "downloads", "v1.1.1", "Neon-Snake-Lively-v1.1.1.zip")), true);
+assert.equal(fs.existsSync(path.join(__dirname, "public", "downloads", "v1.1.2", "Neon-Snake-Lively-v1.1.2.zip")), true);
 assert.equal(fs.existsSync(path.join(__dirname, "public", "downloads", "v1.1.0", "Neon-Snake-Android-v1.1.0.apk")), true);
 assert.match(vercel, /Content-Disposition/);
 process.stdout.write("PASS downloads provide direct platform actions and a live truthful preview\n");
@@ -87,6 +99,8 @@ assert.match(styles, /overflow-x: auto/);
 assert.match(styles, /\.site-menu-open \.product-header \.site-nav/);
 assert.match(siteShell, /aria-expanded/);
 assert.match(siteShell, /navigation\.inert/);
+assert.match(siteShell, /is-condensed/);
+assert.match(siteShell, /activeLine/);
 assert.match(styles, /\.public-board/);
 process.stdout.write("PASS the mobile header, player identity, and leaderboard reflow as product surfaces\n");
 

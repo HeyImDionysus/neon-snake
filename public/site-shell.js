@@ -7,7 +7,14 @@
   if (!header || !navigation || !toggle) return;
 
   const mobileQuery = root.matchMedia("(max-width: 820px)");
+  const sectionLinks = [...navigation.querySelectorAll('a[href^="#"]')]
+    .map((link) => ({
+      link,
+      section: root.document.querySelector(link.getAttribute("href")),
+    }))
+    .filter(({ section }) => section);
   let open = false;
+  let scrollFrame = 0;
 
   function setOpen(nextOpen, { restoreFocus = false } = {}) {
     open = Boolean(nextOpen) && mobileQuery.matches;
@@ -38,6 +45,26 @@
     setOpen(false);
   }
 
+  function syncScrollState() {
+    scrollFrame = 0;
+    header.classList.toggle("is-condensed", root.scrollY > 24);
+    if (sectionLinks.length < 2) return;
+    const activeLine = root.scrollY + root.innerHeight * .32;
+    let active = sectionLinks[0];
+    sectionLinks.forEach((candidate) => {
+      if (candidate.section.offsetTop <= activeLine) active = candidate;
+    });
+    sectionLinks.forEach(({ link }) => {
+      if (link === active.link) link.setAttribute("aria-current", "page");
+      else link.removeAttribute("aria-current");
+    });
+  }
+
+  function scheduleScrollSync() {
+    if (scrollFrame) return;
+    scrollFrame = root.requestAnimationFrame(syncScrollState);
+  }
+
   toggle.addEventListener("click", () => setOpen(!open, { restoreFocus: open }));
   navigation.addEventListener("click", (event) => {
     if (event.target.closest("a")) setOpen(false);
@@ -49,10 +76,14 @@
     if (open && !header.contains(event.target)) setOpen(false);
   });
   mobileQuery.addEventListener?.("change", syncViewport);
+  root.addEventListener("scroll", scheduleScrollSync, { passive: true });
   root.addEventListener("pagehide", () => {
     mobileQuery.removeEventListener?.("change", syncViewport);
+    root.removeEventListener("scroll", scheduleScrollSync);
+    if (scrollFrame) root.cancelAnimationFrame(scrollFrame);
   }, { once: true });
 
   root.document.documentElement.classList.add("site-shell-ready");
   syncViewport();
+  syncScrollState();
 })(globalThis);

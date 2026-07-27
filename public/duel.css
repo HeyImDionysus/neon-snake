@@ -184,11 +184,14 @@ body.activity-mode .duel-shell { padding-top: 24px; }
   width: 100%;
   aspect-ratio: 1;
   overflow: hidden;
+  touch-action: pan-y;
   background:
     radial-gradient(circle at 25% 48%, #adff6609, transparent 34%),
     radial-gradient(circle at 75% 52%, #a98bff0a, transparent 34%),
     #050806;
 }
+
+body[data-duel-state="running"] .duel-board { touch-action: none; }
 
 .duel-board canvas {
   display: block;

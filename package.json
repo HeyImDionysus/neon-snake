@@ -2,7 +2,7 @@
   "name": "neon-snake",
   "version": "1.0.0",
   "private": true,
-  "description": "A deterministic neon snake experiment with authoritative Vercel WebSocket duels.",
+  "description": "A fluid neon snake game with solo modes, authoritative multiplayer, public profiles, rankings, and native live wallpapers.",
   "scripts": {
     "build:activity": "node scripts/build-activity.mjs"
   },

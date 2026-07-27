@@ -127,7 +127,17 @@ button, a, label, select { -webkit-tap-highlight-color: transparent; }
   border-bottom-color: rgba(64, 88, 72, .72);
   background: rgba(5, 9, 6, .82);
   backdrop-filter: blur(18px);
+  transition: min-height .18s ease, background .18s ease, box-shadow .18s ease;
 }
+
+.product-header.is-condensed {
+  min-height: 64px;
+  background: rgba(4, 8, 5, .94);
+  box-shadow: 0 16px 46px rgba(0, 0, 0, .26);
+}
+
+.product-header.is-condensed .site-nav a { padding-block: 23px 20px; }
+.product-header.is-condensed .brand-glyph { width: 32px; height: 32px; }
 
 .site-nav {
   display: flex;
@@ -409,6 +419,7 @@ button, a, label, select { -webkit-tap-highlight-color: transparent; }
   background: #0b140f;
   box-shadow: 0 0 0 4px #adff6608, 0 0 26px #adff6628;
   transform: rotate(-4deg);
+  transition: width .18s ease, height .18s ease;
 }
 
 .brand-glyph img {
@@ -515,8 +526,10 @@ body[data-game-state="countdown"] .status-light { animation: blink .5s steps(1) 
   aspect-ratio: 1;
   overflow: hidden;
   background: #09100c;
-  touch-action: none;
+  touch-action: pan-y;
 }
+
+body[data-game-state="running"] .board-wrap { touch-action: none; }
 
 .board-wrap canvas { display: block; width: 100%; height: 100%; }
 
@@ -1664,6 +1677,8 @@ body[data-mode="canvas"] .mode-chip { color: #74e1ff; border-color: #74e1ff66; }
     min-height: 72px;
     padding: 10px 14px;
   }
+  .site-shell-ready .product-header.is-condensed { min-height: 72px; }
+  .site-shell-ready .product-header.is-condensed .brand-glyph { width: 38px; height: 38px; }
   .site-shell-ready .product-header .brand {
     grid-column: 1;
     grid-row: 1;

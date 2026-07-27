@@ -166,6 +166,7 @@ let canvasCompositionBudget = 0;
 let canvasCompositionName = "";
 let canvasCompositionActive = false;
 let lastFrame = performance.now();
+let renderFrame = 0;
 let lastGamepadPoll = 0;
 let gamepadDirection = "";
 let gamepadPausePressed = false;
@@ -904,6 +905,8 @@ function updateEffects(delta) {
 }
 
 function render(now) {
+  renderFrame = 0;
+  if (document.hidden) return;
   const delta = Math.min(now - lastFrame, 34);
   lastFrame = now;
   updateEffects(delta);
@@ -925,7 +928,13 @@ function render(now) {
     gameConsole.classList.toggle(`mutation-${type}`, mutation.type === type && gameplayNow < mutation.expiresAt);
   });
   drawBoard(gameplayNow);
-  requestAnimationFrame(render);
+  renderFrame = requestAnimationFrame(render);
+}
+
+function startRendering() {
+  if (document.hidden || renderFrame) return;
+  lastFrame = performance.now();
+  renderFrame = requestAnimationFrame(render);
 }
 
 function updateRushTimer(now, drainPending = false) {
@@ -1840,7 +1849,7 @@ async function shareGame() {
     ? `I scored ${score} in ${activeMode.toUpperCase()} mode on Neon Snake.${dna} Beat Signal ${runSignal}.`
     : `Play Neon Snake Signal ${runSignal}—the same code means the same challenge.`;
   const data = {
-    title: "Neon Snake — An AI-Built Systems Experiment",
+    title: "Play Neon Snake",
     text,
     url: url.toString(),
   };
@@ -1997,10 +2006,13 @@ function handleKeyboard(event) {
 
 function handleVisibilityChange() {
   if (document.hidden) {
+    if (renderFrame) cancelAnimationFrame(renderFrame);
+    renderFrame = 0;
     if (runState === "running" && !demoMode) togglePause();
     else if (runState === "countdown") suspendCountdown();
     return;
   }
+  startRendering();
   if (runState === "countdown" && countdownSuspended) beginCountdown(countdownStep);
 }
 
@@ -2117,4 +2129,4 @@ setState("ready", activeMode === "canvas" ? "CANVAS READY" : "SYSTEM READY");
 updateActionLabels();
 updateReadyOverlay();
 syncChallengeUrl();
-requestAnimationFrame(render);
+startRendering();

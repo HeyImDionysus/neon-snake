@@ -1,13 +1,13 @@
 {
-  "name": "Neon Snake — An AI-Built Systems Experiment",
+  "name": "Neon Snake",
   "short_name": "Neon Snake",
-  "description": "A public test of how far Codex can push one simple browser game through engineering, autonomy, visual design, and systems depth.",
+  "description": "Play four solo modes, challenge live players, build a public profile, climb verified rankings, and run Neon Snake as a live wallpaper.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#070b09",
   "theme_color": "#070b09",
-  "categories": ["games", "entertainment", "education"],
+  "categories": ["games", "entertainment"],
   "icons": [
     {
       "src": "/assets/icon-192.png",

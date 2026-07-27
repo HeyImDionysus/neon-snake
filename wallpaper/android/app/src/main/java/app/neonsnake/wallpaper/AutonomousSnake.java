@@ -9,6 +9,7 @@ import java.util.Set;
 
 final class AutonomousSnake {
     static final int GRID = 20;
+    static final int DISPLAY_LENGTH_LIMIT = 42;
 
     static final class Point {
         final int x;
@@ -33,6 +34,7 @@ final class AutonomousSnake {
     private int foodsEaten;
     private int score;
     private int lastPoints;
+    private Point lastPickup;
 
     AutonomousSnake(int seed) {
         randomState = seed == 0 ? 0x6d2b79f5 : seed;
@@ -64,6 +66,10 @@ final class AutonomousSnake {
         return lastPoints;
     }
 
+    Point lastPickup() {
+        return lastPickup;
+    }
+
     boolean foodIsCore() {
         return food != null && (foodsEaten + 1) % 5 == 0;
     }
@@ -73,6 +79,7 @@ final class AutonomousSnake {
             foodsEaten = 0;
             score = 0;
             lastPoints = 0;
+            lastPickup = null;
         }
         body.clear();
         body.add(new Point(10, 10));
@@ -101,7 +108,8 @@ final class AutonomousSnake {
         foodsEaten += 1;
         lastPoints = foodsEaten % 5 == 0 ? 50 : 10;
         score += lastPoints;
-        if (body.size() >= cycle.size()) reset(true);
+        lastPickup = head;
+        if (body.size() >= DISPLAY_LENGTH_LIMIT) reset(true);
         else placeFood(false);
         return true;
     }
