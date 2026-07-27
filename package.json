@@ -3,10 +3,17 @@
   "version": "1.0.0",
   "private": true,
   "description": "A deterministic neon snake experiment with authoritative Vercel WebSocket duels.",
+  "scripts": {
+    "build:activity": "node scripts/build-activity.mjs"
+  },
   "engines": {
     "node": ">=22"
   },
   "dependencies": {
     "ws": "8.21.1"
+  },
+  "devDependencies": {
+    "@discord/embedded-app-sdk": "2.5.0",
+    "esbuild": "0.25.12"
   }
 }

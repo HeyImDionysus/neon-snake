@@ -12,6 +12,7 @@ const {
 
 const DISCORD_API = "https://discord.com/api/v10";
 const SESSION_COOKIE = "__Host-neon_session";
+const ACTIVITY_SESSION_COOKIE = "__Secure-neon_activity";
 const OAUTH_COOKIE = "__Host-neon_oauth";
 const OAUTH_TTL_SECONDS = 10 * 60;
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -107,6 +108,21 @@ function cookie(name, value, {
     httpOnly ? "HttpOnly" : "",
     `Max-Age=${Math.max(0, Math.floor(maxAge))}`,
   ].filter(Boolean).join("; ");
+}
+
+function activityCookie(value, clientId, {
+  maxAge = 0,
+} = {}) {
+  return [
+    `${ACTIVITY_SESSION_COOKIE}=${encodeURIComponent(value)}`,
+    "Path=/",
+    `Domain=${clientId}.discordsays.com`,
+    "Secure",
+    "HttpOnly",
+    "SameSite=None",
+    "Partitioned",
+    `Max-Age=${Math.max(0, Math.floor(maxAge))}`,
+  ].join("; ");
 }
 
 function sendJson(response, status, payload) {
@@ -249,6 +265,14 @@ function environmentConfig(environment) {
   return { clientId, clientSecret, redirectUri };
 }
 
+function requestIsAccountOrigin(request, environment) {
+  if (requestIsSameOrigin(request)) return true;
+  const clientId = String(environment.DISCORD_CLIENT_ID || "");
+  const origin = String(header(request, "origin") || "").toLowerCase();
+  return /^[0-9]{15,24}$/.test(clientId)
+    && origin === `https://${clientId}.discordsays.com`;
+}
+
 function accountAvailable(environment) {
   return Boolean(
     String(environment.DISCORD_CLIENT_ID || "")
@@ -286,7 +310,8 @@ function createRedisRunner({
 function createSessionReader(options = {}) {
   const runRedis = createRedisRunner(options);
   return async function sessionFor(request) {
-    const token = cookieMap(request).get(SESSION_COOKIE) || "";
+    const cookies = cookieMap(request);
+    const token = cookies.get(SESSION_COOKIE) || cookies.get(ACTIVITY_SESSION_COOKIE) || "";
     if (!/^[A-Za-z0-9_-]{32,128}$/.test(token)) return null;
     const sessionValue = await runRedis(["GET", `neon-snake:session:${digest(token)}`]);
     if (sessionValue === null || sessionValue === undefined || sessionValue === "") return null;
@@ -307,6 +332,78 @@ function createSessionReader(options = {}) {
     }
     return profile ? { token, session, profile } : null;
   };
+}
+
+async function exchangeDiscordCode(code, {
+  config,
+  fetchImpl,
+  redirectUri = "",
+}) {
+  const body = new URLSearchParams({
+    grant_type: "authorization_code",
+    code,
+  });
+  if (redirectUri) body.set("redirect_uri", redirectUri);
+  const tokenResponse = await fetchImpl(`${DISCORD_API}/oauth2/token`, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`${config.clientId}:${config.clientSecret}`).toString("base64")}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body,
+    signal: AbortSignal.timeout(5_000),
+  });
+  if (!tokenResponse.ok) throw new Error("Discord token exchange failed.");
+  const token = await tokenResponse.json();
+  if (!token?.access_token || token?.token_type !== "Bearer") {
+    throw new Error("Discord token is invalid.");
+  }
+  const userResponse = await fetchImpl(`${DISCORD_API}/users/@me`, {
+    headers: { Authorization: `Bearer ${token.access_token}` },
+    signal: AbortSignal.timeout(5_000),
+  });
+  if (!userResponse.ok) throw new Error("Discord profile lookup failed.");
+  return {
+    accessToken: token.access_token,
+    discordUser: await userResponse.json(),
+  };
+}
+
+async function persistDiscordSession(discordUser, {
+  now,
+  random,
+  runRedis,
+}) {
+  const provisional = publicProfile(discordUser);
+  let previousProfile = null;
+  try {
+    const previousValue = await runRedis(["GET", `neon-snake:profile:${provisional.id}`]);
+    previousProfile = previousValue
+      ? (typeof previousValue === "string" ? JSON.parse(previousValue) : previousValue)
+      : null;
+  } catch {
+    previousProfile = null;
+  }
+  const profile = storedProfile(discordUser, previousProfile);
+  const sessionToken = random(32);
+  const session = {
+    userId: profile.id,
+    createdAt: now(),
+    expiresAt: now() + SESSION_TTL_SECONDS * 1_000,
+  };
+  await runRedis(["SET", `neon-snake:profile:${profile.id}`, JSON.stringify(profile)]);
+  const indexedUsername = usernameKey(profile.username);
+  if (indexedUsername) {
+    await runRedis(["SET", `neon-snake:username:${indexedUsername}`, profile.id]);
+  }
+  await runRedis([
+    "SET",
+    `neon-snake:session:${digest(sessionToken)}`,
+    JSON.stringify(session),
+    "EX",
+    SESSION_TTL_SECONDS,
+  ]);
+  return { profile, sessionToken };
 }
 
 async function recordMatchResult({
@@ -399,61 +496,50 @@ function createAccountHandler({
         if (stateRecord !== "1" && stateRecord !== 1) {
           return redirect(response, "/?auth=expired", [cookie(OAUTH_COOKIE, "", { maxAge: 0 })]);
         }
-        const tokenResponse = await fetchImpl(`${DISCORD_API}/oauth2/token`, {
-          method: "POST",
-          headers: {
-            Authorization: `Basic ${Buffer.from(`${config.clientId}:${config.clientSecret}`).toString("base64")}`,
-            "Content-Type": "application/x-www-form-urlencoded",
-          },
-          body: new URLSearchParams({
-            grant_type: "authorization_code",
-            code,
-            redirect_uri: config.redirectUri,
-          }),
-          signal: AbortSignal.timeout(5_000),
+        const { discordUser } = await exchangeDiscordCode(code, {
+          config,
+          fetchImpl,
+          redirectUri: config.redirectUri,
         });
-        if (!tokenResponse.ok) throw new Error("Discord token exchange failed.");
-        const token = await tokenResponse.json();
-        if (!token?.access_token || token?.token_type !== "Bearer") throw new Error("Discord token is invalid.");
-        const userResponse = await fetchImpl(`${DISCORD_API}/users/@me`, {
-          headers: { Authorization: `Bearer ${token.access_token}` },
-          signal: AbortSignal.timeout(5_000),
+        const { sessionToken } = await persistDiscordSession(discordUser, {
+          now,
+          random,
+          runRedis,
         });
-        if (!userResponse.ok) throw new Error("Discord profile lookup failed.");
-        const discordUser = await userResponse.json();
-        const provisional = publicProfile(discordUser);
-        let previousProfile = null;
-        try {
-          const previousValue = await runRedis(["GET", `neon-snake:profile:${provisional.id}`]);
-          previousProfile = previousValue
-            ? (typeof previousValue === "string" ? JSON.parse(previousValue) : previousValue)
-            : null;
-        } catch {
-          previousProfile = null;
-        }
-        const profile = storedProfile(discordUser, previousProfile);
-        const sessionToken = random(32);
-        const session = {
-          userId: profile.id,
-          createdAt: now(),
-          expiresAt: now() + SESSION_TTL_SECONDS * 1_000,
-        };
-        await runRedis(["SET", `neon-snake:profile:${profile.id}`, JSON.stringify(profile)]);
-        const indexedUsername = usernameKey(profile.username);
-        if (indexedUsername) {
-          await runRedis(["SET", `neon-snake:username:${indexedUsername}`, profile.id]);
-        }
-        await runRedis([
-          "SET",
-          `neon-snake:session:${digest(sessionToken)}`,
-          JSON.stringify(session),
-          "EX",
-          SESSION_TTL_SECONDS,
-        ]);
         return redirect(response, "/?auth=discord", [
           cookie(OAUTH_COOKIE, "", { maxAge: 0 }),
           cookie(SESSION_COOKIE, sessionToken, { maxAge: SESSION_TTL_SECONDS }),
         ]);
+      }
+
+      if (route === "/api/activity/token") {
+        if (request.method !== "POST") {
+          return sendJson(response, 405, { error: "method_not_allowed" });
+        }
+        const config = environmentConfig(environment);
+        if (!requestIsAccountOrigin(request, environment)) {
+          return sendJson(response, 403, { error: "origin_not_allowed" });
+        }
+        const body = await readBody(request);
+        const code = String(body.code || "");
+        if (!/^[A-Za-z0-9._~-]{8,512}$/.test(code)) {
+          return sendJson(response, 400, { error: "invalid_code" });
+        }
+        const { accessToken, discordUser } = await exchangeDiscordCode(code, {
+          config,
+          fetchImpl,
+        });
+        const { sessionToken } = await persistDiscordSession(discordUser, {
+          now,
+          random,
+          runRedis,
+        });
+        response.setHeader("Set-Cookie", activityCookie(
+          sessionToken,
+          config.clientId,
+          { maxAge: SESSION_TTL_SECONDS },
+        ));
+        return sendJson(response, 200, { access_token: accessToken });
       }
 
       if (route === "/api/me") {
@@ -482,10 +568,17 @@ function createAccountHandler({
 
       if (route === "/api/logout") {
         if (request.method !== "POST") return sendJson(response, 405, { error: "method_not_allowed" });
-        if (!requestIsSameOrigin(request)) return sendJson(response, 403, { error: "origin_not_allowed" });
+        if (!requestIsAccountOrigin(request, environment)) {
+          return sendJson(response, 403, { error: "origin_not_allowed" });
+        }
         const current = await sessionFor(request);
         if (current) await runRedis(["DEL", `neon-snake:session:${digest(current.token)}`]);
-        response.setHeader("Set-Cookie", cookie(SESSION_COOKIE, "", { maxAge: 0 }));
+        const clearCookies = [cookie(SESSION_COOKIE, "", { maxAge: 0 })];
+        const clientId = String(environment.DISCORD_CLIENT_ID || "");
+        if (/^[0-9]{15,24}$/.test(clientId)) {
+          clearCookies.push(activityCookie("", clientId, { maxAge: 0 }));
+        }
+        response.setHeader("Set-Cookie", clearCookies);
         return sendJson(response, 200, { ok: true });
       }
 
@@ -549,7 +642,7 @@ function createAccountHandler({
           });
         }
         if (request.method === "PATCH") {
-          if (!requestIsSameOrigin(request)) {
+          if (!requestIsAccountOrigin(request, environment)) {
             return sendJson(response, 403, { error: "origin_not_allowed" });
           }
           const current = await sessionFor(request);

@@ -26,6 +26,10 @@ jobs:
 
       - name: Verify syntax
         run: |
+          npm run build:activity
+          git diff --exit-code -- public/activity-sdk.js
+          node --check public/activity-redirect.js
+          node --check public/activity-sdk.js
           node --check public/game.js
           node --check public/game-logic.js
           node --check public/room-transport.js
@@ -60,6 +64,7 @@ jobs:
           node deployment-contract.test.js
           node realtime-worker.test.js
           node platform-security.test.js
+          node activity-system.test.js
           node profile-system.test.js
           node profile-interaction.test.js
           PROFILE_BROWSER_REQUIRED=1 node profile-browser.test.js

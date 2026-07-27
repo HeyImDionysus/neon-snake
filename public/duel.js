@@ -36,6 +36,9 @@ const aiTraceRisk = $("#aiTraceRisk");
 const aiTraceDepth = $("#aiTraceDepth");
 const roomSlotOne = $("#roomSlotOne");
 const roomSlotTwo = $("#roomSlotTwo");
+const activityContext = $("#activityContext");
+const activityContextTitle = $("#activityContextTitle");
+const activityContextDetail = $("#activityContextDetail");
 
 const DUEL_GRID = Rules.duelGridSize(20);
 const SIGNAL_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
@@ -1231,6 +1234,16 @@ function handleRoomMessage(message) {
 }
 
 async function copyRoomLink() {
+  if (globalThis.NeonSnakeActivity?.embedded) {
+    try {
+      await globalThis.NeonSnakeActivity.invite();
+      roomState.textContent = "DISCORD INVITE OPEN";
+      announcement.textContent = "Discord invite dialog opened.";
+    } catch {
+      roomState.textContent = "DISCORD INVITE UNAVAILABLE";
+    }
+    return;
+  }
   const code = Rules.normalizeSignalCode(roomCodeInput.value) || roomCode;
   const url = new URL("duel.html", window.location.href);
   url.searchParams.set("room", code);
@@ -1336,8 +1349,36 @@ window.addEventListener("load", registerServiceWorker, { once: true });
 if ("ResizeObserver" in window) new ResizeObserver(resizeCanvas).observe(board);
 else window.addEventListener("resize", resizeCanvas);
 
-const invitedToLiveRoom = hydrateRoomCode();
-switchDuelType(invitedToLiveRoom ? "live" : "ai");
 resizeCanvas();
-if (invitedToLiveRoom) connectLiveRoom();
 frameHandle = requestAnimationFrame(render);
+
+async function initializeDuelSurface() {
+  if (globalThis.NeonSnakeActivity?.embedded) {
+    activityContext.hidden = false;
+    document.body.classList.add("activity-mode");
+    try {
+      const activity = await globalThis.NeonSnakeActivity.ready;
+      activityContextTitle.textContent = "CHANNEL INSTANCE CONNECTED";
+      activityContextDetail.textContent = `Shared room ${activity.roomCode} · authenticated as @${activity.user.username}`;
+      copyRoomButton.textContent = "INVITE";
+      roomCodeInput.readOnly = true;
+      document.querySelector(".duel-intro .section-kicker").textContent = "DISCORD ACTIVITY";
+      document.querySelector("#duelTitle").innerHTML = "Your channel.<br><em>One live board.</em>";
+      document.querySelector(".duel-intro > p").textContent = "Everyone in this Activity instance joins the same server-authoritative room. Press Ready when both players appear.";
+    } catch {
+      activityContext.classList.add("is-error");
+      activityContextTitle.textContent = "DISCORD ACTIVITY COULD NOT START";
+      activityContextDetail.textContent = "Close this Activity and launch it again from Discord.";
+      roomState.textContent = "ACTIVITY AUTHENTICATION FAILED";
+      connectRoomButton.disabled = true;
+      const invited = hydrateRoomCode();
+      switchDuelType(invited ? "live" : "ai");
+      return;
+    }
+  }
+  const invitedToLiveRoom = hydrateRoomCode();
+  switchDuelType(invitedToLiveRoom ? "live" : "ai");
+  if (invitedToLiveRoom) await connectLiveRoom();
+}
+
+void initializeDuelSurface();

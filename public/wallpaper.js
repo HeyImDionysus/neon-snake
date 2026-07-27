@@ -46,6 +46,8 @@
       atmosphere: "64, 42, 91",
     },
   };
+  const PALETTE_CHOICES = ["acid", "aurora", "ultraviolet"];
+  const MODE_CHOICES = ["classic", "portal"];
   const query = new URLSearchParams(location.search);
   const signal = Rules.normalizeSignalCode(query.get("signal")) || createSignal();
   const settings = {
@@ -80,6 +82,16 @@
   function clampNumber(value, minimum, maximum, fallback) {
     const number = Number(value);
     return Number.isFinite(number) ? Math.min(maximum, Math.max(minimum, number)) : fallback;
+  }
+
+  function resolveLivelyChoice(value, choices) {
+    if (typeof value === "string" && choices.includes(value)) return value;
+    const index = typeof value === "number"
+      ? value
+      : typeof value === "string" && /^\d+$/.test(value)
+        ? Number(value)
+        : NaN;
+    return Number.isInteger(index) ? choices[index] : undefined;
   }
 
   function createSignal() {
@@ -413,9 +425,11 @@
     if (name === "fps") settings.fps = clampNumber(value, 8, 30, settings.fps);
     if (name === "pace") settings.pace = clampNumber(value, 70, 260, settings.pace);
     if (name === "glow") settings.glow = clampNumber(Number(value) / 100, 0, 1, settings.glow);
-    if (name === "palette" && PALETTES[value]) settings.palette = value;
-    if (name === "mode" && ["classic", "portal"].includes(value)) {
-      settings.mode = value;
+    const palette = name === "palette" ? resolveLivelyChoice(value, PALETTE_CHOICES) : undefined;
+    if (palette && PALETTES[palette]) settings.palette = palette;
+    const mode = name === "mode" ? resolveLivelyChoice(value, MODE_CHOICES) : undefined;
+    if (mode) {
+      settings.mode = mode;
       rebuildEngine();
     }
     if (name === "mark") {

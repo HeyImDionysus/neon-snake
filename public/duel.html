@@ -43,6 +43,11 @@
     </header>
 
     <main class="duel-shell">
+      <section class="activity-context" id="activityContext" aria-live="polite" hidden>
+        <span class="activity-context-mark">DISCORD ACTIVITY</span>
+        <strong id="activityContextTitle">CONNECTING TO YOUR CHANNEL…</strong>
+        <small id="activityContextDetail">Discord will securely identify this player and join the shared instance room.</small>
+      </section>
       <section class="duel-stage" aria-labelledby="duelTitle">
         <header class="duel-intro">
           <div>
@@ -217,6 +222,7 @@
     <p class="sr-only" id="duelAnnouncement" aria-live="assertive"></p>
     <script src="signal-field.js"></script>
     <script src="runtime-config.js"></script>
+    <script src="activity-sdk.js"></script>
     <script src="account.js"></script>
     <script src="game-logic.js"></script>
     <script src="room-transport.js"></script>

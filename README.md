@@ -26,6 +26,7 @@ node service-worker.test.js
 node deployment-contract.test.js
 node realtime-worker.test.js
 node platform-security.test.js
+node activity-system.test.js
 node profile-system.test.js
 node profile-interaction.test.js
 node profile-browser.test.js
@@ -100,6 +101,7 @@ Discord sign-in is optional for play and required only for a verified profile or
 - **Run integrity:** movement never starts until the owner choice and visible countdown complete; hiding the page suspends a player countdown, and career runs increment only when play actually begins.
 - **Autopilot Duel:** two fluid snakes share a compressed 30 × 30 lethal arena; the first crash loses and simultaneous head-on or head-swap collisions draw.
 - **Public Live Room:** a six-character room Signal connects exactly two players across different devices; both must be connected and Ready before countdown, and a disconnect cancels or stops play.
+- **Discord Activity:** the official Embedded App SDK authenticates each participant, converts one Discord Activity instance into one shared live-room Signal, opens Discord's native invite dialog, respects mobile safe areas, and keeps Activity sessions in a partitioned HttpOnly cookie.
 - **Verified profiles:** optional Discord identity anchors a dedicated public profile with a visible username, custom callsign, bio, color, favorite mode, snake style, avatar, verified record, and live-room presence. OAuth tokens never enter game code, and the flow requests no email, guild, or social permissions.
 - **Online leaderboard:** public rows link to profiles, show callsigns plus verified Discord usernames and current live-room activity, and can change only through outcomes written privately by the server-authoritative live simulation.
 - **Autonomous wallpapers:** the real eat, grow, score, Core, and pickup-feedback loop runs without controls as a configurable Lively wallpaper on Windows and as a battery-aware native `WallpaperService` on Android.
@@ -116,6 +118,8 @@ Discord sign-in is optional for play and required only for a verified profile or
 - `public/duel.css` — responsive duel arena and room-state presentation.
 - `public/duel.js` — autonomous duel and room-state orchestration.
 - `public/room-transport.js` — same-origin Vercel WebSocket transport with bounded reconnect/heartbeat handling plus the legacy HTTP fallback.
+- `activity/entry.js`, `public/activity-sdk.js` — official Discord Embedded App SDK source and its pinned, reproducible browser bundle.
+- `api/activity-token.mjs` — origin-bound Activity code exchange and partitioned session entry point.
 - `public/account.js` — safe Discord profile and verified-leaderboard rendering.
 - `public/profile.html`, `public/profile.js`, `public/profile.css` — dedicated public-player surface and authenticated profile customization.
 - `public/downloads.html`, `public/downloads.css` — direct Windows/Android downloads plus the live wallpaper preview.
@@ -147,6 +151,7 @@ Discord sign-in is optional for play and required only for a verified profile or
 - `realtime-worker.test.js` — executable Vercel connection, Redis relay, input authority, and verified-result regressions.
 - `platform-security.test.js` — executable Discord data-minimization, state, cookie, HMAC, and leaderboard-write regressions.
 - `profile-system.test.js` — executable profile customization, public identity, live activity, and origin-bound write regressions.
+- `activity-system.test.js` — executable Discord iframe, SDK, instance-room, origin, token, and partitioned-cookie regressions.
 - `product-experience.test.js` — executable navigation, download routing, copy, responsive-header, profile, and leaderboard regressions.
 - `wallpaper-system.test.js` — executable eat/grow behavior plus Windows/Android packaging, pause, frame-budget, visual, and permission regressions.
 
@@ -174,6 +179,18 @@ The browser app and account endpoints deploy on Vercel:
 4. Leave the build command blank. `vercel.json` serves static files only from `public`; Vercel deploys the files under `api/` separately.
 5. Connect an Upstash Redis resource to the project so Vercel provides `STORAGE_KV_REST_API_URL` and `STORAGE_KV_REST_API_TOKEN`.
 6. Create a Discord application with the exact production callback URL and set `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, and `DISCORD_REDIRECT_URI`.
+
+### Discord Activity portal setup
+
+The Activity reuses the same Vercel deployment and Discord application; it does not need a bot or another hosting provider.
+
+1. In **Activities → URL Mappings**, map prefix `/` to `neon-snake-green-tau.vercel.app` (no protocol).
+2. In **Activities → Settings**, enable Activities and enable Web, iOS, and Android support.
+3. Keep the default `Launch` Entry Point command. Set phone/tablet orientation to unlocked; the app requests landscape only for picture-in-picture and grid tiles.
+4. In **OAuth2**, retain the existing production callback. Activity authorization requests only `identify`; the existing client secret stays in Vercel and never enters the browser bundle.
+5. Install the application to the intended server and leave Discovery disabled if the Activity should not be publicly listed.
+
+Discord currently limits unverified Activities to servers with fewer than 25 members. A 40-member server therefore requires Discord app verification even when Discovery remains disabled. Until verification is approved, the same build can be tested in a smaller private server by the owner or invited App Testers.
 
 `vercel.json` supplies security headers, service-worker cache behavior, and conservative asset caching. `manifest.webmanifest` and `sw.js` provide an installable, offline-capable shell after the first successful visit.
 

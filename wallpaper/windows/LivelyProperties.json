@@ -24,13 +24,13 @@
     "items": ["acid", "aurora", "ultraviolet"],
     "text": "Palette",
     "type": "dropdown",
-    "value": "acid"
+    "value": 0
   },
   "mode": {
     "items": ["classic", "portal"],
     "text": "Boundary",
     "type": "dropdown",
-    "value": "classic"
+    "value": 0
   },
   "mark": {
     "text": "Show Neon Snake mark",

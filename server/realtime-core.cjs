@@ -263,6 +263,14 @@ function requestIsSameOrigin(request) {
   }
 }
 
+function requestIsAllowedOrigin(request, environment = process.env) {
+  if (requestIsSameOrigin(request)) return true;
+  const clientId = String(environment.DISCORD_CLIENT_ID || "");
+  const origin = String(request.headers?.origin || "").toLowerCase();
+  return /^[0-9]{15,24}$/.test(clientId)
+    && origin === `https://${clientId}.discordsays.com`;
+}
+
 function roomKeys(room) {
   const tag = `{neon-snake:realtime:${room}}`;
   return [`${tag}:presence`, `${tag}:metadata`, `${tag}:generation`];
@@ -1095,7 +1103,7 @@ function createRealtimeHub({
   }
 
   async function connect(socket, request) {
-    if (!requestIsSameOrigin(request)) {
+    if (!requestIsAllowedOrigin(request, environment)) {
       socket.close(1008, "Origin not allowed");
       return;
     }
@@ -1202,6 +1210,7 @@ module.exports = {
   decodeSseEvent,
   parseRoomRequest,
   publicPlayer,
+  requestIsAllowedOrigin,
   requestIsSameOrigin,
   validateRealtimeMessage,
 };
