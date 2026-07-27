@@ -1219,6 +1219,8 @@
     direction,
     opponentSnake,
     opponentDirection,
+    score = 0,
+    opponentScore = 0,
     food,
     mode,
     gridSize,
@@ -1246,6 +1248,8 @@
     const opponentReplies = CARDINAL_DIRECTIONS.filter((reply) =>
       reply.x !== -inferredOpponentDirection.x || reply.y !== -inferredOpponentDirection.y);
     const historyWindow = (Array.isArray(recentHeads) ? recentHeads : []).slice(-160);
+    const ownScore = Math.max(0, Number(score) || 0);
+    const rivalScore = Math.max(0, Number(opponentScore) || 0);
 
     const searchContext = { cache: new Map(), stats: { nodes: 0, cacheHits: 0 } };
     return candidates.map((candidate, order) => {
@@ -1327,8 +1331,8 @@
       const horizon = forecast.length;
       const tacticalReplies = opponentReplies.map((reply) => resolveDuelTick({
         players: {
-          player: { snake, direction: move, score: 0 },
-          opponent: { snake: opponentSnake, direction: reply, score: 0 },
+          player: { snake, direction: move, score: ownScore },
+          opponent: { snake: opponentSnake, direction: reply, score: rivalScore },
         },
         food,
         mode,
@@ -1356,6 +1360,8 @@
         food,
         mode,
         gridSize,
+        score: ownScore,
+        opponentScore: rivalScore,
       }, move, 2, searchContext);
       const seedBias = (
         Math.imul((Number(seed) >>> 0) ^ ((head.x + 1) * 73856093), 16777619)

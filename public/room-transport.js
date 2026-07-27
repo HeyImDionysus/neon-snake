@@ -226,7 +226,7 @@
       ]);
     }
 
-    function applyResponse(data, baseline = false) {
+    function applyResponse(data, baseline = false, resynchronize = false) {
       const fingerprint = responseFingerprint(data);
       stableResponses = fingerprint === lastResponseFingerprint
         ? Math.min(stableResponses + 1, 3)
@@ -244,10 +244,18 @@
         }
       }
 
-      emitRoster(data.players);
-      ["state", "input", "countdown"].forEach((type) => {
+      onStatus({
+        state: "connected",
+        role,
+        slot,
+        players: roster,
+      });
+      ["countdown", "input", "state"].forEach((type) => {
         const revision = Number(data[`${type}Rev`]) || 0;
-        const shouldEmit = revision > revisions[type] && data[type] && (!baseline || type === "input");
+        const shouldResynchronize = resynchronize && type === "countdown";
+        const shouldEmit = (
+          revision > revisions[type] || shouldResynchronize
+        ) && data[type] && (!baseline || type === "input");
         if (shouldEmit && type === "input" && Array.isArray(data.input)) {
           data.input.forEach((message) => onMessage(message));
         } else if (shouldEmit) {
@@ -255,8 +263,9 @@
         }
         revisions[type] = Math.max(revisions[type], revision);
       });
+      emitRoster(data.players);
       onStatus({
-        state: "connected",
+        state: "synchronized",
         role,
         slot,
         players: roster,
@@ -317,11 +326,12 @@
       pending.clear();
       try {
         const data = await request("sync", outgoing);
+        const recovered = failures > 0;
         failures = 0;
         if (role === "player" && data.role !== "player") {
           await join(false);
         } else {
-          applyResponse(data);
+          applyResponse(data, false, recovered);
         }
       } catch (error) {
         if (error?.retryable !== false) {

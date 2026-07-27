@@ -159,6 +159,7 @@ const tests = [
     const scheduled = [];
     const received = [];
     const statuses = [];
+    const eventOrder = [];
     let syncCount = 0;
     const fetchImpl = async (_url, options) => {
       const body = JSON.parse(options.body);
@@ -214,8 +215,14 @@ const tests = [
     const transport = await transports.createRemoteRoomTransport({
       code: "ABC234",
       clientId: "client-one",
-      onMessage: (message) => received.push(message),
-      onStatus: (status) => statuses.push(status),
+      onMessage: (message) => {
+        received.push(message);
+        eventOrder.push(`message:${message.type}`);
+      },
+      onStatus: (status) => {
+        statuses.push(status);
+        eventOrder.push(`status:${status.state}`);
+      },
       fetchImpl,
       setTimeoutImpl: (callback) => {
         scheduled.push(callback);
@@ -229,6 +236,14 @@ const tests = [
     assert.equal(requests[0].options.credentials, "same-origin");
     assert.equal(statuses.at(-1).role, "player");
     assert.equal(statuses.at(-1).slot, 0);
+    assert.ok(
+      eventOrder.indexOf("status:connected") < eventOrder.indexOf("message:presence"),
+      JSON.stringify(eventOrder),
+    );
+    assert.ok(
+      eventOrder.indexOf("message:presence") < eventOrder.indexOf("status:synchronized"),
+      JSON.stringify(eventOrder),
+    );
     assert.ok(received.some((message) => (
       message.type === "presence"
       && message.from === "client-two"
@@ -253,6 +268,80 @@ const tests = [
       && message.sequence === 101
       && message.direction.y === -1
     )));
+    transport.close();
+  }],
+  ["recovery replays the authoritative countdown before roster callbacks", async () => {
+    const scheduled = [];
+    const eventOrder = [];
+    let requestCount = 0;
+    const countdown = {
+      type: "countdown",
+      round: 42,
+      startsAt: 10_000,
+      from: "client-one",
+      room: "ABC234",
+      sentAt: 1_000,
+    };
+    const fetchImpl = async () => {
+      requestCount += 1;
+      if (requestCount === 2) throw new TypeError("temporary network failure");
+      return {
+        ok: true,
+        async json() {
+          return {
+            role: "player",
+            slot: 1,
+            session: "session-two",
+            players: [
+              { id: "client-one", slot: 0, ready: true },
+              { id: "client-two", slot: 1, ready: true },
+            ],
+            inputRev: 0,
+            stateRev: requestCount === 1 ? 4 : 5,
+            countdownRev: 4,
+            countdown,
+            state: {
+              type: "state",
+              sequence: 9,
+              state: { round: 42, playerSnake: [{ x: 1, y: 1 }] },
+              from: "client-one",
+              room: "ABC234",
+              sentAt: 1_100,
+            },
+          };
+        },
+      };
+    };
+    const transport = await transports.createRemoteRoomTransport({
+      code: "ABC234",
+      clientId: "client-two",
+      onMessage(message) {
+        eventOrder.push(`message:${message.type}`);
+      },
+      onStatus(status) {
+        eventOrder.push(`status:${status.state}`);
+      },
+      fetchImpl,
+      setTimeoutImpl(callback) {
+        scheduled.push(callback);
+        return scheduled.length;
+      },
+      clearTimeoutImpl() {},
+    });
+
+    eventOrder.length = 0;
+    await scheduled.shift()();
+    assert.deepEqual(eventOrder, ["status:reconnecting"]);
+    await scheduled.shift()();
+    assert.equal(requestCount, 3);
+    assert.deepEqual(eventOrder, [
+      "status:reconnecting",
+      "status:connected",
+      "message:countdown",
+      "message:state",
+      "message:presence",
+      "status:synchronized",
+    ]);
     transport.close();
   }],
   ["remote input batching preserves two rapid guest turns in order", async () => {

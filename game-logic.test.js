@@ -638,6 +638,37 @@ const tests = [
     assert.equal(right.collision, "opponent");
     assert.notEqual(rules.chooseBestMove(evaluations)?.name, "right");
   }],
+  ["duel search carries the live scoreboard into future-state values", () => {
+    const spawns = rules.duelSpawns(12);
+    const shared = {
+      snake: spawns.opponent.snake,
+      direction: spawns.opponent.direction,
+      opponentSnake: spawns.player.snake,
+      opponentDirection: spawns.player.direction,
+      food: { x: 6, y: 6 },
+      mode: "classic",
+      gridSize: 12,
+      candidates: [
+        { name: "up", x: 0, y: -1 },
+        { name: "right", x: 1, y: 0 },
+        { name: "down", x: 0, y: 1 },
+        { name: "left", x: -1, y: 0 },
+      ],
+    };
+    const ahead = rules.evaluateDuelMoves({
+      ...shared,
+      score: 5,
+      opponentScore: 0,
+    }).find((move) => move.name === "left");
+    const behind = rules.evaluateDuelMoves({
+      ...shared,
+      score: 0,
+      opponentScore: 5,
+    }).find((move) => move.name === "left");
+    assert.equal(ahead.legal, true);
+    assert.equal(behind.legal, true);
+    assert.ok(ahead.searchValue > behind.searchValue);
+  }],
   ["decision comparison measures agreement, retained space, and risk", () => {
     const evaluations = [
       { name: "up", direction: { x: 0, y: -1 }, legal: true, score: 85, space: 17, exits: 2 },

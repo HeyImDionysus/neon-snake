@@ -119,8 +119,8 @@ async function main() {
   });
   process.stdout.write("PASS install primes the complete versioned app shell\n");
 
-  assert.match(source, /neon-snake-shell-v56/);
-  process.stdout.write("PASS adaptive room transport ships behind a fresh shell cache version\n");
+  assert.match(source, /neon-snake-shell-v60/);
+  process.stdout.write("PASS Duel robustness changes ship behind a fresh shell cache version\n");
 
   stores.set("neon-snake-shell-stale", new Map());
   await dispatchWaitUntil("activate");
