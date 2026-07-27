@@ -82,7 +82,13 @@ const GRID = 20;
 let TILE = canvas.width / GRID;
 const COMBO_WINDOW = 3600;
 const OVERDRIVE_DURATION = 5200;
-const RUSH_DURATION = 60_000;
+const {
+  coreDuration: CORE_DURATION,
+  mutationDuration: MUTATION_DURATION,
+  rushDuration: RUSH_DURATION,
+} = Rules.soloTiming();
+const MAX_FRAME_CATCH_UP_STEPS = 3;
+const MAX_DEADLINE_DRAIN_STEPS = 8;
 const CANVAS_MARK_LIMIT = 1400;
 const CANVAS_BRUSH_LENGTH = 18;
 const SIGNAL_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
@@ -99,11 +105,7 @@ const DIRECTION_OPTIONS = [
   { name: "down", ...DIRECTIONS.down },
   { name: "left", ...DIRECTIONS.left },
 ];
-const PACES = {
-  steady: { base: 180, floor: 88, step: 3 },
-  arcade: { base: 138, floor: 62, step: 3 },
-  overdrive: { base: 98, floor: 44, step: 2 },
-};
+const PACES = Rules.paceProfiles();
 const CANVAS_PALETTES = [
   { name: "ACID", color: "#adff66", glow: "#adff66" },
   { name: "AURORA", color: "#74e1ff", glow: "#58d6ff" },
@@ -131,6 +133,7 @@ let countdownStep = 0;
 let countdownSuspended = false;
 let rushDeadline = 0;
 let rushRemaining = RUSH_DURATION;
+let rushDrainPending = false;
 let pausedAt = 0;
 let pausedMotionProgress = 1;
 let pausedStepRemaining = 0;
@@ -311,6 +314,7 @@ function resetRun() {
   lastEatAt = 0;
   comboExpiresAt = 0;
   rushRemaining = RUSH_DURATION;
+  rushDrainPending = false;
   overdriveUntil = 0;
   mutation = { type: null, expiresAt: 0 };
   pausedMotionProgress = 1;
@@ -382,7 +386,7 @@ function placeFood(now) {
   food = {
     ...position,
     kind: isCore ? "core" : "signal",
-    expiresAt: isCore ? now + 6500 : 0,
+    expiresAt: isCore ? now + CORE_DURATION : 0,
   };
   if (demoMode && activeMode === "canvas") {
     canvasCompositionBudget = 14 + (signalRandomState % 12);
@@ -904,28 +908,48 @@ function render(now) {
   const delta = Math.min(now - lastFrame, 34);
   lastFrame = now;
   updateEffects(delta);
-  advanceMovement(now);
-  expireCore(now);
-  updateTimeSystems(now);
+  const moveBefore = activeMode === "rush" && runState === "running"
+    ? rushDeadline
+    : Infinity;
+  const wasRushDrainPending = rushDrainPending;
+  rushDrainPending = advanceMovement(Math.min(now, moveBefore), moveBefore);
+  if (rushDrainPending !== wasRushDrainPending) updateActionLabels();
+  updateRushTimer(now, rushDrainPending);
+  const gameplayNow = rushDrainPending ? lastMoveAt : now;
+  expireCore(gameplayNow);
+  expireMutation(gameplayNow);
+  updateTimeSystems(gameplayNow);
   pollGamepad(now);
-  const overdriveActive = now < overdriveUntil;
+  const overdriveActive = gameplayNow < overdriveUntil;
   gameConsole.classList.toggle("overdrive", overdriveActive);
   ["flow", "amplify"].forEach((type) => {
-    gameConsole.classList.toggle(`mutation-${type}`, mutation.type === type && now < mutation.expiresAt);
+    gameConsole.classList.toggle(`mutation-${type}`, mutation.type === type && gameplayNow < mutation.expiresAt);
   });
-  drawBoard(now);
+  drawBoard(gameplayNow);
   requestAnimationFrame(render);
 }
 
-function updateTimeSystems(now) {
-  if (mutation.type && runState === "running" && now >= mutation.expiresAt) {
-    const endedMutation = mutation.type;
-    mutation = { type: null, expiresAt: 0 };
-    mutationStat.hidden = true;
-    announcement.textContent = `${endedMutation} mutation ended.`;
-    showPickup("MUTATION ENDED", endedMutation.toUpperCase());
-  }
+function updateRushTimer(now, drainPending = false) {
+  if (activeMode !== "rush" || runState !== "running") return;
+  rushRemaining = Math.max(0, rushDeadline - now);
+  rushTimeEl.textContent = (rushRemaining / 1000).toFixed(1);
+  if (rushRemaining <= 0 && !drainPending) endGame("time");
+}
 
+function rushDeadlineReached(now = performance.now()) {
+  return activeMode === "rush" && runState === "running" && now >= rushDeadline;
+}
+
+function expireMutation(now) {
+  if (!mutation.type || runState !== "running" || Rules.mutationTypeAt(mutation, now)) return;
+  const endedMutation = mutation.type;
+  mutation = { type: null, expiresAt: 0 };
+  mutationStat.hidden = true;
+  announcement.textContent = `${endedMutation} mutation ended.`;
+  showPickup("MUTATION ENDED", endedMutation.toUpperCase());
+}
+
+function updateTimeSystems(now) {
   if (runState === "running" && comboExpiresAt) {
     const overdriveRemaining = Math.max(0, overdriveUntil - now);
     const remaining = overdriveRemaining || Math.max(0, comboExpiresAt - now);
@@ -939,21 +963,18 @@ function updateTimeSystems(now) {
     comboMeterFill.style.width = "0%";
   }
 
-  if (activeMode === "rush" && runState === "running") {
-    rushRemaining = Math.max(0, rushDeadline - now);
-    rushTimeEl.textContent = (rushRemaining / 1000).toFixed(1);
-    if (rushRemaining <= 0) endGame("time");
-  }
-
   if (food?.kind === "core") {
     const remaining = Math.max(0, food.expiresAt - now);
-    objectiveProgress.style.width = `${(remaining / 6500) * 100}%`;
+    objectiveProgress.style.width = `${(remaining / CORE_DURATION) * 100}%`;
   }
 }
 
-function getTickDelay() {
+function getTickDelay(now = performance.now()) {
   const pace = PACES[difficultySelect.value] || PACES.arcade;
-  return Rules.mutationDelay(Rules.tickDelay(pace, foodCount), mutation.type);
+  return Rules.mutationDelay(
+    Rules.tickDelay(pace, foodCount),
+    Rules.mutationTypeAt(mutation, now),
+  );
 }
 
 function scheduleMove() {
@@ -966,28 +987,48 @@ function scheduleMove() {
   nextMoveAt = lastMoveAt + stepDuration;
 }
 
-function advanceMovement(now) {
+function advanceMovement(now, moveBefore = Infinity) {
+  const drainingCutoff = Number.isFinite(moveBefore) && now >= moveBefore;
+  const catchUpLimit = drainingCutoff
+    ? MAX_DEADLINE_DRAIN_STEPS
+    : MAX_FRAME_CATCH_UP_STEPS;
   let catchUpSteps = 0;
-  while (runState === "running" && nextMoveAt && now >= nextMoveAt && catchUpSteps < 3) {
+  while (
+    runState === "running"
+    && nextMoveAt
+    && nextMoveAt < moveBefore
+    && now >= nextMoveAt
+    && catchUpSteps < catchUpLimit
+  ) {
     const stepAt = nextMoveAt;
     nextMoveAt = 0;
+    expireMutation(stepAt);
     expireCore(stepAt);
     tick(stepAt);
     if (runState === "running" && !nextMoveAt) {
-      stepDuration = getTickDelay();
+      stepDuration = getTickDelay(stepAt);
       nextMoveAt = stepAt + stepDuration;
     }
     catchUpSteps += 1;
   }
 
-  // A long-suspended frame should resume cleanly instead of simulating an
-  // unbounded backlog in one paint.
-  if (runState === "running" && nextMoveAt && now >= nextMoveAt) {
+  const pendingCutoffMove = runState === "running"
+    && nextMoveAt
+    && nextMoveAt < moveBefore
+    && now >= nextMoveAt;
+
+  // A finite deadline drains exactly across bounded animation frames. Other
+  // long-suspended frames resume without replaying an unbounded backlog.
+  if (
+    !drainingCutoff
+    && pendingCutoffMove
+  ) {
     previousSnake = snake.map((segment) => ({ ...segment }));
     lastMoveAt = now;
-    stepDuration = getTickDelay();
+    stepDuration = getTickDelay(now);
     nextMoveAt = now + stepDuration;
   }
+  return drainingCutoff && Boolean(pendingCutoffMove);
 }
 
 function addCanvasMark(from, to, now) {
@@ -1275,7 +1316,10 @@ function consumeAutopilotPlan(effectiveMode, target) {
   const committed = autopilotPlan.shift();
   const head = Rules.nextHead(snake[0], committed, effectiveMode, GRID);
   const growing = Boolean(food && head.x === food.x && head.y === food.y);
-  if (Rules.collisionType(head, snake, growing, effectiveMode, GRID)) {
+  if (
+    Rules.isReverseDirection(committed, direction)
+    || Rules.collisionType(head, snake, growing, effectiveMode, GRID)
+  ) {
     autopilotPlan = [];
     return null;
   }
@@ -1560,6 +1604,10 @@ function togglePause() {
     stopDemo();
     return;
   }
+  if (rushDrainPending || rushDeadlineReached()) {
+    announcement.textContent = "Rush is resolving moves scheduled before time expired.";
+    return;
+  }
   if (runState !== "running" && runState !== "paused") return;
   if (runState === "running") {
     pausedAt = performance.now();
@@ -1622,7 +1670,7 @@ function setSetupDisabled(disabled) {
 function updateActionLabels() {
   const paused = runState === "paused";
   const aiPlaying = demoMode && runState === "running";
-  const canPause = runState === "running" || paused;
+  const canPause = aiPlaying || ((runState === "running" || paused) && !rushDrainPending);
   pauseButton.disabled = !canPause;
   mobilePause.disabled = !canPause;
   pauseButtonLabel.textContent = aiPlaying ? "Stop Autopilot" : paused ? "Resume" : "Pause";
@@ -1638,6 +1686,10 @@ function updateActionLabels() {
 function requestDirection(next) {
   if (demoMode) {
     announcement.textContent = "The Autopilot is driving. Stop it, then choose Play to take control.";
+    return;
+  }
+  if (rushDrainPending || rushDeadlineReached()) {
+    announcement.textContent = "Rush is resolving moves scheduled before time expired.";
     return;
   }
   if (runState === "ready" || runState === "over") {
@@ -1672,7 +1724,7 @@ function activateMutation(now) {
   const choice = Rules.signalIndex(signalRandomState, options.length);
   signalRandomState = choice.state;
   const type = options[choice.index];
-  mutation = { type, expiresAt: now + 8000 };
+  mutation = { type, expiresAt: now + MUTATION_DURATION };
   const descriptions = {
     flow: "TIME SLOWS",
     amplify: "POINTS ×2",

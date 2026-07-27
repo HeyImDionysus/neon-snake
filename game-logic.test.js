@@ -19,6 +19,8 @@ const tests = [
     assert.deepEqual(queue, [up, left]);
     assert.deepEqual(rules.bufferDirection(queue, right, down), queue, "the two-turn buffer stays bounded");
     assert.deepEqual(rules.bufferDirection([], right, left), [], "an immediate reversal is rejected");
+    assert.equal(rules.isReverseDirection(left, right), true);
+    assert.equal(rules.isReverseDirection(up, right), false);
   }],
   ["buffered turns are consumed one per logic step", () => {
     const right = { x: 1, y: 0 };
@@ -143,7 +145,18 @@ const tests = [
     assert.equal(rules.pickupScore("core", 2), 100);
   }],
   ["pace accelerates but respects its floor", () => {
-    const pace = { base: 138, floor: 62, step: 3 };
+    const profiles = rules.paceProfiles();
+    assert.deepEqual(profiles, {
+      steady: { base: 180, floor: 88, step: 3 },
+      arcade: { base: 138, floor: 62, step: 3 },
+      overdrive: { base: 98, floor: 44, step: 2 },
+    });
+    assert.deepEqual(rules.soloTiming(), {
+      coreDuration: 6500,
+      mutationDuration: 8000,
+      rushDuration: 60_000,
+    });
+    const pace = profiles.arcade;
     assert.equal(rules.tickDelay(pace, 0), 138);
     assert.equal(rules.tickDelay(pace, 10), 108);
     assert.equal(rules.tickDelay(pace, 100), 62);
@@ -163,6 +176,11 @@ const tests = [
     assert.equal(rules.mutationScoreMultiplier("amplify"), 2);
     assert.equal(rules.mutationDelay(100, "flow"), 135);
     assert.equal(rules.mutationDelay(100, "amplify"), 100);
+    const flow = { type: "flow", expiresAt: 100 };
+    assert.equal(rules.mutationTypeAt(flow, 90), "flow");
+    assert.equal(rules.mutationTypeAt(flow, 100), null);
+    assert.equal(rules.mutationDelay(100, rules.mutationTypeAt(flow, 90)), 135);
+    assert.equal(rules.mutationDelay(100, rules.mutationTypeAt(flow, 120)), 100);
 
     ["classic", "rush"].forEach((mode) => {
       const effectiveMode = rules.effectiveMode(mode, "phase");

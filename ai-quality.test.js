@@ -10,31 +10,54 @@ const DIRECTIONS = [
   { name: "left", x: -1, y: 0 },
 ];
 const SIGNAL_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+const CANVAS_BRUSH_LENGTH = 18;
+const {
+  coreDuration: CORE_DURATION,
+  mutationDuration: MUTATION_DURATION,
+  rushDuration: RUSH_DURATION,
+} = rules.soloTiming();
+const PACES = rules.paceProfiles();
 
 function codeFromIndex(value) {
+  let state = Math.imul((Number(value) || 0) >>> 0, 0x9e3779b1) & 0x3fffffff;
   let code = "";
   for (let index = 0; index < 6; index += 1) {
-    code += SIGNAL_ALPHABET[
-      (value * 17 + index * 11 + value * index) % SIGNAL_ALPHABET.length
-    ];
+    code += SIGNAL_ALPHABET[state % SIGNAL_ALPHABET.length];
+    state = Math.floor(state / SIGNAL_ALPHABET.length);
   }
   return code;
 }
 
-function simulateSolo(code, mode = "classic", maxSteps = 600) {
+function simulateSolo(code, mode = "classic", maxSteps = 600, paceName = "arcade") {
+  const pace = PACES[paceName];
+  assert.ok(pace, `Unknown pace: ${paceName}`);
   let snake = [{ x: 10, y: 10 }, { x: 9, y: 10 }, { x: 8, y: 10 }];
   let direction = { x: 1, y: 0 };
   let signalState = rules.signalState(code);
   let food = null;
   let foods = 0;
+  let foodCount = 0;
+  let coresCollected = 0;
+  let coresExpired = 0;
+  let mutation = { type: null, expiresAt: 0 };
+  let mutationSignature = "";
   let steps = 0;
+  let elapsedMs = 0;
+  let nextMoveAt = rules.tickDelay(pace, foodCount);
+  let reachedRushDeadline = false;
   let recentHeads = [];
   let committedPlan = [];
-  let stepsSinceFood = 0;
-  let maxFoodGap = 0;
+  let stepsSinceCapture = 0;
+  let maxCaptureGap = 0;
+  let stepsSinceObjective = 0;
+  let maxObjectiveGap = 0;
   let routeSignature = "";
+  let canvasCompositionState = null;
+  let canvasCompositionBudget = 0;
+  let canvasCompositionSteps = 0;
+  const canvasCompositionSeed = rules.signalState(code);
 
-  function placeFood() {
+  function placeFood(resetCaptureGap = true) {
     const open = [];
     for (let y = 0; y < 20; y += 1) {
       for (let x = 0; x < 20; x += 1) {
@@ -49,71 +72,186 @@ function simulateSolo(code, mode = "classic", maxSteps = 600) {
     }
     const choice = rules.signalIndex(signalState, open.length);
     signalState = choice.state;
-    food = open[choice.index];
+    const isCore = foodCount > 0 && foodCount % 5 === 0;
+    food = {
+      ...open[choice.index],
+      kind: isCore ? "core" : "signal",
+      expiresAt: isCore ? elapsedMs + CORE_DURATION : 0,
+    };
     recentHeads = [];
     committedPlan = [];
-    stepsSinceFood = 0;
+    stepsSinceObjective = 0;
+    if (resetCaptureGap) stepsSinceCapture = 0;
+    if (mode === "canvas") {
+      canvasCompositionBudget = 14 + (signalState % 12);
+    }
   }
 
   placeFood();
   while (steps < maxSteps && food) {
-    const evaluations = rules.evaluateMoves({
-      snake,
-      direction,
-      food,
-      mode,
-      gridSize: 20,
-      candidates: DIRECTIONS,
-      recentHeads,
-    });
+    if (mode === "rush" && nextMoveAt >= RUSH_DURATION) {
+      elapsedMs = RUSH_DURATION;
+      reachedRushDeadline = true;
+      break;
+    }
+    elapsedMs = nextMoveAt;
+    if (mutation.type && !rules.mutationTypeAt(mutation, elapsedMs)) {
+      mutation = { type: null, expiresAt: 0 };
+    }
+    if (food.kind === "core" && elapsedMs >= food.expiresAt) {
+      foodCount += 1;
+      coresExpired += 1;
+      placeFood(false);
+    }
+
     let selected = null;
-    if (committedPlan.length) {
+    if (mode === "canvas" && canvasCompositionBudget > 0) {
+      let composition = rules.canvasCompositionMove(
+        canvasCompositionState,
+        direction,
+        canvasCompositionSeed,
+      );
+      if (rules.isReverseDirection(composition.direction, direction)) {
+        canvasCompositionState = null;
+        composition = rules.canvasCompositionMove(
+          null,
+          direction,
+          canvasCompositionSeed,
+        );
+      }
+      canvasCompositionState = composition.state;
+      canvasCompositionBudget -= 1;
+      canvasCompositionSteps += 1;
+      const option = DIRECTIONS.find((candidate) =>
+        candidate.x === composition.direction.x
+        && candidate.y === composition.direction.y);
+      selected = option
+        ? { name: option.name, direction: { ...composition.direction } }
+        : null;
+    } else if (committedPlan.length) {
       const committed = committedPlan.shift();
-      selected = evaluations.find((evaluation) =>
-        evaluation.legal
-        && evaluation.direction.x === committed.x
-        && evaluation.direction.y === committed.y);
-      if (!selected) committedPlan = [];
+      const head = rules.nextHead(snake[0], committed, mode, 20);
+      const growing = head.x === food.x && head.y === food.y;
+      const collision = rules.isReverseDirection(committed, direction)
+        ? "reverse"
+        : rules.collisionType(head, snake, growing, mode, 20);
+      if (!collision) {
+        const option = DIRECTIONS.find((candidate) =>
+          candidate.x === committed.x && candidate.y === committed.y);
+        selected = option
+          ? { name: option.name, direction: { x: option.x, y: option.y } }
+          : null;
+      } else {
+        committedPlan = [];
+      }
     }
     if (!selected) {
+      const evaluations = rules.evaluateMoves({
+        snake,
+        direction,
+        food,
+        mode,
+        gridSize: 20,
+        candidates: DIRECTIONS,
+        recentHeads,
+      });
       selected = rules.chooseBestMove(evaluations);
       committedPlan = selected?.route?.slice(1).map((move) => ({ ...move })) || [];
     }
     if (!selected) {
-      return { code, mode, steps, foods, length: snake.length, maxFoodGap, routeSignature, outcome: "trapped" };
+      return {
+        code,
+        mode,
+        pace: paceName,
+        steps,
+        foods,
+        length: snake.length,
+        maxCaptureGap,
+        maxObjectiveGap,
+        routeSignature,
+        canvasCompositionSteps,
+        elapsedMs,
+        foodCount,
+        coresCollected,
+        coresExpired,
+        mutationSignature,
+        outcome: "trapped",
+      };
     }
 
     const head = rules.nextHead(snake[0], selected.direction, mode, 20);
     const growing = head.x === food.x && head.y === food.y;
     const collision = rules.collisionType(head, snake, growing, mode, 20);
     if (collision) {
-      return { code, mode, steps, foods, length: snake.length, maxFoodGap, routeSignature, outcome: collision };
+      return {
+        code,
+        mode,
+        pace: paceName,
+        steps,
+        foods,
+        length: snake.length,
+        maxCaptureGap,
+        maxObjectiveGap,
+        routeSignature,
+        canvasCompositionSteps,
+        elapsedMs,
+        foodCount,
+        coresCollected,
+        coresExpired,
+        mutationSignature,
+        outcome: collision,
+      };
     }
 
     snake = [head, ...snake];
     recentHeads.push({ ...head });
     if (recentHeads.length > 256) recentHeads.shift();
-    stepsSinceFood += 1;
-    maxFoodGap = Math.max(maxFoodGap, stepsSinceFood);
+    stepsSinceCapture += 1;
+    stepsSinceObjective += 1;
+    maxCaptureGap = Math.max(maxCaptureGap, stepsSinceCapture);
+    maxObjectiveGap = Math.max(maxObjectiveGap, stepsSinceObjective);
     if (routeSignature.length < 300) routeSignature += selected.name[0];
     if (growing) {
       foods += 1;
+      foodCount += 1;
+      if (food.kind === "core") {
+        coresCollected += 1;
+        const mutationChoice = rules.signalIndex(signalState, 2);
+        signalState = mutationChoice.state;
+        const type = ["flow", "amplify"][mutationChoice.index];
+        mutation = { type, expiresAt: elapsedMs + MUTATION_DURATION };
+        mutationSignature += type[0];
+      }
       placeFood();
+      if (mode === "canvas" && snake.length > CANVAS_BRUSH_LENGTH) snake.pop();
     } else {
       snake.pop();
     }
     direction = { ...selected.direction };
     steps += 1;
+    const delay = rules.mutationDelay(
+      rules.tickDelay(pace, foodCount),
+      mutation.type,
+    );
+    nextMoveAt = elapsedMs + delay;
   }
   return {
     code,
     mode,
+    pace: paceName,
     steps,
     foods,
     length: snake.length,
-    maxFoodGap,
+    maxCaptureGap,
+    maxObjectiveGap,
     routeSignature,
-    outcome: food ? "timeout" : "clear",
+    canvasCompositionSteps,
+    elapsedMs,
+    foodCount,
+    coresCollected,
+    coresExpired,
+    mutationSignature,
+    outcome: food ? (reachedRushDeadline ? "deadline" : "timeout") : "clear",
   };
 }
 
@@ -368,19 +506,45 @@ const tests = [
     assert.ok(run.distinctHeads >= 100, JSON.stringify(run));
   }],
   ["seeded solo benchmark stays alive and collects purposefully", () => {
-    const runs = [1, 2, 3, 4].map((index) =>
+    const runs = Array.from({ length: 16 }, (_, index) =>
       simulateSolo(codeFromIndex(index), "classic", 600));
     const totalFoods = runs.reduce((total, run) => total + run.foods, 0);
     runs.forEach((run) => assert.equal(run.outcome, "timeout", JSON.stringify(run)));
-    assert.ok(totalFoods >= 75, JSON.stringify(runs));
+    assert.equal(
+      new Set(runs.map((run) => run.code)).size,
+      runs.length,
+      JSON.stringify(runs),
+    );
+    assert.equal(
+      new Set(runs.map((run) => run.routeSignature)).size,
+      runs.length,
+      JSON.stringify(runs),
+    );
+    runs.forEach((run) => assert.ok(run.foods >= 15, JSON.stringify(run)));
+    assert.ok(totalFoods >= 280, JSON.stringify(runs));
   }],
   ["planner remains purposeful across Portal, Rush, and Canvas boundaries", () => {
     const runs = ["portal", "rush", "canvas"].map((mode) =>
-      simulateSolo("KXBP3F", mode, 600));
-    runs.forEach((run) => assert.equal(run.outcome, "timeout", JSON.stringify(run)));
+      simulateSolo("KXBP3F", mode, mode === "rush" ? 2000 : 600));
+    runs.forEach((run) => assert.equal(
+      run.outcome,
+      run.mode === "rush" ? "deadline" : "timeout",
+      JSON.stringify(run),
+    ));
     assert.ok(runs.find((run) => run.mode === "portal").foods >= 55, JSON.stringify(runs));
     assert.ok(runs.find((run) => run.mode === "rush").foods >= 40, JSON.stringify(runs));
-    assert.ok(runs.find((run) => run.mode === "canvas").foods >= 55, JSON.stringify(runs));
+    assert.ok(runs.find((run) => run.mode === "canvas").foods >= 18, JSON.stringify(runs));
+  }],
+  ["Canvas simulation follows seeded core and mutation transitions", () => {
+    const first = simulateSolo("KXBP3F", "canvas", 600);
+    const repeat = simulateSolo("KXBP3F", "canvas", 600);
+    assert.equal(first.foods, 21, JSON.stringify(first));
+    assert.equal(first.coresCollected, 4, JSON.stringify(first));
+    assert.equal(first.coresExpired, 0, JSON.stringify(first));
+    assert.equal(first.mutationSignature, "afaa");
+    assert.equal(first.mutationSignature, repeat.mutationSignature);
+    assert.equal(first.routeSignature, repeat.routeSignature);
+    assert.equal(first.foodCount, first.foods + first.coresExpired, JSON.stringify(first));
   }],
   ["the former deterministic trap seed survives beyond its old failure", () => {
     const run = simulateSolo("8RATCV", "classic", 1800);
@@ -392,6 +556,79 @@ const tests = [
     const second = simulateSolo("8RATCV", "classic", 300);
     assert.notEqual(first.routeSignature, second.routeSignature);
   }],
+  ["unique Signal Codes stay purposeful and non-repeating across solo modes", () => {
+    const codes = Array.from({ length: 8 }, (_, index) => codeFromIndex(index + 32));
+    assert.equal(new Set(codes).size, codes.length);
+    const expectations = {
+      classic: { foods: 45, maxCaptureGap: 140 },
+      portal: { foods: 100, maxCaptureGap: 180 },
+    };
+    for (const [mode, expectation] of Object.entries(expectations)) {
+      const runs = codes.map((code) => simulateSolo(code, mode, 2000));
+      runs.forEach((run) => {
+        assert.equal(
+          run.outcome,
+          "timeout",
+          JSON.stringify(run),
+        );
+        assert.ok(run.foods >= expectation.foods, JSON.stringify(run));
+        assert.ok(run.maxCaptureGap <= expectation.maxCaptureGap, JSON.stringify(run));
+      });
+      assert.equal(
+        new Set(runs.map((run) => run.routeSignature)).size,
+        runs.length,
+        JSON.stringify(runs),
+      );
+    }
+  }],
+  ["timed Rush and Canvas diagnostics cover every selectable pace", () => {
+    const codes = Array.from({ length: 8 }, (_, index) => codeFromIndex(index + 32));
+    const expectations = {
+      steady: { rushFoods: 20, rushGap: 60, canvasFoods: 55, canvasGap: 100 },
+      arcade: { rushFoods: 30, rushGap: 60, canvasFoods: 55, canvasGap: 100 },
+      overdrive: { rushFoods: 45, rushGap: 60, canvasFoods: 55, canvasGap: 100 },
+    };
+    for (const [paceName, expectation] of Object.entries(expectations)) {
+      const rushRuns = codes.map((code) => simulateSolo(code, "rush", 2000, paceName));
+      const canvasRuns = codes.map((code) => simulateSolo(code, "canvas", 2000, paceName));
+      rushRuns.forEach((run) => {
+        assert.equal(run.pace, paceName);
+        assert.equal(run.outcome, "deadline", JSON.stringify(run));
+        assert.equal(run.elapsedMs, RUSH_DURATION, JSON.stringify(run));
+        assert.ok(run.foods >= expectation.rushFoods, JSON.stringify(run));
+        assert.ok(run.maxCaptureGap <= expectation.rushGap, JSON.stringify(run));
+      });
+      canvasRuns.forEach((run) => {
+        assert.equal(run.pace, paceName);
+        assert.equal(run.outcome, "timeout", JSON.stringify(run));
+        assert.ok(run.foods >= expectation.canvasFoods, JSON.stringify(run));
+        assert.ok(run.maxCaptureGap <= expectation.canvasGap, JSON.stringify(run));
+        assert.equal(run.length, CANVAS_BRUSH_LENGTH, JSON.stringify(run));
+        assert.ok(run.canvasCompositionSteps >= 800, JSON.stringify(run));
+      });
+      [rushRuns, canvasRuns].forEach((runs) => assert.equal(
+        new Set(runs.map((run) => run.routeSignature)).size,
+        runs.length,
+        JSON.stringify(runs),
+      ));
+      const rushFoods = rushRuns.map((run) => run.foods);
+      const rushSteps = rushRuns.map((run) => run.steps);
+      const canvasFoods = canvasRuns.map((run) => run.foods);
+      const canvasExpiries = canvasRuns.map((run) => run.coresExpired);
+      process.stdout.write(
+        `${paceName} timing matrix: Rush foods ${Math.min(...rushFoods)}-${Math.max(...rushFoods)}, `
+        + `steps ${Math.min(...rushSteps)}-${Math.max(...rushSteps)}, `
+        + `capture gap ${Math.max(...rushRuns.map((run) => run.maxCaptureGap))}; `
+        + `Canvas foods ${Math.min(...canvasFoods)}-${Math.max(...canvasFoods)}, `
+        + `capture gap ${Math.max(...canvasRuns.map((run) => run.maxCaptureGap))}, `
+        + `core expiries ${Math.min(...canvasExpiries)}-${Math.max(...canvasExpiries)}\n`,
+      );
+      if (paceName === "steady") {
+        const expirySeed = canvasRuns.find((run) => run.code === "PN7B2H");
+        assert.equal(expirySeed.coresExpired, 1, JSON.stringify(expirySeed));
+      }
+    }
+  }],
   ["Classic Autopilot completes the entire 20 by 20 board across seeded maps", () => {
     const runs = ["KXBP3F", "8RATCV", "F8ZUNJ"].map((code) =>
       simulateSolo(code, "classic", 120_000));
@@ -399,8 +636,15 @@ const tests = [
       assert.equal(run.outcome, "clear", JSON.stringify(run));
       assert.equal(run.length, 400, JSON.stringify(run));
       assert.equal(run.foods, 397, JSON.stringify(run));
-      assert.ok(run.maxFoodGap <= 400, JSON.stringify(run));
+      assert.ok(run.maxObjectiveGap <= 400, JSON.stringify(run));
+      assert.ok(run.maxCaptureGap <= 500, JSON.stringify(run));
     });
+    process.stdout.write(
+      `Classic completion: objective age ${Math.max(...runs.map((run) => run.maxObjectiveGap))}, `
+      + `capture gap ${Math.min(...runs.map((run) => run.maxCaptureGap))}-`
+      + `${Math.max(...runs.map((run) => run.maxCaptureGap))}, `
+      + `expired cores ${runs.map((run) => run.coresExpired).join("/")}\n`,
+    );
   }],
 ];
 

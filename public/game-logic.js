@@ -187,6 +187,13 @@
     return first?.x === second?.x && first?.y === second?.y;
   }
 
+  function isReverseDirection(nextDirection, currentDirection) {
+    return isCardinalDirection(nextDirection)
+      && isCardinalDirection(currentDirection)
+      && nextDirection.x === -currentDirection.x
+      && nextDirection.y === -currentDirection.y;
+  }
+
   function bufferDirection(queue, currentDirection, nextDirection, limit = 2) {
     const capacity = Math.max(1, Math.min(4, Math.floor(Number(limit) || 2)));
     const pending = (Array.isArray(queue) ? queue : [])
@@ -405,6 +412,32 @@
 
   function mutationDelay(delay, mutation) {
     return mutation === "flow" ? Math.round(delay * 1.35) : delay;
+  }
+
+  function mutationTypeAt(mutation, now) {
+    if (!mutation?.type || !Number.isFinite(mutation.expiresAt)) return null;
+    return now < mutation.expiresAt ? mutation.type : null;
+  }
+
+  const PACE_PROFILES = Object.freeze({
+    steady: Object.freeze({ base: 180, floor: 88, step: 3 }),
+    arcade: Object.freeze({ base: 138, floor: 62, step: 3 }),
+    overdrive: Object.freeze({ base: 98, floor: 44, step: 2 }),
+  });
+  const SOLO_TIMING = Object.freeze({
+    coreDuration: 6500,
+    mutationDuration: 8000,
+    rushDuration: 60_000,
+  });
+
+  function paceProfiles() {
+    return Object.fromEntries(
+      Object.entries(PACE_PROFILES).map(([name, pace]) => [name, { ...pace }]),
+    );
+  }
+
+  function soloTiming() {
+    return { ...SOLO_TIMING };
   }
 
   function tickDelay(pace, foodCount) {
@@ -1757,8 +1790,10 @@
     evaluateMoves,
     fluidMotionPath,
     gridDistance,
+    isReverseDirection,
     mutationDelay,
     mutationScoreMultiplier,
+    mutationTypeAt,
     motionProgress,
     ghostWindow,
     hamiltonianCycle,
@@ -1771,8 +1806,10 @@
     survivalHorizon,
     normalizeSignalCode,
     nextSignalRandom,
+    paceProfiles,
     signalIndex,
     signalState,
+    soloTiming,
     sortedTopRuns,
     splitFluidPath,
     survivalForecast,
