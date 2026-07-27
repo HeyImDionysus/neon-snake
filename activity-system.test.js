@@ -78,6 +78,10 @@ function request(url, {
     globalHeaders["Content-Security-Policy"],
     /frame-ancestors https:\/\/discord\.com https:\/\/\*\.discord\.com/,
   );
+  assert.match(
+    globalHeaders["Content-Security-Policy"],
+    /connect-src[^;]*wss:\/\/\*\.discordsays\.com/,
+  );
   assert.equal("X-Frame-Options" in globalHeaders, false);
   assert.equal(requestIsAllowedOrigin(request("/api/realtime"), {
     DISCORD_CLIENT_ID: "1531235601070686228",
