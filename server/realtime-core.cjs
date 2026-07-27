@@ -530,14 +530,18 @@ class RoomSimulation {
         sentAt: Date.now(),
       },
     });
-    if (game.over) {
+    try {
       await publishing;
+    } catch (error) {
+      this.hub.abortRound(this.room, error);
+      return;
+    }
+    if (game.over) {
       await this.hub.recordMatch(this.room, game.round, result);
       await this.hub.resetReady(this.room);
       this.stop();
       return;
     }
-    await publishing;
     this.nextTickAt += TICK_DURATION;
     this.tickTimer = setTimeout(
       () => void this.tick(),
@@ -633,6 +637,22 @@ function createRealtimeHub({
       state.simulation = null;
       broadcast(room, { type: "countdown-cancel", sentAt: now() });
     }
+  }
+
+  function abortRound(room, error) {
+    const state = stateFor(room);
+    state.simulation?.stop();
+    state.simulation = null;
+    broadcast(room, {
+      type: "countdown-cancel",
+      slot: -1,
+      reason: "relay_unavailable",
+      sentAt: now(),
+    });
+    logger.error("Realtime authoritative relay failed.", {
+      room,
+      name: typeof error?.name === "string" ? error.name : "Error",
+    });
   }
 
   function roomAllReady(room) {
@@ -921,6 +941,7 @@ function createRealtimeHub({
       state.simulation = new RoomSimulation(
         {
           publish,
+          abortRound,
           roomAllReady,
           connectionOwnsSlot,
           recordMatch: recordCompletedMatch,

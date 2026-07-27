@@ -324,6 +324,71 @@ const tests = [
     transport.close();
     assert.equal(timers.size, 0);
   }],
+  ["the realtime adapter cancels a stale authoritative round when the shared relay is unavailable", async () => {
+    FakeWebSocket.instances.length = 0;
+    const received = [];
+    const statuses = [];
+    const timers = new Map();
+    let timerId = 0;
+    let timestamp = 1_000;
+    const transport = await transports.createWebSocketRoomTransport({
+      code: "ABC234",
+      clientId: "client-one",
+      endpoint: "wss://neon.example.test",
+      onMessage: (message) => received.push(message),
+      onStatus: (status) => statuses.push(status),
+      WebSocketImpl: FakeWebSocket,
+      now: () => timestamp,
+      setTimeoutImpl: (callback, delay) => {
+        timerId += 1;
+        timers.set(timerId, { callback, delay });
+        return timerId;
+      },
+      clearTimeoutImpl: (id) => timers.delete(id),
+    });
+    const socket = FakeWebSocket.instances[0];
+    socket.emit("open");
+    socket.message({
+      type: "welcome",
+      role: "player",
+      slot: 1,
+      players: [
+        { id: "client-host", slot: 0, ready: true, seenAt: 950 },
+        { id: "client-one", slot: 1, ready: true, seenAt: 950 },
+      ],
+    });
+    transport.setActive(true);
+    socket.message({
+      type: "countdown",
+      round: 1_000,
+      startsAt: 4_200,
+    });
+    assert.ok([...timers.values()].some((timer) => timer.delay === 6_200));
+    socket.message({
+      type: "state",
+      sequence: 1,
+      state: { round: 1_000 },
+    });
+    const watchdog = [...timers.entries()].find(([, timer]) => timer.delay === 3_000);
+    assert.ok(watchdog, "A server snapshot must arm the authoritative state watchdog");
+    timers.delete(watchdog[0]);
+    timestamp += watchdog[1].delay;
+    watchdog[1].callback();
+    assert.equal(statuses.at(-1).state, "authoritative-timeout");
+    assert.deepEqual(received.at(-1), {
+      type: "countdown-cancel",
+      room: "ABC234",
+      slot: -1,
+      reason: "state_timeout",
+      sentAt: 4_000,
+    });
+    assert.deepEqual(socket.closeCalls.at(-1), {
+      code: 1012,
+      reason: "Authoritative state timed out",
+    });
+    transport.close();
+    assert.equal(timers.size, 0);
+  }],
   ["the remote adapter joins, syncs, and rebuilds server roster events", async () => {
     const requests = [];
     const scheduled = [];

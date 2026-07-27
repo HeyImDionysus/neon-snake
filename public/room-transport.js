@@ -52,6 +52,7 @@
     let reconnectTimer = null;
     let heartbeatTimer = null;
     let connectionTimer = null;
+    let stateTimer = null;
     let lastPongAt = 0;
     let lastPingAt = 0;
     let readySent = false;
@@ -59,8 +60,35 @@
     function clearSocketTimers() {
       if (heartbeatTimer !== null) clearTimeoutImpl(heartbeatTimer);
       if (connectionTimer !== null) clearTimeoutImpl(connectionTimer);
+      if (stateTimer !== null) clearTimeoutImpl(stateTimer);
       heartbeatTimer = null;
       connectionTimer = null;
+      stateTimer = null;
+    }
+
+    function armStateWatchdog(delay = 13_000) {
+      if (stateTimer !== null) clearTimeoutImpl(stateTimer);
+      stateTimer = null;
+      if (!active || closed) return;
+      stateTimer = setTimeoutImpl(() => {
+        stateTimer = null;
+        if (!active || closed) return;
+        onStatus({
+          state: "authoritative-timeout",
+          role,
+          slot,
+          players: roster,
+          code: "state_timeout",
+        });
+        onMessage({
+          type: "countdown-cancel",
+          room: normalizedCode,
+          slot: -1,
+          reason: "state_timeout",
+          sentAt: now(),
+        });
+        socket?.close(1012, "Authoritative state timed out");
+      }, delay);
     }
 
     function emitRoster(players) {
@@ -191,6 +219,8 @@
           return;
         }
         if (message.type === "countdown-cancel") {
+          if (stateTimer !== null) clearTimeoutImpl(stateTimer);
+          stateTimer = null;
           onMessage({
             type: "countdown-cancel",
             room: normalizedCode,
@@ -202,6 +232,14 @@
         if (message.type === "rejected") {
           onStatus({ state: "rejected", role, slot, code: message.code || "invalid_message" });
           return;
+        }
+        if (message.type === "countdown") {
+          const startsAt = Number(message.startsAt);
+          armStateWatchdog(Number.isFinite(startsAt)
+            ? Math.max(3_000, startsAt - now() + 3_000)
+            : 13_000);
+        } else if (message.type === "state") {
+          armStateWatchdog(3_000);
         }
         onMessage({
           ...message,
@@ -242,6 +280,7 @@
       },
       setActive(nextActive) {
         active = Boolean(nextActive);
+        armStateWatchdog();
         scheduleHeartbeat();
       },
       close() {

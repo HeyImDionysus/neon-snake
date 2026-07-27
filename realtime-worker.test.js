@@ -104,14 +104,19 @@ function createFakeRedis() {
 function createFakeBus() {
   const listeners = new Map();
   const published = [];
+  let publishError = null;
   return {
     published,
+    failPublishing(error) {
+      publishError = error;
+    },
     async subscribe(room, handler) {
       if (!listeners.has(room)) listeners.set(room, new Set());
       listeners.get(room).add(handler);
       return () => listeners.get(room)?.delete(handler);
     },
     async publish(room, payload) {
+      if (publishError) throw publishError;
       published.push({ room, payload });
       listeners.get(room)?.forEach((handler) => handler(payload));
     },
@@ -203,7 +208,12 @@ async function flush() {
   stopRelay();
   relay.close();
 
-  const redisCommand = createFakeRedis();
+  const healthyRedis = createFakeRedis();
+  let redisError = null;
+  const redisCommand = async (command) => {
+    if (redisError) throw redisError;
+    return healthyRedis(command);
+  };
   const bus = createFakeBus();
   let hubNumber = 0;
   const createHub = () => createRealtimeHub({
@@ -257,6 +267,26 @@ async function flush() {
   assert.ok(first.messages.some((message) => (
     message.type === "rejected" && message.code === "server_authoritative"
   )));
+
+  const relayOutage = new Error("Redis relay timed out.");
+  relayOutage.name = "TimeoutError";
+  redisError = relayOutage;
+  bus.failPublishing(relayOutage);
+  second.emit("close");
+  await flush();
+  clearTimeout(simulation.tickTimer);
+  simulation.tickTimer = null;
+  await simulation.tick();
+  assert.equal(
+    firstHub._state.rooms.get("ABC234").simulation,
+    null,
+    "The authoritative instance must stop its cached simulation when the shared relay fails",
+  );
+  assert.ok(first.messages.some((message) => (
+    message.type === "countdown-cancel"
+    && message.reason === "relay_unavailable"
+  )), "The authority-side survivor must be cancelled when cross-instance Redis delivery is unavailable");
+  redisError = null;
 
   const cleanupRedis = createFakeRedis();
   const cleanupBus = createFakeBus();
