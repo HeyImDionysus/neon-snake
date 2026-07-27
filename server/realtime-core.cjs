@@ -286,10 +286,8 @@ function createRedisRestBus({
         if (entry.closed || controller.signal.aborted || !entry.handlers.size) break;
         failures += 1;
         onError(error, entry.room);
-        entry.handlers.forEach((handler) => handler({
-          kind: "bus-unavailable",
-          room: entry.room,
-        }));
+        // Redis's SSE transport may rotate an otherwise healthy subscription.
+        // Reconnect the relay without throwing every live WebSocket out of the room.
         await new Promise((resolve) => setTimeout(resolve, Math.min(2_000, failures * 250)));
       }
     }
@@ -650,16 +648,6 @@ function createRealtimeHub({
 
   function dispatch(room, envelope) {
     if (!envelope || envelope.room !== room) return;
-    if (envelope.kind === "bus-unavailable") {
-      localConnections(room).forEach((connection) => {
-        try {
-          connection.socket.close(1012, "Realtime relay reconnecting");
-        } catch {
-          // Ignore an already-closed socket.
-        }
-      });
-      return;
-    }
     if (envelope.origin === instanceId) return;
     const state = stateFor(room);
     if (envelope.kind === "roster") {
