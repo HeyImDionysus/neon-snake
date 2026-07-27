@@ -1125,14 +1125,26 @@ function applyRemoteSnapshot(message) {
 
 function cancelLiveRound(message) {
   const departedSlot = Number(message?.slot);
-  if (departedSlot === 0 || departedSlot === 1) {
+  const authoritativeDeparture = departedSlot === 0 || departedSlot === 1;
+  if (authoritativeDeparture) {
     roomPeers = new Map([...roomPeers].filter(([, peer]) => peer.slot !== departedSlot));
   }
   const wasActive = liveCountdownActive || runState === "countdown" || runState === "running";
+  const completedDeparture = runState === "over" && authoritativeDeparture;
   setRoomReadyIntent(false, false);
   if (liveCountdownActive) abortLiveCountdown();
   nextMoveAt = 0;
   syncLiveRoom();
+  if (completedDeparture && duelType === "live") {
+    setRunState("ready", "WAITING FOR PLAYER 2");
+    showOverlay(
+      "LIVE ROOM",
+      "WAITING FOR<br><em>PLAYER 2</em>",
+      "The previous rival disconnected. The completed result was cleared for the next room.",
+    );
+    announcement.textContent = "The previous rival disconnected. Waiting for Player 2.";
+    return;
+  }
   if (!wasActive || duelType !== "live") return;
   setRunState("ready", "RIVAL DISCONNECTED");
   roomState.textContent = "ROUND CANCELLED · WAITING FOR PLAYER";
