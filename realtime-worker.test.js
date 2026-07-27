@@ -281,12 +281,17 @@ async function flush() {
     },
   });
   const cleanupSocket = new FakeSocket();
+  const cleanupPeer = new FakeSocket();
   await cleanupHub.connect(cleanupSocket, request("DEF567", "cleanup-client"));
+  await cleanupHub.connect(cleanupPeer, request("DEF567", "cleanup-peer"));
   cleanupSocket.emit("close");
   await flush();
   assert.ok(cleanupBus.published.some(({ room, payload }) => (
-    room === "DEF567" && payload.kind === "cancel"
+    room === "DEF567" && payload.kind === "cancel" && payload.slot === 0
   )), "A timed-out presence cleanup must not suppress the room cancellation");
+  assert.ok(cleanupPeer.messages.some((message) => (
+    message.type === "countdown-cancel" && message.slot === 0
+  )), "The surviving client must receive the departed slot without waiting for a fresh roster");
   assert.deepEqual(cleanupErrors, [{
     message: "Realtime disconnect cleanup failed.",
     details: { stage: "presence", name: "TimeoutError" },

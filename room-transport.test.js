@@ -273,6 +273,17 @@ const tests = [
       state: { round: 4 },
       room: "ABC234",
     });
+    socket.message({
+      type: "countdown-cancel",
+      slot: 1,
+      sentAt: 1_025,
+    });
+    assert.deepEqual(received.at(-1), {
+      type: "countdown-cancel",
+      room: "ABC234",
+      slot: 1,
+      sentAt: 1_025,
+    });
     transport.close();
     assert.deepEqual(socket.closeCalls.at(-1), { code: 1000, reason: "Client left room" });
     assert.equal(scheduled.size, 0);

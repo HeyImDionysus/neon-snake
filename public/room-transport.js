@@ -191,7 +191,12 @@
           return;
         }
         if (message.type === "countdown-cancel") {
-          emitRoster(roster);
+          onMessage({
+            type: "countdown-cancel",
+            room: normalizedCode,
+            slot: Number.isInteger(message.slot) ? message.slot : -1,
+            sentAt: Number(message.sentAt) || now(),
+          });
           return;
         }
         if (message.type === "rejected") {

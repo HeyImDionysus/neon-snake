@@ -671,7 +671,11 @@ function createRealtimeHub({
     if (envelope.kind === "cancel") {
       state.simulation?.stop();
       state.simulation = null;
-      broadcast(room, { type: "countdown-cancel", sentAt: now() });
+      broadcast(room, {
+        type: "countdown-cancel",
+        slot: Number(envelope.slot),
+        sentAt: now(),
+      });
     }
   }
 
@@ -730,7 +734,11 @@ function createRealtimeHub({
       const state = stateFor(room);
       state.simulation?.stop();
       state.simulation = null;
-      broadcast(room, { type: "countdown-cancel", sentAt: now() });
+      broadcast(room, {
+        type: "countdown-cancel",
+        slot: Number(event.slot),
+        sentAt: now(),
+      });
     }
     await eventBus.publish(room, envelope);
   }
@@ -803,7 +811,10 @@ function createRealtimeHub({
       });
     };
     const cancelTask = connection.slot === 0 || connection.slot === 1
-      ? publish(connection.room, { kind: "cancel" }).catch((error) => {
+      ? publish(connection.room, {
+        kind: "cancel",
+        slot: connection.slot,
+      }).catch((error) => {
         reportFailure("cancel", error);
       })
       : Promise.resolve();

@@ -349,6 +349,16 @@ const tests = [
     const body = functionBody("syncLiveRoom");
     assert.match(body, /abortLiveCountdown/);
     assert.match(body, /liveCountdownActive/);
+    const handler = functionBody("handleRoomMessage");
+    assert.match(handler, /message\.type === "countdown-cancel"/);
+    assert.match(handler, /cancelLiveRound\(message\)/);
+    const cancellation = functionBody("cancelLiveRound");
+    assert.match(cancellation, /peer\.slot !== departedSlot/);
+    assert.match(cancellation, /setRoomReadyIntent\(false\)/);
+    assert.match(cancellation, /postRoomMessage\(\{ type: "ready", ready: false \}\)/);
+    assert.match(cancellation, /nextMoveAt = 0/);
+    assert.match(cancellation, /setRunState\("ready", "RIVAL DISCONNECTED"\)/);
+    assert.match(cancellation, /syncLiveRoom\(\)/);
   }],
   ["the transport owns presence cadence without a duplicate page heartbeat", () => {
     const body = functionBody("handleRoomMessage");
