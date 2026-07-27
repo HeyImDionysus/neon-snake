@@ -69,7 +69,8 @@ const tests = [
   }],
   ["public multiplayer copy no longer calls the finished feature a canary", () => {
     assert.doesNotMatch(indexHtml, /LIVE ROOM CANARY/);
-    assert.match(indexHtml, /PUBLIC LIVE ROOM/);
+    assert.match(indexHtml, /MULTIPLAYER/);
+    assert.match(indexHtml, /LIVE ROOM/);
   }],
 ];
 

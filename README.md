@@ -1,8 +1,8 @@
 # Neon Snake
 
-Neon Snake is a public capability experiment: give Codex one familiar game, then judge how far the AI behind its construction can push the finished artifact through engineering, autonomous control, backend architecture, game feel, visual identity, and verification.
+Neon Snake is a complete browser game with four solo modes, deterministic Autopilot, live two-player rooms, public profiles, verified rankings, and native Windows and Android live wallpapers.
 
-The game itself is not AI. Its Autopilot and duel opponent are deterministic decision systems written specifically for this project. They are part of the evidence—alongside the renderer, realtime room protocol, accessibility, offline shell, and tests—not a claim that ordinary game code is a model.
+Its Autopilot and multiplayer opponent are deterministic decision systems written specifically for this game. The renderer, realtime room protocol, accessibility layer, offline shell, and downloadable wallpapers are all part of the same dependency-light codebase.
 
 ## Run it
 
@@ -53,7 +53,7 @@ A feature is kept only when it passes three questions:
 
 The implementation grid is deliberately invisible. Solo movement and collision remain a readable 20 × 20 rule model, while the renderer converts those positions into a continuous curved body over a layered atmospheric field. Portal jumps break the visual path at the edge instead of drawing a line across the board.
 
-The separate Duel Lab uses the same canvas footprint with a 30 × 30 logical arena. That makes each snake one-third smaller while increasing playable cells from 400 to 900—125% more room without consuming more page space. Both snakes advance in one deterministic transaction, so wall, self, rival-body, head-on, and head-swap collisions cannot depend on browser callback order.
+The separate multiplayer arena uses the same canvas footprint with a 30 × 30 logical board. That makes each snake one-third smaller while increasing playable cells from 400 to 900—125% more room without consuming more page space. Both snakes advance in one deterministic transaction, so wall, self, rival-body, head-on, and head-swap collisions cannot depend on browser callback order.
 
 The Autopilot follows one readable priority stack in every selected protocol:
 
@@ -70,7 +70,7 @@ Decision DNA turns that planner into a mirror instead of an opponent. On every p
 
 The optional live Decision Lens uses that identical calculation as a co-pilot. Press `L` or use the single toggle to reveal legal candidate cells, the planner's chosen direction, and the reason it beat the runner-up while retaining full control. Turning it on never steers the snake or modifies scoring.
 
-In the Duel Lab, `Play vs Autopilot` is a true two-snake match rather than an advice mode. The violet rival treats your body as occupied space and performs a deterministic two-ply simultaneous-move search: every candidate move is tested against your worst legal reply, then against the next exchange. Terminal wins and losses dominate the score; surviving lines compare future territory, exits, food-race pressure, score, and body length. Recent head history penalizes repeated circuits, while a small Signal-derived tie break varies equivalent safe lines without overriding tactics. It cannot see your next input and does not claim to solve the full game.
+In multiplayer, `Play vs Autopilot` is a true two-snake match rather than an advice mode. The violet rival treats your body as occupied space and performs a deterministic two-ply simultaneous-move search: every candidate move is tested against your worst legal reply, then against the next exchange. Terminal wins and losses dominate the score; surviving lines compare future territory, exits, food-race pressure, score, and body length. Recent head history penalizes repeated circuits, while a small Signal-derived tie break varies equivalent safe lines without overriding tactics. It cannot see your next input and does not claim to solve the full game.
 
 The executable quality suite proves more than isolated fixtures. Classic Autopilot fills all 400 cells—397 collected growth pickups after the opening length—on three distinct public Signal Codes while preserving the cycle invariant. Timed Cores can expire and reseed, so the completion gate bounds every active objective to one board traversal and reports actual capture droughts separately instead of claiming every transient Core is collected. Eight-seed matrices require purposeful, distinct routes across solo modes; timed Rush and Canvas runs exercise Steady, Arcade, and Overdrive with the live Core, mutation, brush-length, composition, and strict 60-second Rush rules. Duel simulations run the controller from both spawn roles against food-racing, pursuit, and evasion policies, carry the live score into future-state values, require seeded route variation, reject avoidable next-tick losses, retain the food target across the full search horizon, and detect regressions into short pursuit loops. A separate symmetry gate swaps player order across 1,200 simultaneous states and requires identical outcomes.
 
@@ -115,7 +115,7 @@ Discord sign-in is optional for play and required only for a verified profile or
 - `public/assets/signal-mark.svg` — the custom signal-serpent identity mark.
 - `public/game-logic.js` — small deterministic rules with no browser dependency.
 - `public/game.js` — canvas rendering, input, audio, persistence, and orchestration.
-- `public/duel.html` — focused Autopilot/live duel interface.
+- `public/duel.html` — focused Autopilot/live multiplayer interface.
 - `public/duel.css` — responsive duel arena and room-state presentation.
 - `public/duel.js` — autonomous duel and room-state orchestration.
 - `public/room-transport.js` — same-origin Vercel WebSocket transport with bounded reconnect/heartbeat handling plus the legacy HTTP fallback.
@@ -137,7 +137,7 @@ Discord sign-in is optional for play and required only for a verified profile or
 - `wallpaper/android` — native, offline Android live-wallpaper project with no network permission.
 - `scripts/build-wallpapers.mjs` — reproducible Windows Lively archive builder.
 - `game-logic.test.js` — executable rule regressions using Node's built-in assertions.
-- `ai-quality.test.js` — three-seed full-board completion plus eight-seed, all-pace timing, routing-efficiency, safety-cycle, adversarial duel, route-diversity, and loop-recovery benchmarks.
+- `ai-quality.test.js` — three-seed full-board completion plus eight-seed, all-pace timing, routing-efficiency, safety-cycle, adversarial multiplayer, route-diversity, and loop-recovery checks.
 - `canvas-performance.test.js` — executable late-run gate for accumulated raster strokes, 2× compositing, effect retirement, and worst-shaped Autopilot planning.
 - `canvas-browser-performance.test.js` — real Chromium late-run gate that combines 1,400 rasterized glow strokes, 2× compositing, peak overlapping effects, and a worst-shaped planner decision inside the 44 ms Overdrive movement budget.
 - `control-flow.test.js` — executable ownership and explicit-start regressions.
@@ -156,7 +156,7 @@ Discord sign-in is optional for play and required only for a verified profile or
 - `product-experience.test.js` — executable navigation, download routing, copy, responsive-header, profile, and leaderboard regressions.
 - `wallpaper-system.test.js` — executable eat/grow behavior plus Windows/Android packaging, pause, frame-budget, visual, and permission regressions.
 
-The environment intentionally remains plain HTML, CSS, and JavaScript so every experiment is inspectable and reversible.
+The browser game intentionally remains plain HTML, CSS, and JavaScript so every system is inspectable and reversible.
 
 ## Autonomous wallpaper packages
 

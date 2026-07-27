@@ -27,13 +27,13 @@ function eventTarget() {
   };
 }
 
-assert.equal(DEFAULT_THRESHOLD, 10);
-assert.equal(directionFromDelta(9, 0), "");
-assert.equal(directionFromDelta(10, 1), "right");
+assert.equal(DEFAULT_THRESHOLD, 5);
+assert.equal(directionFromDelta(4, 0), "");
+assert.equal(directionFromDelta(5, 1), "right");
 assert.equal(directionFromDelta(-12, 2), "left");
 assert.equal(directionFromDelta(1, -11), "up");
 assert.equal(directionFromDelta(2, 13), "down");
-process.stdout.write("PASS mobile swipes commit after ten CSS pixels in every direction\n");
+process.stdout.write("PASS mobile swipes commit after five CSS pixels in every direction\n");
 
 const surface = eventTarget();
 const directions = [];

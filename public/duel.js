@@ -109,6 +109,11 @@ let liveCountdownActive = false;
 let liveRoundId = 0;
 let liveSequence = 0;
 let lastRemoteSequence = -1;
+let liveLatencyMs = 0;
+let authoritativePlayerSnake = [];
+let authoritativeOpponentSnake = [];
+let playerPredictionIndex = 0;
+let opponentPredictionIndex = 0;
 
 const clientId = (() => {
   try {
@@ -124,6 +129,22 @@ const clientId = (() => {
 
 function cloneSnake(source) {
   return source.map((segment) => ({ ...segment }));
+}
+
+function networkInterpolationOffset(sentAt, receivedAt, roundTrip) {
+  const age = Number(receivedAt) - Number(sentAt);
+  const fallback = Math.max(0, Number(roundTrip) || 0) / 2;
+  const estimate = Number.isFinite(age) && age >= 0 && age < 5_000
+    ? age
+    : fallback;
+  return Math.min(TICK_DURATION - 16, Math.max(0, estimate));
+}
+
+function previewDirection(direction, queue, index = 0) {
+  const pending = queue[index];
+  return pending && !Rules.isReverseDirection(pending, direction)
+    ? pending
+    : direction;
 }
 
 function focusWithoutScroll(element) {
@@ -164,8 +185,10 @@ function resetDuel() {
   const spawns = Rules.duelSpawns(DUEL_GRID);
   playerSnake = cloneSnake(spawns.player.snake);
   previousPlayerSnake = cloneSnake(playerSnake);
+  authoritativePlayerSnake = cloneSnake(playerSnake);
   opponentSnake = cloneSnake(spawns.opponent.snake);
   previousOpponentSnake = cloneSnake(opponentSnake);
+  authoritativeOpponentSnake = cloneSnake(opponentSnake);
   playerDirection = { ...spawns.player.direction };
   playerQueuedDirection = { ...playerDirection };
   opponentDirection = { ...spawns.opponent.direction };
@@ -185,6 +208,8 @@ function resetDuel() {
   pausedMotion = 1;
   liveSequence = 0;
   lastRemoteSequence = -1;
+  playerPredictionIndex = 0;
+  opponentPredictionIndex = 0;
   placeFood();
   updateHud();
 }
@@ -362,15 +387,26 @@ function drawFood(now) {
 }
 
 function render(now) {
+  frameHandle = null;
+  if (document.hidden) return;
   advanceGame(now);
   drawArena(now);
   drawFood(now);
   const firstProfile = duelType === "live" ? roomPlayers[0]?.profile : null;
   const secondProfile = duelType === "live" ? roomPlayers[1]?.profile : null;
+  const localIndex = duelType === "live"
+    ? roomPlayers.findIndex((player) => player.id === clientId)
+    : -1;
+  const firstDirection = roomTransport?.authoritative && localIndex === 0
+    ? previewDirection(playerDirection, playerInputBuffer, playerPredictionIndex)
+    : playerDirection;
+  const secondDirection = roomTransport?.authoritative && localIndex === 1
+    ? previewDirection(opponentDirection, opponentInputBuffer, opponentPredictionIndex)
+    : opponentDirection;
   drawFluidSnake(
     playerSnake,
     previousPlayerSnake,
-    playerDirection,
+    firstDirection,
     DUEL_COLORS[firstProfile?.accent] || "#adff66",
     now,
     firstProfile?.snakeStyle || "signal",
@@ -378,11 +414,16 @@ function render(now) {
   drawFluidSnake(
     opponentSnake,
     previousOpponentSnake,
-    opponentDirection,
+    secondDirection,
     DUEL_COLORS[secondProfile?.accent] || "#a98bff",
     now,
     secondProfile?.snakeStyle || "signal",
   );
+  frameHandle = requestAnimationFrame(render);
+}
+
+function startRendering() {
+  if (document.hidden || frameHandle !== null) return;
   frameHandle = requestAnimationFrame(render);
 }
 
@@ -478,9 +519,70 @@ function tickLiveHost(now) {
   broadcastSnapshot(result);
 }
 
+function tickPredictedLive(now) {
+  const localIndex = roomPlayers.findIndex((player) => player.id === clientId);
+  if (localIndex < 0) {
+    nextMoveAt = 0;
+    return;
+  }
+
+  let predictedPlayerDirection = playerDirection;
+  let predictedOpponentDirection = opponentDirection;
+  if (localIndex === 0) {
+    const next = previewDirection(playerDirection, playerInputBuffer, playerPredictionIndex);
+    if (next !== playerDirection) playerPredictionIndex += 1;
+    predictedPlayerDirection = { ...next };
+  } else {
+    const next = previewDirection(opponentDirection, opponentInputBuffer, opponentPredictionIndex);
+    if (next !== opponentDirection) opponentPredictionIndex += 1;
+    predictedOpponentDirection = { ...next };
+  }
+
+  const result = Rules.resolveDuelTick({
+    players: {
+      player: {
+        snake: playerSnake,
+        direction: predictedPlayerDirection,
+        score: playerScore,
+      },
+      opponent: {
+        snake: opponentSnake,
+        direction: predictedOpponentDirection,
+        score: opponentScore,
+      },
+    },
+    food,
+    mode: "classic",
+    gridSize: DUEL_GRID,
+  });
+
+  previousPlayerSnake = cloneSnake(playerSnake);
+  previousOpponentSnake = cloneSnake(opponentSnake);
+  playerSnake = cloneSnake(result.players.player.snake);
+  opponentSnake = cloneSnake(result.players.opponent.snake);
+  playerDirection = { ...result.players.player.direction };
+  opponentDirection = { ...result.players.opponent.direction };
+  playerScore = result.players.player.score;
+  opponentScore = result.players.opponent.score;
+  if (result.foodEatenBy) food = null;
+  lastMoveAt = now;
+  updateHud();
+  if (result.over) nextMoveAt = 0;
+}
+
 function advanceGame(now) {
   if (runState !== "running" || !nextMoveAt) return;
-  if (duelType === "live" && roomTransport?.authoritative) return;
+  if (duelType === "live" && roomTransport?.authoritative) {
+    let predictedSteps = 0;
+    while (runState === "running" && now >= nextMoveAt && predictedSteps < 2) {
+      tickPredictedLive(nextMoveAt);
+      if (!nextMoveAt) return;
+      nextMoveAt += TICK_DURATION;
+      predictedSteps += 1;
+    }
+    if (predictedSteps === 2 && now >= nextMoveAt) nextMoveAt = now + TICK_DURATION;
+    return;
+  }
   const isLiveHost = duelType === "live" && roomPlayers[0]?.id === clientId;
   if (duelType === "live" && !isLiveHost) return;
 
@@ -684,7 +786,7 @@ function switchDuelType(type) {
   aiPanel.hidden = type !== "ai";
   livePanel.hidden = type !== "live";
   resetDuel();
-  setRunState("ready", type === "ai" ? "DUEL LAB READY" : "LIVE ROOM STANDBY");
+  setRunState("ready", type === "ai" ? "MULTIPLAYER READY" : "LIVE ROOM STANDBY");
   if (type === "ai") {
     showOverlay(
       "DUEL PROTOCOL",
@@ -931,7 +1033,10 @@ function handleRoomStatus(status) {
   }
   if (status.state === "latency") {
     const latency = Math.max(0, Math.round(Number(status.latency) || 0));
-    roomLatency.textContent = `REALTIME PING · ${latency} MS`;
+    liveLatencyMs = liveLatencyMs
+      ? liveLatencyMs * .7 + latency * .3
+      : latency;
+    roomLatency.textContent = `REALTIME PING · ${latency} MS · PREDICTION ON`;
     return;
   }
   if (status.state !== "connected") return;
@@ -1035,6 +1140,7 @@ function disconnectLiveRoom() {
   roomRole = "disconnected";
   roomSlot = -1;
   roomConnectionState = "disconnected";
+  liveLatencyMs = 0;
   roomLatency.textContent = "REALTIME PING · NOT MEASURED";
   abortLiveCountdown();
   if (duelType === "live") {
@@ -1120,7 +1226,7 @@ function startLiveDuel() {
   overlayTitle.classList.remove("countdown");
   lastMoveAt = performance.now();
   nextMoveAt = roomTransport?.authoritative
-    ? 0
+    ? lastMoveAt + TICK_DURATION
     : roomPlayers[0]?.id === clientId ? lastMoveAt + TICK_DURATION : 0;
   setRunState("running", "LIVE DUEL ACTIVE");
   roomState.textContent = "LIVE DUEL ACTIVE";
@@ -1170,18 +1276,33 @@ function applyRemoteSnapshot(message) {
     localSequences.shift();
     localBuffer.shift();
   }
+  playerPredictionIndex = 0;
+  opponentPredictionIndex = 0;
   lastRemoteSequence = message.sequence;
-  previousPlayerSnake = cloneSnake(playerSnake);
-  previousOpponentSnake = cloneSnake(opponentSnake);
+  previousPlayerSnake = cloneSnake(
+    authoritativePlayerSnake.length ? authoritativePlayerSnake : state.playerSnake,
+  );
+  previousOpponentSnake = cloneSnake(
+    authoritativeOpponentSnake.length ? authoritativeOpponentSnake : state.opponentSnake,
+  );
   playerSnake = cloneSnake(state.playerSnake);
   opponentSnake = cloneSnake(state.opponentSnake);
+  authoritativePlayerSnake = cloneSnake(state.playerSnake);
+  authoritativeOpponentSnake = cloneSnake(state.opponentSnake);
   playerDirection = { ...state.playerDirection };
   opponentDirection = { ...state.opponentDirection };
   playerScore = Number(state.playerScore) || 0;
   opponentScore = Number(state.opponentScore) || 0;
   food = state.food ? { ...state.food } : null;
   signalCursor = Number(state.signalCursor) >>> 0;
-  lastMoveAt = performance.now();
+  const interpolationOffset = networkInterpolationOffset(
+    message.sentAt,
+    Date.now(),
+    liveLatencyMs,
+  );
+  const frameNow = performance.now();
+  lastMoveAt = frameNow - interpolationOffset;
+  nextMoveAt = frameNow + Math.max(16, TICK_DURATION - interpolationOffset);
   updateHud();
   if (state.over && runState === "running") endDuel(state.winner, state.crashes);
 }
@@ -1383,6 +1504,14 @@ globalThis.NeonSnakeTouchControls.bindDirectionButtons(
   (name) => requestDirection(DIRECTIONS[name]),
 );
 window.addEventListener("keydown", handleKeyboard);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    if (frameHandle !== null) cancelAnimationFrame(frameHandle);
+    frameHandle = null;
+  } else {
+    startRendering();
+  }
+});
 window.addEventListener("beforeunload", () => {
   if (roomTransport) postRoomMessage({ type: "leave" });
   roomTransport?.close();
@@ -1393,7 +1522,7 @@ if ("ResizeObserver" in window) new ResizeObserver(resizeCanvas).observe(board);
 else window.addEventListener("resize", resizeCanvas);
 
 resizeCanvas();
-frameHandle = requestAnimationFrame(render);
+startRendering();
 
 async function initializeDuelSurface() {
   if (globalThis.NeonSnakeActivity?.embedded) {

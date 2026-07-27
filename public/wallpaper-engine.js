@@ -2,6 +2,7 @@
   "use strict";
 
   const GRID = 20;
+  const DISPLAY_LENGTH_LIMIT = 42;
 
   function createWallpaperEngine({
     rules = root.SnakeRules,
@@ -108,7 +109,7 @@
       const points = food.kind === "core" ? 50 : 10;
       score += points;
       const eaten = { ...food };
-      if (snake.length >= cycle.length) {
+      if (snake.length >= DISPLAY_LENGTH_LIMIT) {
         completedBoards += 1;
         reset();
         return {
@@ -140,6 +141,7 @@
         foodsEaten,
         score,
         completedBoards,
+        displayLengthLimit: DISPLAY_LENGTH_LIMIT,
       };
     }
 

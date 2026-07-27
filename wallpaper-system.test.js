@@ -37,24 +37,24 @@ const androidService = read(
   "wallpaper",
   "NeonWallpaperService.java",
 );
-const permanentWindowsReadme = read("downloads", "v1.1.1", "README.md");
-const permanentAndroidReadme = read("downloads", "v1.1.0", "README.md");
+const permanentWindowsReadme = read("downloads", "v1.1.2", "README.md");
+const permanentAndroidReadme = read("downloads", "v1.1.1", "README.md");
 const permanentWindows = readBytes(
   "downloads",
-  "v1.1.1",
-  "Neon-Snake-Lively-v1.1.1.zip",
+  "v1.1.2",
+  "Neon-Snake-Lively-v1.1.2.zip",
 );
 const permanentAndroid = readBytes(
   "downloads",
-  "v1.1.0",
-  "Neon-Snake-Android-v1.1.0.apk",
+  "v1.1.1",
+  "Neon-Snake-Android-v1.1.1.apk",
 );
 const shippedLivelyProperties = JSON.parse(readArchiveText(
-  ["downloads", "v1.1.1", "Neon-Snake-Lively-v1.1.1.zip"],
+  ["downloads", "v1.1.2", "Neon-Snake-Lively-v1.1.2.zip"],
   "LivelyProperties.json",
 ));
 const shippedWallpaperScript = readArchiveText(
-  ["downloads", "v1.1.1", "Neon-Snake-Lively-v1.1.1.zip"],
+  ["downloads", "v1.1.2", "Neon-Snake-Lively-v1.1.2.zip"],
   "wallpaper.js",
 );
 
@@ -62,8 +62,8 @@ assert.match(wallpaperHtml, /wallpaperCanvas/);
 assert.match(homeHtml, /href="downloads\.html"/);
 assert.doesNotMatch(homeHtml, /href="wallpaper\.html"/);
 assert.match(homeHtml, /WINDOWS LIVELY · ANDROID LIVE WALLPAPER/);
-assert.match(downloadsHtml, /Neon-Snake-Android-v1\.1\.0\.apk/);
-assert.match(downloadsHtml, /Neon-Snake-Lively-v1\.1\.1\.zip/);
+assert.match(downloadsHtml, /Neon-Snake-Android-v1\.1\.1\.apk/);
+assert.match(downloadsHtml, /Neon-Snake-Lively-v1\.1\.2\.zip/);
 assert.equal((downloadsHtml.match(/<a class="download-button"[^>]*\bdownload="/g) || []).length, 2);
 assert.match(downloadsHtml, /Download for Android/);
 assert.match(downloadsHtml, /Download for Windows/);
@@ -105,20 +105,26 @@ const engine = createWallpaperEngine({
   mode: "classic",
 });
 let eats = 0;
+let loops = 0;
+let maximumLength = 0;
 let worstDrought = 0;
 let drought = 0;
-for (let step = 0; step < 1_600; step += 1) {
+for (let step = 0; step < 12_000; step += 1) {
   const event = engine.step();
+  maximumLength = Math.max(maximumLength, engine.snapshot().snake.length);
   drought += 1;
-  if (event?.type === "eat") {
+  if (event?.type === "eat" || event?.type === "complete") {
     eats += 1;
+    if (event.type === "complete") loops += 1;
     worstDrought = Math.max(worstDrought, drought);
     drought = 0;
   }
 }
-assert.ok(eats >= 18, `Expected visible repeated food collection, received ${eats}`);
+assert.ok(eats >= 100, `Expected visible repeated food collection, received ${eats}`);
 assert.ok(worstDrought <= 110, `Wallpaper food drought was ${worstDrought} steps`);
-assert.ok(engine.snapshot().snake.length >= 3 + eats);
+assert.ok(loops >= 2, `Expected the wallpaper route to refresh, received ${loops} loops`);
+assert.ok(maximumLength <= 42, `Wallpaper grew into a ${maximumLength}-segment screen-filling slab`);
+assert.equal(engine.snapshot().displayLengthLimit, 42);
 
 assert.equal(livelyInfo.Type, 1);
 assert.equal(livelyInfo.FileName, "index.html");
@@ -148,7 +154,10 @@ assert.match(androidService, /drawSnakeHead/);
 assert.match(androidService, /drawPickupEffects/);
 assert.match(androidService, /quadTo/);
 assert.match(androidService, /snake\.foodsEaten\(\)/);
-assert.match(read("wallpaper", "android", "app", "src", "main", "java", "app", "neonsnake", "wallpaper", "AutonomousSnake.java"), /shortestFoodMove/);
+const androidSnake = read("wallpaper", "android", "app", "src", "main", "java", "app", "neonsnake", "wallpaper", "AutonomousSnake.java");
+assert.match(androidSnake, /shortestFoodMove/);
+assert.match(androidSnake, /DISPLAY_LENGTH_LIMIT = 42/);
+assert.match(androidService, /snake\.lastPickup\(\)/);
 assert.match(permanentWindowsReadme, new RegExp(sha256(permanentWindows)));
 assert.match(permanentAndroidReadme, new RegExp(sha256(permanentAndroid)));
 assert.equal(permanentWindows.subarray(0, 2).toString("ascii"), "PK");

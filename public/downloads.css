@@ -196,6 +196,21 @@
 .download-button span:last-child { font: 700 8px var(--mono); letter-spacing: .1em; }
 .download-button:hover { filter: brightness(1.1); transform: translateY(-2px); }
 .download-button:focus-visible { outline: 3px solid var(--paper); outline-offset: 4px; }
+.download-platform.download-started .download-button {
+  filter: brightness(1.08);
+  box-shadow: 0 0 0 1px rgba(237, 245, 237, .7), 0 0 34px rgba(173, 255, 102, .14);
+}
+.android-download.download-started .download-button {
+  box-shadow: 0 0 0 1px rgba(237, 245, 237, .7), 0 0 34px rgba(169, 139, 255, .18);
+}
+.download-status {
+  min-height: 18px;
+  margin: 10px 0 0;
+  color: var(--dim);
+  font: 700 7px/1.5 var(--mono);
+  letter-spacing: .11em;
+}
+.download-started .download-status { color: var(--paper); }
 .download-meta {
   display: flex;
   justify-content: space-between;

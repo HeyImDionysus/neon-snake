@@ -93,9 +93,9 @@ public final class NeonWallpaperService extends WallpaperService {
                 int catchUp = 0;
                 while (now - lastStepAt >= STEP_MS && catchUp < 3) {
                     if (snake.step()) {
-                        AutonomousSnake.Point head = snake.body().get(0);
-                        pickupX = head.x;
-                        pickupY = head.y;
+                        AutonomousSnake.Point pickup = snake.lastPickup();
+                        pickupX = pickup.x;
+                        pickupY = pickup.y;
                         lastPickupAt = lastStepAt + STEP_MS;
                     }
                     lastStepAt += STEP_MS;

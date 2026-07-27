@@ -90,8 +90,22 @@ const tests = [
     assert.match(functionBody("broadcastSnapshot"), /round: liveRoundId/);
     assert.match(functionBody("applyRemoteSnapshot"), /state\.playerInputAck/);
     assert.match(functionBody("applyRemoteSnapshot"), /localSequences\[0\] <= acknowledged/);
+    assert.match(functionBody("applyRemoteSnapshot"), /networkInterpolationOffset/);
+    assert.match(functionBody("advanceGame"), /tickPredictedLive/);
+    assert.match(functionBody("render"), /previewDirection/);
     assert.match(functionBody("advanceGame"), /roomTransport\?\.authoritative/);
     assert.match(functionBody("handleRoomMessage"), /round !== liveRoundId/);
+  }],
+  ["live interpolation subtracts transit time instead of replaying a full delayed tick", () => {
+    const context = { TICK_DURATION: 138 };
+    const { networkInterpolationOffset } = installFunctions(
+      ["networkInterpolationOffset"],
+      context,
+    );
+    assert.equal(networkInterpolationOffset(1_000, 1_060, 180), 60);
+    assert.equal(networkInterpolationOffset(2_000, 1_900, 180), 90);
+    assert.equal(networkInterpolationOffset(1_000, 2_000, 180), 122);
+    assert.match(functionBody("handleRoomStatus"), /PREDICTION ON/);
   }],
   ["live rooms remain waiting until two connected players are ready", () => {
     const body = functionBody("syncLiveRoom");

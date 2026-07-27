@@ -41,6 +41,7 @@ jobs:
           node --check public/touch-controls.js
           node --check public/wallpaper-engine.js
           node --check public/wallpaper.js
+          node --check public/downloads.js
           node --check public/sw.js
           node --check server/room-core.cjs
           node --check server/account-core.cjs

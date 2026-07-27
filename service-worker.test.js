@@ -114,12 +114,12 @@ async function main() {
   const shell = stores.get(activeName);
   assert.ok(activeName, "Expected a versioned shell cache");
   assert.equal(skipWaitingCalls, 1);
-  ["/index.html", "/duel.html", "/downloads.html", "/profile.html", "/wallpaper.html", "/assets/icon-192.png", "/assets/icon-512.png"].forEach((url) => {
+  ["/index.html", "/duel.html", "/downloads.html", "/downloads.js", "/profile.html", "/wallpaper.html", "/assets/icon-192.png", "/assets/icon-512.png"].forEach((url) => {
     assert.ok(shell.has(requestKey(url)), `Install omitted ${url}`);
   });
   process.stdout.write("PASS install primes the complete versioned app shell\n");
 
-  assert.match(source, /neon-snake-shell-v75/);
+  assert.match(source, /neon-snake-shell-v76/);
   process.stdout.write("PASS product redesign ships behind a fresh shell cache version\n");
 
   stores.set("neon-snake-shell-stale", new Map());
