@@ -796,17 +796,32 @@ function createRealtimeHub({
   async function closeConnection(connection) {
     if (!connections.has(connection.socket)) return;
     connections.delete(connection.socket);
-    try {
-      const result = await presence(connection, "leave");
-      await publishRoster(connection.room, result.players || []);
-      if (connection.slot === 0 || connection.slot === 1) {
-        await publish(connection.room, { kind: "cancel" });
-      }
-    } catch (error) {
+    const reportFailure = (stage, error) => {
       logger.error("Realtime disconnect cleanup failed.", {
+        stage,
         name: typeof error?.name === "string" ? error.name : "Error",
       });
+    };
+    const cancelTask = connection.slot === 0 || connection.slot === 1
+      ? publish(connection.room, { kind: "cancel" }).catch((error) => {
+        reportFailure("cancel", error);
+      })
+      : Promise.resolve();
+    let players = null;
+    try {
+      const result = await presence(connection, "leave");
+      players = result.players || [];
+    } catch (error) {
+      reportFailure("presence", error);
     }
+    if (players) {
+      try {
+        await publishRoster(connection.room, players);
+      } catch (error) {
+        reportFailure("roster", error);
+      }
+    }
+    await cancelTask;
     if (!localConnections(connection.room).length) {
       const state = stateFor(connection.room);
       state.simulation?.stop();

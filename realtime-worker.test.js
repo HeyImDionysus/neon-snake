@@ -103,13 +103,16 @@ function createFakeRedis() {
 
 function createFakeBus() {
   const listeners = new Map();
+  const published = [];
   return {
+    published,
     async subscribe(room, handler) {
       if (!listeners.has(room)) listeners.set(room, new Set());
       listeners.get(room).add(handler);
       return () => listeners.get(room)?.delete(handler);
     },
     async publish(room, payload) {
+      published.push({ room, payload });
       listeners.get(room)?.forEach((handler) => handler(payload));
     },
     close() {},
@@ -254,6 +257,41 @@ async function flush() {
   assert.ok(first.messages.some((message) => (
     message.type === "rejected" && message.code === "server_authoritative"
   )));
+
+  const cleanupRedis = createFakeRedis();
+  const cleanupBus = createFakeBus();
+  const cleanupErrors = [];
+  const cleanupHub = createRealtimeHub({
+    redisCommand: async (command) => {
+      if (command[6] === "leave") {
+        const error = new Error("Redis cleanup timed out.");
+        error.name = "TimeoutError";
+        throw error;
+      }
+      return cleanupRedis(command);
+    },
+    bus: cleanupBus,
+    sessionReader: async () => null,
+    recordMatch: async () => true,
+    uuid: () => `cleanup-${++hubNumber}`,
+    logger: {
+      error(message, details) {
+        cleanupErrors.push({ message, details });
+      },
+    },
+  });
+  const cleanupSocket = new FakeSocket();
+  await cleanupHub.connect(cleanupSocket, request("DEF567", "cleanup-client"));
+  cleanupSocket.emit("close");
+  await flush();
+  assert.ok(cleanupBus.published.some(({ room, payload }) => (
+    room === "DEF567" && payload.kind === "cancel"
+  )), "A timed-out presence cleanup must not suppress the room cancellation");
+  assert.deepEqual(cleanupErrors, [{
+    message: "Realtime disconnect cleanup failed.",
+    details: { stage: "presence", name: "TimeoutError" },
+  }]);
+  cleanupHub.close();
 
   const unitSimulation = new RoomSimulation({
     publish: async () => {},
