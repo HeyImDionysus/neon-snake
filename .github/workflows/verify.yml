@@ -45,7 +45,7 @@ jobs:
           node --check server/room-core.cjs
           node --check server/account-core.cjs
           node --check server/realtime-core.cjs
-          for file in api/*.mjs api/auth/discord/*.mjs; do node --check "$file"; done
+          for file in api/*.mjs api/activity/*.mjs api/auth/discord/*.mjs; do node --check "$file"; done
 
       - name: Verify deterministic behavior
         run: |
