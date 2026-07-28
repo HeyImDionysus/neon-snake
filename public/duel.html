@@ -8,7 +8,6 @@
     <meta name="description" content="Play Neon Snake against the Autopilot or challenge another player in a secure live room." />
     <meta name="robots" content="index,follow" />
     <title>Neon Snake — Multiplayer</title>
-    <script src="activity-boot.js?v=81"></script>
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/assets/icon-180.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
@@ -17,12 +16,13 @@
     <link rel="stylesheet" href="duel.css?v=81" />
   </head>
   <body class="duel-page" data-duel-state="ready" data-duel-type="ai">
-    <div class="activity-boot-status" id="activityBootStatus" role="status" aria-live="polite" hidden>
+    <div class="activity-boot-status" id="activityBootStatus" role="status" aria-live="polite">
       <div>
         <strong>OPENING NEON SNAKE</strong>
-        <span>Preparing multiplayer inside Discord…</span>
+        <span>Preparing multiplayer…</span>
       </div>
     </div>
+    <script src="activity-boot.js?v=81"></script>
     <script src="activity-redirect.js?v=81" data-activity-critical></script>
     <canvas class="signal-field" id="signalField" aria-hidden="true"></canvas>
     <div class="ambient ambient-one" aria-hidden="true"></div>

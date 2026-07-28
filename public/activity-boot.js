@@ -2,19 +2,25 @@
   "use strict";
 
   const embedded = new URLSearchParams(location.search).has("frame_id");
-  if (!embedded) return;
+  let status = document.querySelector("#activityBootStatus");
+  if (!embedded) {
+    if (status) status.hidden = true;
+    return;
+  }
 
   document.documentElement.classList.add("activity-mode");
   let bootComplete = false;
   let bootFailed = false;
   let failureDetail = "";
-  let status = null;
   let timer = null;
   let statusObserver = null;
+  const openingDetail = document.body?.classList.contains("duel-page")
+    ? "Preparing multiplayer inside Discord…"
+    : "Preparing the game inside Discord…";
   let latestStatus = {
     state: "loading",
     title: "OPENING NEON SNAKE",
-    detail: "Preparing the game inside Discord…",
+    detail: openingDetail,
   };
 
   function findStatus() {
@@ -66,6 +72,15 @@
     }
   }
 
+  function belongsToCriticalScript(source) {
+    const evidence = String(source || "");
+    if (!evidence) return false;
+    return [...document.querySelectorAll("script[data-activity-critical]")].some((script) => {
+      const url = new URL(script.src, location.href);
+      return evidence.includes(url.href) || evidence.includes(url.pathname);
+    });
+  }
+
   function handleBootError(event) {
     const tagName = event.target?.tagName?.toLowerCase();
     const requiredStylesheet = (
@@ -83,15 +98,25 @@
       return;
     }
     if (tagName) return;
-    failed(event.error || event.message);
+    const source = event.filename || event.error?.stack;
+    if (belongsToCriticalScript(source)) {
+      failed(event.error || event.message);
+    }
   }
 
   function handleBootRejection(event) {
-    failed(event.reason);
+    if (belongsToCriticalScript(event.reason?.stack)) {
+      failed(event.reason);
+    }
   }
 
   addEventListener("error", handleBootError, true);
   addEventListener("unhandledrejection", handleBootRejection);
+  document.querySelectorAll('link[rel~="stylesheet"]').forEach((stylesheet) => {
+    if (!stylesheet.sheet) {
+      handleBootError({ target: stylesheet });
+    }
+  });
 
   statusObserver = new MutationObserver(() => {
     if (renderStatus()) statusObserver.disconnect();

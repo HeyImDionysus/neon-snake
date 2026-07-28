@@ -1,4 +1,16 @@
 .activity-boot-status {
+  position: relative;
+  z-index: 2;
+  display: block;
+  padding: 10px 16px;
+  background: #050806;
+  color: #dfffee;
+  font: 600 14px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  letter-spacing: 0.08em;
+  text-align: center;
+}
+
+.activity-mode .activity-boot-status {
   position: fixed;
   z-index: 10000;
   inset: 0;
@@ -8,10 +20,6 @@
   background:
     radial-gradient(circle at 50% 40%, rgba(87, 255, 171, 0.12), transparent 36%),
     #050806;
-  color: #dfffee;
-  font: 600 14px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
-  letter-spacing: 0.08em;
-  text-align: center;
 }
 
 .activity-boot-status[hidden] {

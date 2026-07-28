@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { spawnSync } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 const { pathToFileURL } = require("node:url");
 
 const root = __dirname;
@@ -33,6 +33,69 @@ if (!chrome) {
 
 const read = (...segments) => fs.readFileSync(path.join(root, ...segments), "utf8");
 const escapeScript = (source) => source.replace(/<\/script/gi, "<\\/script");
+
+function fixturePort(mode) {
+  return 41000 + [...mode].reduce((total, character) => total + character.charCodeAt(0), 0) % 1000;
+}
+
+function waitForFixture(url) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const probe = spawnSync(process.execPath, [
+      "-e",
+      `fetch(${JSON.stringify(url)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))`,
+    ], { timeout: 1000 });
+    if (probe.status === 0) return;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+  }
+  throw new Error(`Browser fixture did not start: ${url}`);
+}
+
+function runShippedActivityFixture(mode) {
+  const port = fixturePort(mode);
+  const server = spawn(
+    process.execPath,
+    [path.join(root, "browser-fixture-server.cjs"), path.join(root, "public"), String(port), mode],
+    { stdio: ["ignore", "ignore", "pipe"] },
+  );
+  const url = `http://127.0.0.1:${port}/?frame_id=fixture-${port}`;
+  try {
+    waitForFixture(`http://127.0.0.1:${port}/manifest.webmanifest`);
+    const browser = spawnSync(chrome, [
+      "--headless=new",
+      "--no-sandbox",
+      "--disable-background-networking",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--window-size=1280,800",
+      "--virtual-time-budget=1500",
+      "--dump-dom",
+      url,
+    ], {
+      encoding: "utf8",
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: 30_000,
+    });
+    assert.equal(
+      browser.status,
+      0,
+      `Shipped Activity fixture failed for ${mode}: ${browser.stderr?.slice(-2000)}`,
+    );
+    return browser.stdout;
+  } finally {
+    server.kill();
+  }
+}
+
+function shippedBootSnapshot(html) {
+  const attributes = html.match(
+    /<div class="activity-boot-status" id="activityBootStatus"([^>]*)>/,
+  )?.[1] || "";
+  return {
+    hidden: /\bhidden(?:=""|(?=\s|$))/.test(attributes),
+    state: attributes.match(/\bdata-state="([^"]+)"/)?.[1] || "",
+    failed: html.includes("ACTIVITY FAILED TO START"),
+  };
+}
 const downloads = read("public", "downloads.html");
 const index = read("public", "index.html");
 const duel = read("public", "duel.html");
@@ -567,6 +630,30 @@ try {
     title: "ACTIVITY FAILED TO START",
     detail: "A required Activity file could not load (synthetic-missing.css). Close and reopen the Activity to retry.",
   });
+
+  assert.deepEqual(
+    shippedBootSnapshot(runShippedActivityFixture("fail:activity-boot.js")),
+    { hidden: false, state: "", failed: false },
+    "The shipped fallback must remain visible when its external guard cannot load.",
+  );
+  for (const optionalMode of [
+    "fail:signal-field.js",
+    "throw:signal-field.js",
+    "reject:signal-field.js",
+  ]) {
+    assert.deepEqual(
+      shippedBootSnapshot(runShippedActivityFixture(optionalMode)),
+      { hidden: true, state: "loading", failed: false },
+      `${optionalMode} must not cover a playable shipped Activity.`,
+    );
+  }
+  for (const criticalMode of ["fail:game.js", "throw:game.js"]) {
+    assert.deepEqual(
+      shippedBootSnapshot(runShippedActivityFixture(criticalMode)),
+      { hidden: false, state: "error", failed: true },
+      `${criticalMode} must produce an explicit shipped Activity startup failure.`,
+    );
+  }
   process.stdout.write("PASS mobile site and embedded Activity controls, policy links, and download feedback work in real browsers\n");
 } finally {
   fs.rmSync(temporaryDirectory, { recursive: true, force: true });

@@ -97,6 +97,8 @@ function request(url, {
   assert.match(activityBoot, /let bootFailed = false/);
   assert.match(activityBoot, /removeEventListener\("error", handleBootError, true\)/);
   assert.match(activityBoot, /hasAttribute\("data-activity-critical"\)/);
+  assert.match(activityBoot, /belongsToCriticalScript/);
+  assert.match(activityBoot, /link\[rel~="stylesheet"\]/);
   assert.match(activityBoot, /new MutationObserver/);
   assert.doesNotMatch(activityBoot, /DOMContentLoaded/);
   assert.match(activityBootCss, /\.activity-boot-status\[hidden\]/);
@@ -105,12 +107,12 @@ function request(url, {
   assert.match(indexHtml, /src="activity-boot\.js\?v=81"/);
   [indexHtml, duelHtml].forEach((html) => {
     assert.ok(
-      html.indexOf('src="activity-boot.js?v=81"') < html.indexOf('rel="stylesheet"'),
-      "Activity boot guard must install before required stylesheets",
+      html.indexOf('id="activityBootStatus"') < html.indexOf('src="activity-boot.js?v=81"'),
+      "Activity fallback markup must parse before the external boot guard",
     );
     assert.ok(
-      html.indexOf('id="activityBootStatus"') < html.indexOf('src="activity-redirect.js?v=81"'),
-      "Activity fallback markup must parse before the shell script",
+      html.indexOf('src="activity-boot.js?v=81"') < html.indexOf('src="activity-redirect.js?v=81"'),
+      "Activity boot guard must install before the shell script",
     );
     assert.ok(
       html.indexOf('src="activity-redirect.js?v=81"') < html.indexOf('src="activity-sdk.js?v=81"'),
