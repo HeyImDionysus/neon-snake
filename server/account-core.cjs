@@ -340,6 +340,8 @@ async function exchangeDiscordCode(code, {
   redirectUri = "",
 }) {
   const body = new URLSearchParams({
+    client_id: config.clientId,
+    client_secret: config.clientSecret,
     grant_type: "authorization_code",
     code,
   });
@@ -347,7 +349,6 @@ async function exchangeDiscordCode(code, {
   const tokenResponse = await fetchImpl(`${DISCORD_API}/oauth2/token`, {
     method: "POST",
     headers: {
-      Authorization: `Basic ${Buffer.from(`${config.clientId}:${config.clientSecret}`).toString("base64")}`,
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body,

@@ -3,6 +3,7 @@
 
   const query = new URLSearchParams(location.search);
   const embedded = query.has("frame_id");
+  const publicSiteOrigin = "https://neon-snake-green-tau.vercel.app";
   if (!embedded) return;
 
   let latestStage = {
@@ -74,21 +75,83 @@
     renderStage();
   }
 
+  function setExternalError(event) {
+    latestStage = {
+      ...latestStage,
+      title: "ACTIVITY STAYED OPEN",
+      detail: `${event.detail?.message || "Discord could not open that page."} Try the link again after Discord finishes connecting.`,
+    };
+    renderStage();
+  }
+
   globalThis.addEventListener("neon-activity-stage", setStage);
   globalThis.addEventListener("neon-activity-ready", setReady);
   globalThis.addEventListener("neon-activity-error", setError);
+  globalThis.addEventListener("neon-activity-external-error", setExternalError);
+
+  function markPublicSiteLink(link) {
+    const rawHref = link.getAttribute("href");
+    if (!rawHref) return;
+    link.classList.add("activity-external-link");
+    link.href = new URL(rawHref, publicSiteOrigin).href;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+  }
+
+  function classifyActivityLink(link) {
+    const rawHref = link.getAttribute("href") || "";
+    const target = new URL(rawHref, location.href);
+    const normalizedPath = target.pathname.replace(/\/index\.html$/, "/");
+
+    if (
+      link.dataset.activityRoute === "multiplayer"
+      || /(?:^|\/)duel(?:\.html)?$/.test(normalizedPath)
+    ) {
+      link.href = preserveActivityQuery("/duel", { type: "live" });
+      return;
+    }
+
+    if (
+      link.dataset.activityRoute === "solo"
+      || link.classList.contains("brand")
+      || rawHref === "./"
+      || rawHref === "/"
+      || rawHref === "/index.html"
+    ) {
+      link.href = preserveActivityQuery("/", { type: null, room: null });
+      return;
+    }
+
+    const publicSiteOnly = (
+      normalizedPath.endsWith("/downloads.html")
+      || normalizedPath.endsWith("/profile.html")
+      || normalizedPath.endsWith("/terms.html")
+      || normalizedPath.endsWith("/privacy.html")
+      || normalizedPath.startsWith("/api/auth/discord/")
+      || target.hash === "#leaderboard"
+    );
+    if (publicSiteOnly || link.classList.contains("activity-external-link")) {
+      markPublicSiteLink(link);
+    }
+  }
+
+  function classifyActivityLinks() {
+    document.querySelectorAll("a[href]").forEach(classifyActivityLink);
+  }
+
+  function reportExternalFailure(link, error) {
+    const message = error instanceof Error
+      ? error.message
+      : `Discord could not open ${link.textContent.trim() || "that page"}.`;
+    globalThis.dispatchEvent(new CustomEvent("neon-activity-external-error", {
+      detail: { message, url: link.href },
+    }));
+  }
 
   function bindShell() {
     document.body.classList.add("activity-mode");
 
-    document.querySelectorAll('a[href^="duel"], a[data-activity-route="multiplayer"]')
-      .forEach((link) => {
-        link.href = preserveActivityQuery("/duel", { type: "live" });
-      });
-    document.querySelectorAll('a[href="./"], a[href="/"], a[data-activity-route="solo"]')
-      .forEach((link) => {
-        link.href = preserveActivityQuery("/", { type: null, room: null });
-      });
+    classifyActivityLinks();
 
     const invite = document.querySelector("#activityDockInvite");
     const retry = document.querySelector("#activityDockRetry");
@@ -104,16 +167,18 @@
       retry.hidden = true;
       globalThis.NeonSnakeActivity?.retry();
     });
-    document.querySelectorAll(".activity-external-link").forEach((link) => {
-      link.addEventListener("click", async (event) => {
-        event.preventDefault();
-        try {
-          if (await globalThis.NeonSnakeActivity?.openExternal(link.href)) return;
-        } catch {
-          // Keep required policies reachable when the Discord client cannot open them.
-        }
-        location.assign(link.href);
-      });
+    document.addEventListener("click", async (event) => {
+      const link = event.target.closest?.("a[href]");
+      if (!link) return;
+      classifyActivityLink(link);
+      if (!link.classList.contains("activity-external-link")) return;
+      event.preventDefault();
+      try {
+        if (await globalThis.NeonSnakeActivity?.openExternal(link.href)) return;
+        reportExternalFailure(link);
+      } catch (error) {
+        reportExternalFailure(link, error);
+      }
     });
     renderStage();
     globalThis.NeonSnakeActivityBoot?.ready();

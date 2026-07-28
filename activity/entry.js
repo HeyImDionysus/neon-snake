@@ -14,6 +14,7 @@ const embedded = query.has("frame_id");
 let sdk = null;
 let readyPromise = null;
 let connected = false;
+let sdkReady = false;
 
 function instanceSignal(value) {
   let hash = 2166136261;
@@ -51,6 +52,7 @@ function withTimeout(promise, timeout, message) {
 async function initialize() {
   if (!embedded) return null;
   connected = false;
+  sdkReady = false;
   document.documentElement.classList.add("activity-mode");
   document.body?.classList.add("activity-mode");
   stage(
@@ -64,6 +66,7 @@ async function initialize() {
     READY_TIMEOUT,
     "Discord did not finish the Activity handshake.",
   );
+  sdkReady = true;
   stage(
     "authorizing",
     "SOLO READY · IDENTIFYING PLAYER",
@@ -151,7 +154,7 @@ async function invite() {
 }
 
 async function openExternal(url) {
-  if (!sdk || !connected) return false;
+  if (!sdk || !sdkReady) return false;
   const result = await withTimeout(
     sdk.commands.openExternalLink({ url }),
     EXTERNAL_LINK_TIMEOUT,
@@ -181,6 +184,7 @@ function begin({ force = false } = {}) {
 
 function retry() {
   connected = false;
+  sdkReady = false;
   sdk = null;
   return begin({ force: true });
 }

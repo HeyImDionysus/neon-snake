@@ -94,7 +94,7 @@ const tests = [
     });
   }],
   ["Discord Activity entry assets use one explicit cache-busting release", () => {
-    const expectedVersion = "81";
+    const expectedVersion = "82";
     const shell = serviceWorker.match(/const APP_SHELL = \[([^]*?)\];/);
     assert.ok(shell, "Expected an APP_SHELL declaration");
     const cachedUrls = new Set(

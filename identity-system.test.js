@@ -17,7 +17,7 @@ const tests = [
     [indexHtml, duelHtml].forEach((html) => {
       assert.match(html, /id="signalField"/);
       assert.match(html, /aria-hidden="true"/);
-      assert.match(html, /src="signal-field\.js(?:\?v=81)?"/);
+      assert.match(html, /src="signal-field\.js(?:\?v=82)?"/);
       assert.match(html, /assets\/signal-mark\.svg/);
     });
     assert.match(serviceWorker, /"\/signal-field\.js"/);

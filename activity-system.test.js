@@ -76,7 +76,8 @@ function request(url, {
   assert.match(entry, /commands\.authenticate/);
   assert.match(entry, /commands\.openInviteDialog/);
   assert.match(entry, /commands\.openExternalLink\(\{ url \}\)/);
-  assert.match(entry, /if \(!sdk \|\| !connected\) return false/);
+  assert.match(entry, /if \(!sdk \|\| !sdkReady\) return false/);
+  assert.match(entry, /sdkReady = true/);
   assert.match(entry, /EXTERNAL_LINK_TIMEOUT,\s*"Discord did not open the external link in time\."/);
   assert.match(entry, /setOrientationLockState/);
   [entry, redirect, game, account, signalField, duel].forEach((source) => {
@@ -85,7 +86,11 @@ function request(url, {
   });
   assert.doesNotMatch(redirect, /location\.replace\(destination\)/);
   assert.doesNotMatch(redirect, /location\.reload\(\)/);
+  assert.doesNotMatch(redirect, /location\.assign\(/);
   assert.match(redirect, /preserveActivityQuery/);
+  assert.match(redirect, /classifyActivityLinks/);
+  assert.match(redirect, /neon-activity-external-error/);
+  assert.match(redirect, /https:\/\/neon-snake-green-tau\.vercel\.app/);
   assert.match(redirect, /neon-activity-ready/);
   assert.match(redirect, /neon-activity-error/);
   assert.match(redirect, /getRegistrations/);
@@ -106,29 +111,29 @@ function request(url, {
   assert.doesNotMatch(activityBoot, /DOMContentLoaded/);
   assert.match(activityBootCss, /\.activity-boot-status\[hidden\]/);
   assert.match(indexHtml, /id="activityBootStatus"/);
-  assert.match(indexHtml, /href="activity-boot\.css\?v=81"/);
-  assert.match(indexHtml, /src="activity-boot\.js\?v=81"/);
+  assert.match(indexHtml, /href="activity-boot\.css\?v=82"/);
+  assert.match(indexHtml, /src="activity-boot\.js\?v=82"/);
   [indexHtml, duelHtml].forEach((html) => {
     assert.ok(
-      html.indexOf('id="activityBootStatus"') < html.indexOf('src="activity-boot.js?v=81"'),
+      html.indexOf('id="activityBootStatus"') < html.indexOf('src="activity-boot.js?v=82"'),
       "Activity fallback markup must parse before the external boot guard",
     );
     assert.ok(
-      html.indexOf('src="activity-boot.js?v=81"') < html.indexOf('src="activity-redirect.js?v=81"'),
+      html.indexOf('src="activity-boot.js?v=82"') < html.indexOf('src="activity-redirect.js?v=82"'),
       "Activity boot guard must install before the shell script",
     );
     assert.ok(
-      html.indexOf('src="activity-redirect.js?v=81"') < html.indexOf('src="activity-sdk.js?v=81"'),
+      html.indexOf('src="activity-redirect.js?v=82"') < html.indexOf('src="activity-sdk.js?v=82"'),
       "Activity shell listeners must install before SDK startup",
     );
     assert.match(
       html,
-      /src="activity-redirect\.js\?v=81" data-activity-critical/,
+      /src="activity-redirect\.js\?v=82" data-activity-critical/,
       "Activity shell load failures must remain boot-fatal",
     );
     assert.doesNotMatch(
       html,
-      /src="signal-field\.js\?v=81" data-activity-critical/,
+      /src="signal-field\.js\?v=82" data-activity-critical/,
       "Decorative signal-field failures must not cover a playable Activity",
     );
   });
@@ -136,17 +141,17 @@ function request(url, {
     /<script src="([^"]+)" data-activity-critical><\/script>/g,
   )].map((match) => match[1]);
   assert.deepEqual(criticalScripts(indexHtml), [
-    "activity-redirect.js?v=81",
-    "game-logic.js?v=81",
-    "touch-controls.js?v=81",
-    "game.js?v=81",
+    "activity-redirect.js?v=82",
+    "game-logic.js?v=82",
+    "touch-controls.js?v=82",
+    "game.js?v=82",
   ]);
   assert.deepEqual(criticalScripts(duelHtml), [
-    "activity-redirect.js?v=81",
-    "game-logic.js?v=81",
-    "room-transport.js?v=81",
-    "touch-controls.js?v=81",
-    "duel.js?v=81",
+    "activity-redirect.js?v=82",
+    "game-logic.js?v=82",
+    "room-transport.js?v=82",
+    "touch-controls.js?v=82",
+    "duel.js?v=82",
   ]);
   assert.match(indexHtml, /id="activityDock"/);
   assert.match(indexHtml, /id="activityDockInvite"/);
@@ -154,7 +159,7 @@ function request(url, {
   assert.match(indexHtml, /id="activityWebsiteLink"/);
   assert.match(indexHtml, /id="activityWallpapersLink"/);
   assert.match(indexHtml, /https:\/\/neon-snake-green-tau\.vercel\.app\/downloads\.html/);
-  assert.match(indexHtml, /src="activity-sdk\.js\?v=81"/);
+  assert.match(indexHtml, /src="activity-sdk\.js\?v=82"/);
   ["classic", "portal", "rush", "canvas"].forEach((mode) => {
     assert.match(indexHtml, new RegExp(`name="mode" value="${mode}"`));
   });
@@ -170,18 +175,19 @@ function request(url, {
   assert.match(duelHtml, /id="activityContext"/);
   assert.match(duelHtml, /id="activitySoloLink"/);
   assert.match(duelHtml, /id="activityContextRetry"/);
-  assert.match(duelHtml, /src="activity-redirect\.js\?v=81"/);
+  assert.match(duelHtml, /src="activity-redirect\.js\?v=82"/);
   assert.match(duelHtml, /class="activity-legal" aria-label="Activity policies"/);
   assert.match(duelHtml, /href="\/terms\.html" target="_blank"/);
   assert.match(duelHtml, /href="\/privacy\.html" target="_blank"/);
-  assert.match(duelHtml, /src="activity-sdk\.js\?v=81"/);
+  assert.match(duelHtml, /src="activity-sdk\.js\?v=82"/);
   assert.match(duel, /NeonSnakeActivity\.ready/);
   assert.match(duel, /NeonSnakeActivity\?\.retry\(\)/);
   assert.match(duel, /catch \(error\) \{\s*renderActivityFailure\(error\)/);
+  assert.match(duel, /invited \|\| liveRoomRequested\(\) \? "live" : "ai"/);
   assert.match(duel, /url\.search = activityEmbedded \? activityQuery\.toString\(\) : ""/);
   assert.match(duel, /await globalThis\.NeonSnakeActivity\.invite\(\)/);
-  assert.match(duel, /NeonSnakeActivity\.openExternal\(url\)/);
-  assert.match(duel, /location\.assign\(url\)/);
+  assert.doesNotMatch(duel, /location\.assign\(/);
+  assert.match(duel, /neon-activity-external-error/);
   assert.match(duelCss, /--discord-safe-area-inset-top/);
   assert.match(duelCss, /body\.activity-mode \.activity-legal\s*\{[^}]*display:\s*flex/);
 
@@ -284,7 +290,9 @@ function request(url, {
   const tokenRequest = discordRequests.find(({ url }) => url.endsWith("/oauth2/token"));
   assert.ok(tokenRequest);
   assert.equal(tokenRequest.options.body.get("redirect_uri"), null);
-  assert.match(tokenRequest.options.headers.Authorization, /^Basic /);
+  assert.equal(tokenRequest.options.body.get("client_id"), environment.DISCORD_CLIENT_ID);
+  assert.equal(tokenRequest.options.body.get("client_secret"), environment.DISCORD_CLIENT_SECRET);
+  assert.equal(tokenRequest.options.headers.Authorization, undefined);
   assert.ok(commands.some((command) => command[1] === "neon-snake:profile:123456789012345678"));
 
   const sessionKey = [...values.keys()].find((key) => key.startsWith("neon-snake:session:"));

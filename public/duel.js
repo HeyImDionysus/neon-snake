@@ -44,7 +44,6 @@ const activityContext = $("#activityContext");
 const activityContextTitle = $("#activityContextTitle");
 const activityContextDetail = $("#activityContextDetail");
 const activityContextRetry = $("#activityContextRetry");
-const activityLegalLinks = [...document.querySelectorAll(".activity-legal a")];
 
 const DUEL_GRID = Rules.duelGridSize(20);
 const SIGNAL_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
@@ -185,6 +184,10 @@ function hydrateRoomCode() {
   roomCode = requested || createSignalCode();
   roomCodeInput.value = roomCode;
   return Boolean(requested && params.get("type") === "live");
+}
+
+function liveRoomRequested() {
+  return new URLSearchParams(window.location.search).get("type") === "live";
 }
 
 function resetDuel() {
@@ -800,6 +803,11 @@ function switchDuelType(type) {
   if (runState === "countdown") clearTimeout(countdownTimer);
   if (duelType === "live" && type === "ai") disconnectLiveRoom();
   duelType = type;
+  const nextUrl = new URL(window.location.href);
+  if (activityEmbedded || nextUrl.searchParams.has("type")) {
+    nextUrl.searchParams.set("type", type);
+    history.replaceState(null, "", nextUrl);
+  }
   document.body.dataset.duelType = type;
   aiTab.setAttribute("aria-selected", String(type === "ai"));
   liveTab.setAttribute("aria-selected", String(type === "live"));
@@ -1556,17 +1564,6 @@ else window.addEventListener("resize", scheduleResizeCanvas);
 resizeCanvas();
 startRendering();
 
-async function openActivityPolicy(event) {
-  event.preventDefault();
-  const url = event.currentTarget.href;
-  try {
-    if (await globalThis.NeonSnakeActivity.openExternal(url)) return;
-  } catch {
-    // If the client cannot open an external browser, keep the policy reachable in-frame.
-  }
-  location.assign(url);
-}
-
 function renderActivityFailure(error) {
   activityContext.classList.add("is-error");
   activityContextTitle.textContent = "DISCORD LINK OFFLINE · LOCAL DUEL READY";
@@ -1576,7 +1573,7 @@ function renderActivityFailure(error) {
   roomState.textContent = "ACTIVITY AUTHENTICATION FAILED";
   connectRoomButton.disabled = true;
   const invited = hydrateRoomCode();
-  switchDuelType(invited ? "live" : "ai");
+  switchDuelType(invited || liveRoomRequested() ? "live" : "ai");
 }
 
 async function initializeDuelSurface() {
@@ -1602,7 +1599,7 @@ async function initializeDuelSurface() {
     }
   }
   const invitedToLiveRoom = hydrateRoomCode();
-  switchDuelType(invitedToLiveRoom ? "live" : "ai");
+  switchDuelType(invitedToLiveRoom || liveRoomRequested() ? "live" : "ai");
   if (invitedToLiveRoom) await connectLiveRoom();
 }
 
@@ -1618,8 +1615,12 @@ activityContextRetry.addEventListener("click", async () => {
   }
 });
 
-if (globalThis.NeonSnakeActivity?.embedded) {
-  activityLegalLinks.forEach((link) => link.addEventListener("click", openActivityPolicy));
-}
+globalThis.addEventListener("neon-activity-external-error", (event) => {
+  if (!activityEmbedded) return;
+  activityContext.hidden = false;
+  activityContext.classList.add("is-error");
+  activityContextTitle.textContent = "ACTIVITY STAYED OPEN";
+  activityContextDetail.textContent = `${event.detail?.message || "Discord could not open that page."} Try again after Discord finishes connecting.`;
+});
 
 void initializeDuelSurface();
