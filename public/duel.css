@@ -91,6 +91,34 @@ body.activity-mode .duel-header .site-menu-toggle { display: none; }
 body.activity-mode .duel-header .brand { pointer-events: none; }
 body.activity-mode .duel-shell { padding-top: 24px; }
 
+.activity-legal {
+  display: none;
+}
+
+body.activity-mode .activity-legal {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  color: var(--dim);
+  font: 700 8px var(--mono);
+  letter-spacing: .12em;
+}
+
+body.activity-mode .activity-legal a {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 4px;
+  color: var(--paper);
+  text-decoration: none;
+}
+
+body.activity-mode .activity-legal a:hover,
+body.activity-mode .activity-legal a:focus-visible {
+  color: var(--acid);
+}
+
 .duel-stage {
   min-width: 0;
 }
@@ -699,6 +727,17 @@ body[data-duel-type="live"] .duel-console {
 @media (max-width: 680px) {
   .duel-header .system-status {
     display: none;
+  }
+
+  body.activity-mode .duel-header {
+    flex-wrap: wrap;
+  }
+
+  body.activity-mode .activity-legal {
+    order: 3;
+    width: 100%;
+    justify-content: center;
+    border-top: 1px solid #ffffff0d;
   }
 
   .duel-shell {

@@ -87,6 +87,12 @@ async function invite() {
   return true;
 }
 
+async function openExternal(url) {
+  if (!sdk) return false;
+  const result = await sdk.commands.openExternalLink({ url });
+  return result?.opened === true;
+}
+
 const ready = initialize().catch((error) => {
   dispatch("neon-activity-error", {
     message: error instanceof Error ? error.message : "Activity startup failed.",
@@ -99,5 +105,6 @@ globalThis.NeonSnakeActivity = {
   embedded,
   instanceSignal,
   invite,
+  openExternal,
   ready,
 };

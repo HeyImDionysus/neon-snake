@@ -39,6 +39,7 @@ const roomSlotTwo = $("#roomSlotTwo");
 const activityContext = $("#activityContext");
 const activityContextTitle = $("#activityContextTitle");
 const activityContextDetail = $("#activityContextDetail");
+const activityLegalLinks = [...document.querySelectorAll(".activity-legal a")];
 
 const DUEL_GRID = Rules.duelGridSize(20);
 const SIGNAL_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
@@ -1524,10 +1525,22 @@ else window.addEventListener("resize", resizeCanvas);
 resizeCanvas();
 startRendering();
 
+async function openActivityPolicy(event) {
+  event.preventDefault();
+  const url = event.currentTarget.href;
+  try {
+    if (await globalThis.NeonSnakeActivity.openExternal(url)) return;
+  } catch {
+    // If the client cannot open an external browser, keep the policy reachable in-frame.
+  }
+  location.assign(url);
+}
+
 async function initializeDuelSurface() {
   if (globalThis.NeonSnakeActivity?.embedded) {
     activityContext.hidden = false;
     document.body.classList.add("activity-mode");
+    activityLegalLinks.forEach((link) => link.addEventListener("click", openActivityPolicy));
     try {
       const activity = await globalThis.NeonSnakeActivity.ready;
       activityContextTitle.textContent = "CHANNEL INSTANCE CONNECTED";

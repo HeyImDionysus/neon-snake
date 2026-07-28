@@ -63,14 +63,21 @@ function request(url, {
   assert.match(entry, /scope: \["identify"\]/);
   assert.match(entry, /commands\.authenticate/);
   assert.match(entry, /commands\.openInviteDialog/);
+  assert.match(entry, /commands\.openExternalLink\(\{ url \}\)/);
   assert.match(entry, /setOrientationLockState/);
   assert.match(entry, /query\.has\("frame_id"\) && query\.has\("instance_id"\)/);
   assert.match(redirect, /location\.replace\(destination\)/);
   assert.match(duelHtml, /id="activityContext"/);
+  assert.match(duelHtml, /class="activity-legal" aria-label="Activity policies"/);
+  assert.match(duelHtml, /href="\/terms\.html" target="_blank"/);
+  assert.match(duelHtml, /href="\/privacy\.html" target="_blank"/);
   assert.match(duelHtml, /src="activity-sdk\.js"/);
   assert.match(duel, /NeonSnakeActivity\.ready/);
   assert.match(duel, /await globalThis\.NeonSnakeActivity\.invite\(\)/);
+  assert.match(duel, /NeonSnakeActivity\.openExternal\(url\)/);
+  assert.match(duel, /location\.assign\(url\)/);
   assert.match(duelCss, /--discord-safe-area-inset-top/);
+  assert.match(duelCss, /body\.activity-mode \.activity-legal\s*\{[^}]*display:\s*flex/);
 
   const globalHeaders = Object.fromEntries(
     vercel.headers

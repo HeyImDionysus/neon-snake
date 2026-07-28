@@ -93,6 +93,13 @@ const tests = [
     assert.match(soloStyles, /input:focus-visible, canvas:focus-visible/);
     assert.match(soloStyles, /\.board-wrap canvas:focus-visible/);
     assert.match(duelStyles, /\.room-code-row input:focus-visible/);
+    assert.match(duelStyles, /\.activity-legal a:focus-visible/);
+  }],
+  ["Discord Activity users can reach both policy documents", () => {
+    assert.match(duelHtml, /<nav class="activity-legal" aria-label="Activity policies">/);
+    assert.match(duelHtml, /<a href="\/terms\.html" target="_blank" rel="noopener noreferrer">TERMS<\/a>/);
+    assert.match(duelHtml, /<a href="\/privacy\.html" target="_blank" rel="noopener noreferrer">PRIVACY<\/a>/);
+    assert.match(duelStyles, /body\.activity-mode \.activity-legal\s*\{[^}]*display:\s*flex/);
   }],
   ["mobile actions preserve the 44-pixel minimum target", () => {
     assert.match(soloStyles, /\.start-actions \.demo-button \{ min-height: 44px; \}/);

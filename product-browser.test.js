@@ -34,7 +34,9 @@ if (!chrome) {
 const read = (...segments) => fs.readFileSync(path.join(root, ...segments), "utf8");
 const escapeScript = (source) => source.replace(/<\/script/gi, "<\\/script");
 const downloads = read("public", "downloads.html");
+const duel = read("public", "duel.html");
 const styles = read("public", "styles.css");
+const duelStyles = read("public", "duel.css");
 const scripts = [
   read("public", "site-shell.js"),
   read("public", "game-logic.js"),
@@ -106,6 +108,26 @@ const browserTest = String.raw`
 });
 `;
 
+const activityBrowserTest = String.raw`
+(() => {
+  document.body.classList.add("activity-mode");
+  const legal = document.querySelector(".activity-legal");
+  const terms = legal.querySelector('a[href="/terms.html"]');
+  const privacy = legal.querySelector('a[href="/privacy.html"]');
+  const resultNode = document.querySelector("#activityResult");
+  resultNode.dataset.json = encodeURIComponent(JSON.stringify({
+    legalVisible: getComputedStyle(legal).display !== "none",
+    termsVisible: getComputedStyle(terms).display !== "none",
+    privacyVisible: getComputedStyle(privacy).display !== "none",
+    termsTarget: terms.target,
+    privacyTarget: privacy.target,
+    termsHeight: Math.round(terms.getBoundingClientRect().height),
+    privacyHeight: Math.round(privacy.getBoundingClientRect().height),
+  }));
+  resultNode.textContent = "complete";
+})();
+`;
+
 const documentSource = downloads
   .replace(/<link\b[^>]*>/g, "")
   .replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, "")
@@ -118,9 +140,22 @@ const documentSource = downloads
       + "</body>",
   );
 
+const activityDocumentSource = duel
+  .replace(/<link\b[^>]*>/g, "")
+  .replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, "")
+  .replace("</head>", `<style>${styles}\n${duelStyles}</style></head>`)
+  .replace(
+    "</body>",
+    `<pre id="activityResult" data-json=""></pre>`
+      + `<script>${escapeScript(activityBrowserTest)}</script>`
+      + "</body>",
+  );
+
 const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "neon-product-"));
 const htmlPath = path.join(temporaryDirectory, "product-browser.html");
+const activityHtmlPath = path.join(temporaryDirectory, "activity-browser.html");
 fs.writeFileSync(htmlPath, documentSource);
+fs.writeFileSync(activityHtmlPath, activityDocumentSource);
 
 try {
   const browser = spawnSync(chrome, [
@@ -174,7 +209,40 @@ try {
     termsVisible: true,
     privacyVisible: true,
   });
-  process.stdout.write("PASS mobile navigation, wallpaper controls, legal links, and download feedback work in a real browser\n");
+
+  const activityBrowser = spawnSync(chrome, [
+    "--headless=new",
+    "--no-sandbox",
+    "--disable-background-networking",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--window-size=390,844",
+    "--virtual-time-budget=1000",
+    "--dump-dom",
+    pathToFileURL(activityHtmlPath).href,
+  ], {
+    encoding: "utf8",
+    maxBuffer: 10 * 1024 * 1024,
+    timeout: 30_000,
+  });
+  assert.equal(
+    activityBrowser.status,
+    0,
+    `Activity Chromium failed (${activityBrowser.status}): ${activityBrowser.stderr.slice(-2000)}`,
+  );
+  const activityEncoded = activityBrowser.stdout.match(/id="activityResult" data-json="([^"]+)"/)?.[1];
+  assert.ok(activityEncoded, `Missing Activity browser result: ${activityBrowser.stdout.slice(-3000)}`);
+  const activityResult = JSON.parse(decodeURIComponent(activityEncoded.replaceAll("&amp;", "&")));
+  assert.deepEqual(activityResult, {
+    legalVisible: true,
+    termsVisible: true,
+    privacyVisible: true,
+    termsTarget: "_blank",
+    privacyTarget: "_blank",
+    termsHeight: 44,
+    privacyHeight: 44,
+  });
+  process.stdout.write("PASS mobile site and embedded Activity controls, policy links, and download feedback work in real browsers\n");
 } finally {
   fs.rmSync(temporaryDirectory, { recursive: true, force: true });
 }
