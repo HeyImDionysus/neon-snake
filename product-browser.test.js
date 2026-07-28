@@ -642,6 +642,11 @@ try {
     "A failed solo stylesheet must remain an explicit shipped Activity startup failure.",
   );
   assert.deepEqual(
+    shippedBootSnapshot(runShippedActivityFixture("wrongtype:styles.css")),
+    { hidden: false, state: "error", failed: true },
+    "A non-CSS success response must remain an explicit shipped Activity startup failure.",
+  );
+  assert.deepEqual(
     shippedBootSnapshot(runShippedActivityFixture("fail:duel.css", "/duel.html")),
     { hidden: false, state: "error", failed: true },
     "A failed duel stylesheet must remain an explicit shipped Activity startup failure.",

@@ -123,7 +123,11 @@
         cache: "force-cache",
         credentials: "same-origin",
       });
-      if (!response.ok) {
+      const contentType = response.headers.get("content-type")
+        ?.split(";", 1)[0]
+        .trim()
+        .toLowerCase();
+      if (!response.ok || contentType !== "text/css") {
         const resource = new URL(stylesheet.href).pathname.split("/").pop();
         throw new Error(`A required Activity file could not load (${resource}).`);
       }

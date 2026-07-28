@@ -100,6 +100,7 @@ function request(url, {
   assert.match(activityBoot, /belongsToCriticalScript/);
   assert.match(activityBoot, /verifyRequiredStylesheets/);
   assert.match(activityBoot, /cache: "force-cache"/);
+  assert.match(activityBoot, /contentType !== "text\/css"/);
   assert.match(activityBoot, /if \(!resourceChecksComplete\)/);
   assert.match(activityBoot, /new MutationObserver/);
   assert.doesNotMatch(activityBoot, /DOMContentLoaded/);

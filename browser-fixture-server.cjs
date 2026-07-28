@@ -45,6 +45,14 @@ const server = http.createServer((request, response) => {
     response.end(statement);
     return;
   }
+  if (relativePath === fixtureResource && fixtureAction === "wrongtype") {
+    response.writeHead(200, {
+      "Content-Type": "text/javascript; charset=utf-8",
+      "Cache-Control": "no-store",
+    });
+    response.end("/* Synthetic wrong MIME response. */");
+    return;
+  }
   if (!filePath.startsWith(`${root}${path.sep}`) || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
     response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
     response.end("Not found.");
