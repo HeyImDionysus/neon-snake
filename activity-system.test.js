@@ -65,6 +65,7 @@ function request(url, {
   assert.match(entry, /withTimeout/);
   assert.match(entry, /neon-activity-stage/);
   assert.match(entry, /retry/);
+  assert.match(entry, /TOKEN_TIMEOUT = 16_000/);
   assert.match(activityTokenApi, /from "\.\.\/\.\.\/server\/account-core\.cjs"/);
   assert.match(activityTokenApi, /request\.url = "\/api\/activity\/token"/);
   assert.equal(fs.existsSync(path.join(root, "api", "activity-token.mjs")), false);
@@ -78,6 +79,8 @@ function request(url, {
   assert.match(redirect, /preserveActivityQuery/);
   assert.match(redirect, /neon-activity-ready/);
   assert.match(redirect, /neon-activity-error/);
+  assert.match(redirect, /getRegistrations/);
+  assert.match(redirect, /registration\.unregister\(\)/);
   assert.match(indexHtml, /id="activityDock"/);
   assert.match(indexHtml, /id="activityDockInvite"/);
   assert.match(indexHtml, /id="activityDockRetry"/);
@@ -92,16 +95,21 @@ function request(url, {
   assert.match(styles, /body\.activity-mode \.public-board/);
   assert.match(game, /ACTIVITY_PIXEL_RATIO_CAP/);
   assert.match(game, /activityEmbedded/);
+  assert.match(game, /url\.search = activityEmbedded \? activityQuery\.toString\(\) : ""/);
   assert.match(game, /if \(activityEmbedded\) return;/);
   assert.match(account, /embeddedActivity/);
   assert.match(signalField, /activityMode/);
   assert.match(duelHtml, /id="activityContext"/);
+  assert.match(duelHtml, /id="activitySoloLink"/);
+  assert.match(duelHtml, /id="activityContextRetry"/);
   assert.match(duelHtml, /src="activity-redirect\.js"/);
   assert.match(duelHtml, /class="activity-legal" aria-label="Activity policies"/);
   assert.match(duelHtml, /href="\/terms\.html" target="_blank"/);
   assert.match(duelHtml, /href="\/privacy\.html" target="_blank"/);
   assert.match(duelHtml, /src="activity-sdk\.js"/);
   assert.match(duel, /NeonSnakeActivity\.ready/);
+  assert.match(duel, /NeonSnakeActivity\?\.retry\(\)/);
+  assert.match(duel, /url\.search = activityEmbedded \? activityQuery\.toString\(\) : ""/);
   assert.match(duel, /await globalThis\.NeonSnakeActivity\.invite\(\)/);
   assert.match(duel, /NeonSnakeActivity\.openExternal\(url\)/);
   assert.match(duel, /location\.assign\(url\)/);

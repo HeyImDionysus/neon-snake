@@ -43,6 +43,7 @@ const roomSlotTwo = $("#roomSlotTwo");
 const activityContext = $("#activityContext");
 const activityContextTitle = $("#activityContextTitle");
 const activityContextDetail = $("#activityContextDetail");
+const activityContextRetry = $("#activityContextRetry");
 const activityLegalLinks = [...document.querySelectorAll(".activity-legal a")];
 
 const DUEL_GRID = Rules.duelGridSize(20);
@@ -1136,7 +1137,9 @@ async function connectLiveRoom() {
   connectRoomButton.disabled = false;
   roomSweep = setInterval(syncLiveRoom, 700);
   const url = new URL(window.location.href);
-  url.search = "";
+  url.search = activityEmbedded ? activityQuery.toString() : "";
+  url.searchParams.delete("room");
+  url.searchParams.delete("type");
   url.searchParams.set("room", roomCode);
   url.searchParams.set("type", "live");
   history.replaceState(null, "", url);
@@ -1571,8 +1574,12 @@ async function initializeDuelSurface() {
     activityLegalLinks.forEach((link) => link.addEventListener("click", openActivityPolicy));
     try {
       const activity = await globalThis.NeonSnakeActivity.ready;
+      activityContext.classList.remove("is-error");
       activityContextTitle.textContent = "CHANNEL INSTANCE CONNECTED";
       activityContextDetail.textContent = `Shared room ${activity.roomCode} · authenticated as @${activity.user.username}`;
+      activityContextRetry.hidden = true;
+      activityContextRetry.disabled = false;
+      connectRoomButton.disabled = false;
       copyRoomButton.textContent = "INVITE";
       roomCodeInput.readOnly = true;
       document.querySelector(".duel-intro .section-kicker").textContent = "DISCORD ACTIVITY";
@@ -1582,6 +1589,8 @@ async function initializeDuelSurface() {
       activityContext.classList.add("is-error");
       activityContextTitle.textContent = "DISCORD LINK OFFLINE · LOCAL DUEL READY";
       activityContextDetail.textContent = `${error?.message || "Discord authentication failed."} Return to Solo or retry the Activity connection.`;
+      activityContextRetry.hidden = false;
+      activityContextRetry.disabled = false;
       roomState.textContent = "ACTIVITY AUTHENTICATION FAILED";
       connectRoomButton.disabled = true;
       const invited = hydrateRoomCode();
@@ -1593,5 +1602,17 @@ async function initializeDuelSurface() {
   switchDuelType(invitedToLiveRoom ? "live" : "ai");
   if (invitedToLiveRoom) await connectLiveRoom();
 }
+
+activityContextRetry.addEventListener("click", async () => {
+  activityContextRetry.disabled = true;
+  activityContextTitle.textContent = "RECONNECTING TO DISCORD…";
+  activityContextDetail.textContent = "Local Autopilot remains available while the shared instance reconnects.";
+  try {
+    await globalThis.NeonSnakeActivity?.retry();
+    await initializeDuelSurface();
+  } catch {
+    // initializeDuelSurface renders the actionable failure and keeps local play available.
+  }
+});
 
 void initializeDuelSurface();

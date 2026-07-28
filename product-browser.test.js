@@ -39,6 +39,23 @@ const duel = read("public", "duel.html");
 const styles = read("public", "styles.css");
 const duelStyles = read("public", "duel.css");
 const activityRedirect = read("public", "activity-redirect.js");
+const activityServiceWorkerStub = String.raw`
+window.activityUnregisters = 0;
+Object.defineProperty(navigator, "serviceWorker", {
+  configurable: true,
+  value: {
+    controller: null,
+    async getRegistrations() {
+      return [{
+        async unregister() {
+          window.activityUnregisters += 1;
+          return true;
+        },
+      }];
+    },
+  },
+});
+`;
 const scripts = [
   read("public", "site-shell.js"),
   read("public", "game-logic.js"),
@@ -111,12 +128,17 @@ const browserTest = String.raw`
 `;
 
 const activityBrowserTest = String.raw`
-(() => {
-  document.body.classList.add("activity-mode");
+(async () => {
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  document.querySelector("#activityContext").hidden = false;
   const legal = document.querySelector(".activity-legal");
   const terms = legal.querySelector('a[href="/terms.html"]');
   const privacy = legal.querySelector('a[href="/privacy.html"]');
+  const solo = document.querySelector("#activitySoloLink");
+  const retry = document.querySelector("#activityContextRetry");
+  const soloUrl = new URL(solo.href);
   const resultNode = document.querySelector("#activityResult");
+  retry.hidden = false;
   resultNode.dataset.json = encodeURIComponent(JSON.stringify({
     legalVisible: getComputedStyle(legal).display !== "none",
     termsVisible: getComputedStyle(terms).display !== "none",
@@ -125,6 +147,12 @@ const activityBrowserTest = String.raw`
     privacyTarget: privacy.target,
     termsHeight: Math.round(terms.getBoundingClientRect().height),
     privacyHeight: Math.round(privacy.getBoundingClientRect().height),
+    soloVisible: getComputedStyle(solo).display !== "none",
+    soloHeight: Math.round(solo.getBoundingClientRect().height),
+    retryVisible: getComputedStyle(retry).display !== "none",
+    retryHeight: Math.round(retry.getBoundingClientRect().height),
+    soloFrame: soloUrl.searchParams.get("frame_id"),
+    soloInstance: soloUrl.searchParams.get("instance_id"),
   }));
   resultNode.textContent = "complete";
 })();
@@ -181,6 +209,7 @@ const activityIndexBrowserTest = String.raw`
     websiteVisible: getComputedStyle(document.querySelector("#activityWebsiteLink")).display !== "none",
     wallpapersVisible: getComputedStyle(document.querySelector("#activityWallpapersLink")).display !== "none",
     websiteHost: new URL(document.querySelector("#activityWebsiteLink").href).host,
+    activityUnregisters: window.activityUnregisters,
   }));
   resultNode.textContent = "complete";
 })();
@@ -205,6 +234,7 @@ const activityDocumentSource = duel
   .replace(
     "</body>",
     `<pre id="activityResult" data-json=""></pre>`
+      + `<script>${escapeScript(activityRedirect)}</script>`
       + `<script>${escapeScript(activityBrowserTest)}</script>`
       + "</body>",
   );
@@ -216,6 +246,7 @@ const activityIndexDocumentSource = index
   .replace(
     "</body>",
     `<pre id="activityIndexResult" data-json=""></pre>`
+      + `<script>${escapeScript(activityServiceWorkerStub)}</script>`
       + `<script>${escapeScript(activityRedirect)}</script>`
       + `<script>${escapeScript(activityIndexBrowserTest)}</script>`
       + "</body>",
@@ -291,7 +322,7 @@ try {
     "--window-size=390,844",
     "--virtual-time-budget=1000",
     "--dump-dom",
-    pathToFileURL(activityHtmlPath).href,
+    `${pathToFileURL(activityHtmlPath).href}?frame_id=duel-frame&instance_id=duel-instance&type=live`,
   ], {
     encoding: "utf8",
     maxBuffer: 10 * 1024 * 1024,
@@ -313,6 +344,12 @@ try {
     privacyTarget: "_blank",
     termsHeight: 44,
     privacyHeight: 44,
+    soloVisible: true,
+    soloHeight: 44,
+    retryVisible: true,
+    retryHeight: 44,
+    soloFrame: "duel-frame",
+    soloInstance: "duel-instance",
   });
 
   const activityIndexBrowser = spawnSync(chrome, [
@@ -370,6 +407,7 @@ try {
     websiteVisible: true,
     wallpapersVisible: true,
     websiteHost: "neon-snake-green-tau.vercel.app",
+    activityUnregisters: 1,
   });
   process.stdout.write("PASS mobile site and embedded Activity controls, policy links, and download feedback work in real browsers\n");
 } finally {

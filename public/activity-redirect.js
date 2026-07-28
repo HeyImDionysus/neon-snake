@@ -4,6 +4,7 @@
   const query = new URLSearchParams(location.search);
   const embedded = query.has("frame_id") && query.has("instance_id");
   if (!embedded) return;
+  const serviceWorkerRetireKey = "neon-activity-service-worker-retired";
 
   let latestStage = {
     state: "connecting",
@@ -12,6 +13,27 @@
   };
 
   document.documentElement.classList.add("activity-mode");
+
+  async function retireServiceWorkers() {
+    if (!navigator.serviceWorker?.getRegistrations) return false;
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    if (!registrations.length) return false;
+    const results = await Promise.all(registrations.map((registration) => registration.unregister()));
+    const retired = results.some(Boolean);
+    if (retired && navigator.serviceWorker.controller) {
+      try {
+        if (sessionStorage.getItem(serviceWorkerRetireKey) !== "true") {
+          sessionStorage.setItem(serviceWorkerRetireKey, "true");
+          location.reload();
+        }
+      } catch {
+        // Unregistration still protects later launches when storage is unavailable.
+      }
+    }
+    return retired;
+  }
+
+  void retireServiceWorkers().catch(() => {});
 
   function preserveActivityQuery(target, overrides = {}) {
     const destination = new URL(target, location.href);
@@ -117,5 +139,6 @@
   globalThis.NeonSnakeActivityShell = {
     embedded,
     preserveActivityQuery,
+    retireServiceWorkers,
   };
 })();

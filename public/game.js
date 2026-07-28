@@ -286,7 +286,10 @@ function hydrateChallengeFromUrl() {
 function challengeUrl() {
   const url = new URL(window.location.href);
   url.hash = "";
-  url.search = "";
+  url.search = activityEmbedded ? activityQuery.toString() : "";
+  url.searchParams.delete("signal");
+  url.searchParams.delete("mode");
+  url.searchParams.delete("pace");
   url.searchParams.set("signal", runSignal);
   url.searchParams.set("mode", activeMode);
   url.searchParams.set("pace", difficultySelect.value);

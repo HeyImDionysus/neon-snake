@@ -64,6 +64,26 @@ function movementSteps({ nextMoveAt, now, moveBefore, stepDuration = 10 }) {
 }
 
 const tests = [
+  ["Activity challenge URLs preserve Discord launch identity", () => {
+    const initial = "https://1531235601070686228.discordsays.com/?frame_id=frame-1&instance_id=instance-1&guild_id=guild-1&signal=OLD234&mode=portal&pace=steady";
+    const context = {
+      URL,
+      activityEmbedded: true,
+      activityQuery: new URLSearchParams(new URL(initial).search),
+      activeMode: "canvas",
+      difficultySelect: { value: "overdrive" },
+      runSignal: "NEW234",
+      window: { location: { href: initial } },
+    };
+    vm.runInNewContext(`${functionBody("challengeUrl")}\nthis.result = challengeUrl().href;`, context);
+    const result = new URL(context.result);
+    assert.equal(result.searchParams.get("frame_id"), "frame-1");
+    assert.equal(result.searchParams.get("instance_id"), "instance-1");
+    assert.equal(result.searchParams.get("guild_id"), "guild-1");
+    assert.equal(result.searchParams.get("signal"), "NEW234");
+    assert.equal(result.searchParams.get("mode"), "canvas");
+    assert.equal(result.searchParams.get("pace"), "overdrive");
+  }],
   ["direction input cannot start or replace a run", () => {
     const body = functionBody("requestDirection");
     assert.ok(!body.includes("prepareRun("));
