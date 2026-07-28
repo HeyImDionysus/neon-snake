@@ -96,6 +96,7 @@ function request(url, {
   assert.match(activityBoot, /addEventListener\("error", handleBootError, true\)/);
   assert.match(activityBoot, /let bootFailed = false/);
   assert.match(activityBoot, /removeEventListener\("error", handleBootError, true\)/);
+  assert.match(activityBoot, /hasAttribute\("data-activity-critical"\)/);
   assert.match(activityBoot, /new MutationObserver/);
   assert.doesNotMatch(activityBoot, /DOMContentLoaded/);
   assert.match(activityBootCss, /\.activity-boot-status\[hidden\]/);
@@ -115,7 +116,33 @@ function request(url, {
       html.indexOf('src="activity-redirect.js?v=81"') < html.indexOf('src="activity-sdk.js?v=81"'),
       "Activity shell listeners must install before SDK startup",
     );
+    assert.match(
+      html,
+      /src="activity-redirect\.js\?v=81" data-activity-critical/,
+      "Activity shell load failures must remain boot-fatal",
+    );
+    assert.doesNotMatch(
+      html,
+      /src="signal-field\.js\?v=81" data-activity-critical/,
+      "Decorative signal-field failures must not cover a playable Activity",
+    );
   });
+  const criticalScripts = (html) => [...html.matchAll(
+    /<script src="([^"]+)" data-activity-critical><\/script>/g,
+  )].map((match) => match[1]);
+  assert.deepEqual(criticalScripts(indexHtml), [
+    "activity-redirect.js?v=81",
+    "game-logic.js?v=81",
+    "touch-controls.js?v=81",
+    "game.js?v=81",
+  ]);
+  assert.deepEqual(criticalScripts(duelHtml), [
+    "activity-redirect.js?v=81",
+    "game-logic.js?v=81",
+    "room-transport.js?v=81",
+    "touch-controls.js?v=81",
+    "duel.js?v=81",
+  ]);
   assert.match(indexHtml, /id="activityDock"/);
   assert.match(indexHtml, /id="activityDockInvite"/);
   assert.match(indexHtml, /id="activityDockRetry"/);

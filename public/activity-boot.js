@@ -72,7 +72,11 @@
       tagName === "link"
       && event.target.relList?.contains("stylesheet")
     );
-    if (tagName === "script" || requiredStylesheet) {
+    const requiredScript = (
+      tagName === "script"
+      && event.target.hasAttribute("data-activity-critical")
+    );
+    if (requiredScript || requiredStylesheet) {
       const source = event.target.src || event.target.href || "required resource";
       const resource = new URL(source, location.href).pathname.split("/").pop() || "required resource";
       failed(new Error(`A required Activity file could not load (${resource}).`));

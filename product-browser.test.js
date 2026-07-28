@@ -283,6 +283,11 @@ const activityIndexDocumentSource = index
       + `document.head.appendChild(optionalLink);`
       + `optionalLink.dispatchEvent(new Event("error"));`
       + `optionalLink.remove();`
+      + `const optionalScript = document.createElement("script");`
+      + `optionalScript.src = "synthetic-missing-decoration.js";`
+      + `document.head.appendChild(optionalScript);`
+      + `optionalScript.dispatchEvent(new Event("error"));`
+      + `optionalScript.remove();`
       + `</script>`
       + `<script>${escapeScript(activityRedirect)}</script>`
       + `<script>${escapeScript(activityIndexBrowserTest)}</script>`
