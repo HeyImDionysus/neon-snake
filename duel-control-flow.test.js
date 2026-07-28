@@ -55,6 +55,7 @@ const tests = [
       roomState: { textContent: "" },
       connectRoomButton: { disabled: false },
       hydrateRoomCode() { return false; },
+      liveRoomRequested() { return false; },
       switchDuelType(value) { context.duelType = value; },
     };
     const { renderActivityFailure } = installFunctions(["renderActivityFailure"], context);
@@ -68,6 +69,23 @@ const tests = [
     assert.equal(context.duelType, "ai");
     assert.match(script, /catch \(error\) \{\s*renderActivityFailure\(error\);\s*\}\s*\}\);/);
     assert.doesNotMatch(functionBody("initializeDuelSurface"), /addEventListener/);
+  }],
+  ["Activity authentication failure preserves an explicit Live Room request", () => {
+    const context = {
+      activityContext: { classList: { add() {} } },
+      activityContextTitle: { textContent: "" },
+      activityContextDetail: { textContent: "" },
+      activityContextRetry: { hidden: true, disabled: true },
+      roomState: { textContent: "" },
+      connectRoomButton: { disabled: false },
+      hydrateRoomCode() { return false; },
+      liveRoomRequested() { return true; },
+      switchDuelType(value) { context.duelType = value; },
+    };
+    const { renderActivityFailure } = installFunctions(["renderActivityFailure"], context);
+    renderActivityFailure(new Error("Synthetic authentication failure."));
+    assert.equal(context.duelType, "live");
+    assert.equal(context.roomState.textContent, "ACTIVITY AUTHENTICATION FAILED");
   }],
   ["duel page IDs are unique", () => {
     const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1]);

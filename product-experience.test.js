@@ -27,7 +27,7 @@ for (const [name, html] of pages) {
   assert.match(html, /class="site-header product-header/);
   assert.match(html, /class="site-nav" id="primaryNavigation" aria-label="Primary navigation"/);
   assert.match(html, /class="site-menu-toggle"/);
-  assert.match(html, /src="site-shell\.js(?:\?v=81)?"/);
+  assert.match(html, /src="site-shell\.js(?:\?v=82)?"/);
   assert.match(html, /href="duel\.html"/);
   assert.match(html, /href="downloads\.html"/);
   assert.match(html, /href="\.\/#leaderboard"|href="#leaderboard"/);

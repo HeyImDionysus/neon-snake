@@ -57,7 +57,8 @@ function runShippedActivityFixture(mode, page = "/") {
     [path.join(root, "browser-fixture-server.cjs"), path.join(root, "public"), String(port), mode],
     { stdio: ["ignore", "ignore", "pipe"] },
   );
-  const url = `http://127.0.0.1:${port}${page}?frame_id=fixture-${port}`;
+  const separator = page.includes("?") ? "&" : "?";
+  const url = `http://127.0.0.1:${port}${page}${separator}frame_id=fixture-${port}`;
   try {
     waitForFixture(`http://127.0.0.1:${port}/manifest.webmanifest`);
     const browser = spawnSync(chrome, [
@@ -94,6 +95,17 @@ function shippedBootSnapshot(html) {
     hidden: /\bhidden(?:=""|(?=\s|$))/.test(attributes),
     state: attributes.match(/\bdata-state="([^"]+)"/)?.[1] || "",
     failed: html.includes("ACTIVITY FAILED TO START"),
+  };
+}
+
+function shippedDuelSnapshot(html) {
+  const bodyAttributes = html.match(/<body([^>]*)>/)?.[1] || "";
+  const liveTabAttributes = html.match(/<button[^>]*id="liveTab"([^>]*)>/)?.[1] || "";
+  const roomState = html.match(/<[^>]+id="roomState"[^>]*>([\s\S]*?)<\/[^>]+>/)?.[1] || "";
+  return {
+    duelType: bodyAttributes.match(/\bdata-duel-type="([^"]+)"/)?.[1] || "",
+    liveSelected: liveTabAttributes.match(/\baria-selected="([^"]+)"/)?.[1] || "",
+    roomState: roomState.replace(/<[^>]*>/g, "").trim(),
   };
 }
 const downloads = read("public", "downloads.html");
@@ -197,8 +209,8 @@ const activityBrowserTest = String.raw`
   await new Promise((resolve) => setTimeout(resolve, 30));
   document.querySelector("#activityContext").hidden = false;
   const legal = document.querySelector(".activity-legal");
-  const terms = legal.querySelector('a[href="/terms.html"]');
-  const privacy = legal.querySelector('a[href="/privacy.html"]');
+  const terms = legal.querySelector('a[href*="terms.html"]');
+  const privacy = legal.querySelector('a[href*="privacy.html"]');
   const solo = document.querySelector("#activitySoloLink");
   const retry = document.querySelector("#activityContextRetry");
   const soloUrl = new URL(solo.href);
@@ -210,6 +222,8 @@ const activityBrowserTest = String.raw`
     privacyVisible: getComputedStyle(privacy).display !== "none",
     termsTarget: terms.target,
     privacyTarget: privacy.target,
+    termsHost: new URL(terms.href).host,
+    privacyHost: new URL(privacy.href).host,
     termsHeight: Math.round(terms.getBoundingClientRect().height),
     privacyHeight: Math.round(privacy.getBoundingClientRect().height),
     soloVisible: getComputedStyle(solo).display !== "none",
@@ -238,7 +252,7 @@ const activityIndexBrowserTest = String.raw`
   window.NeonSnakeActivity = {
     retry() { retried += 1; },
     async invite() { invited += 1; },
-    async openExternal() { return true; },
+    async openExternal() { return false; },
   };
   dispatchEvent(new CustomEvent("neon-activity-error", {
     detail: { message: "Synthetic timeout." },
@@ -254,6 +268,28 @@ const activityIndexBrowserTest = String.raw`
   }));
   document.querySelector("#activityDockInvite").click();
   await new Promise((resolve) => setTimeout(resolve, 0));
+  const locationBeforeExternal = location.href;
+  document.querySelector("#activityWebsiteLink").click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const externalAttempt = {
+    locationUnchanged: location.href === locationBeforeExternal,
+    title: document.querySelector("#activityDockTitle").textContent,
+    detail: document.querySelector("#activityDockDetail").textContent,
+  };
+  const dynamicProfile = document.createElement("a");
+  dynamicProfile.href = "profile.html";
+  dynamicProfile.textContent = "DYNAMIC PROFILE";
+  document.body.appendChild(dynamicProfile);
+  dynamicProfile.click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const dynamicExternal = {
+    locationUnchanged: location.href === locationBeforeExternal,
+    host: new URL(dynamicProfile.href).host,
+    classified: dynamicProfile.classList.contains("activity-external-link"),
+  };
+  const rankingsLink = [...document.querySelectorAll("a")]
+    .find((link) => link.textContent.trim() === "RANKINGS");
+  const brandUrl = new URL(document.querySelector(".brand").href);
   const resultNode = document.querySelector("#activityIndexResult");
   const bootReadyHidden = document.querySelector("#activityBootStatus").hidden;
   dispatchEvent(new ErrorEvent("error", { message: "Synthetic post-ready action failure." }));
@@ -271,12 +307,16 @@ const activityIndexBrowserTest = String.raw`
     inviteDisabled: document.querySelector("#activityDockInvite").disabled,
     retried,
     invited,
+    externalAttempt,
+    dynamicExternal,
     routeFrame: multiplayerUrl.searchParams.get("frame_id"),
     routeInstance: multiplayerUrl.searchParams.get("instance_id"),
     routeType: multiplayerUrl.searchParams.get("type"),
     websiteVisible: getComputedStyle(document.querySelector("#activityWebsiteLink")).display !== "none",
     wallpapersVisible: getComputedStyle(document.querySelector("#activityWallpapersLink")).display !== "none",
     websiteHost: new URL(document.querySelector("#activityWebsiteLink").href).host,
+    rankingsHost: new URL(rankingsLink.href).host,
+    brandFrame: brandUrl.searchParams.get("frame_id"),
     activityUnregisters: window.activityUnregisters,
     bootReadyHidden,
     bootStillHiddenAfterReady,
@@ -488,6 +528,8 @@ try {
     privacyVisible: true,
     termsTarget: "_blank",
     privacyTarget: "_blank",
+    termsHost: "neon-snake-green-tau.vercel.app",
+    privacyHost: "neon-snake-green-tau.vercel.app",
     termsHeight: 44,
     privacyHeight: 44,
     soloVisible: true,
@@ -547,12 +589,24 @@ try {
     inviteDisabled: false,
     retried: 1,
     invited: 1,
+    externalAttempt: {
+      locationUnchanged: true,
+      title: "ACTIVITY STAYED OPEN",
+      detail: "Discord could not open FULL WEBSITE ↗. Try the link again after Discord finishes connecting.",
+    },
+    dynamicExternal: {
+      locationUnchanged: true,
+      host: "neon-snake-green-tau.vercel.app",
+      classified: true,
+    },
     routeFrame: "test-frame",
     routeInstance: null,
     routeType: "live",
     websiteVisible: true,
     wallpapersVisible: true,
     websiteHost: "neon-snake-green-tau.vercel.app",
+    rankingsHost: "neon-snake-green-tau.vercel.app",
+    brandFrame: "test-frame",
     activityUnregisters: 1,
     bootReadyHidden: true,
     bootStillHiddenAfterReady: true,
@@ -650,6 +704,18 @@ try {
     shippedBootSnapshot(runShippedActivityFixture("fail:duel.css", "/duel.html")),
     { hidden: false, state: "error", failed: true },
     "A failed duel stylesheet must remain an explicit shipped Activity startup failure.",
+  );
+  assert.deepEqual(
+    shippedDuelSnapshot(runShippedActivityFixture(
+      "activityauthfail:activity-sdk.js",
+      "/duel.html?type=live",
+    )),
+    {
+      duelType: "live",
+      liveSelected: "true",
+      roomState: "ACTIVITY AUTHENTICATION FAILED",
+    },
+    "A Discord authentication failure must preserve the requested Live Room surface.",
   );
   for (const optionalMode of [
     "fail:signal-field.js",

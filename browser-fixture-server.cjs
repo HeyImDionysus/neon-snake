@@ -53,6 +53,22 @@ const server = http.createServer((request, response) => {
     response.end("/* Synthetic wrong MIME response. */");
     return;
   }
+  if (relativePath === fixtureResource && fixtureAction === "activityauthfail") {
+    response.writeHead(200, {
+      "Content-Type": "text/javascript; charset=utf-8",
+      "Cache-Control": "no-store",
+    });
+    response.end(`
+      globalThis.NeonSnakeActivity = {
+        embedded: true,
+        ready: Promise.reject(new Error("Synthetic Discord authentication failure.")),
+        async retry() { throw new Error("Synthetic Discord authentication failure."); },
+        async invite() { return false; },
+        async openExternal() { return false; }
+      };
+    `);
+    return;
+  }
   if (!filePath.startsWith(`${root}${path.sep}`) || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
     response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
     response.end("Not found.");
