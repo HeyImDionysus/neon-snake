@@ -217,6 +217,7 @@ const activityIndexBrowserTest = String.raw`
     activityUnregisters: window.activityUnregisters,
     bootReadyHidden,
     bootStillHiddenAfterReady,
+    bootVisibleBeforeDomReady: window.activityBootVisibleBeforeDomReady,
   }));
   resultNode.textContent = "complete";
 })();
@@ -271,6 +272,10 @@ const activityIndexDocumentSource = index
     `<pre id="activityIndexResult" data-json=""></pre>`
       + `<script>${escapeScript(activityServiceWorkerStub)}</script>`
       + `<script>${escapeScript(activityBoot)}</script>`
+      + `<script>`
+      + `window.activityBootVisibleBeforeDomReady = document.readyState === "loading"`
+      + ` && !document.querySelector("#activityBootStatus").hidden;`
+      + `</script>`
       + `<script>`
       + `const optionalLink = document.createElement("link");`
       + `optionalLink.rel = "icon";`
@@ -483,6 +488,7 @@ try {
     activityUnregisters: 1,
     bootReadyHidden: true,
     bootStillHiddenAfterReady: true,
+    bootVisibleBeforeDomReady: true,
   });
 
   const activityEarlyFailureBrowser = spawnSync(chrome, [

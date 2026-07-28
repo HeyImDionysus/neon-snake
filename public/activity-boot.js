@@ -10,27 +10,40 @@
   let failureDetail = "";
   let status = null;
   let timer = null;
+  let statusObserver = null;
+  let latestStatus = {
+    state: "loading",
+    title: "OPENING NEON SNAKE",
+    detail: "Preparing the game inside Discord…",
+  };
 
   function findStatus() {
     status ||= document.querySelector("#activityBootStatus");
     return status;
   }
 
-  function show(state, title, detail) {
+  function renderStatus() {
     const node = findStatus();
-    if (!node) return;
+    if (!node) return false;
     node.hidden = false;
-    node.dataset.state = state;
+    node.dataset.state = latestStatus.state;
     const heading = node.querySelector("strong");
     const message = node.querySelector("span");
-    if (heading) heading.textContent = title;
-    if (message) message.textContent = detail;
+    if (heading) heading.textContent = latestStatus.title;
+    if (message) message.textContent = latestStatus.detail;
+    return true;
+  }
+
+  function show(state, title, detail) {
+    latestStatus = { state, title, detail };
+    return renderStatus();
   }
 
   function ready() {
     if (bootFailed || bootComplete) return;
     bootComplete = true;
     clearTimeout(timer);
+    statusObserver?.disconnect();
     removeEventListener("error", handleBootError, true);
     removeEventListener("unhandledrejection", handleBootRejection);
     const node = findStatus();
@@ -44,7 +57,13 @@
     failureDetail = (
       reason instanceof Error ? reason.message : String(reason || "")
     ) || "Unknown startup error.";
-    show("error", "ACTIVITY FAILED TO START", `${failureDetail} Close and reopen the Activity to retry.`);
+    if (show(
+      "error",
+      "ACTIVITY FAILED TO START",
+      `${failureDetail} Close and reopen the Activity to retry.`,
+    )) {
+      statusObserver?.disconnect();
+    }
   }
 
   function handleBootError(event) {
@@ -70,33 +89,20 @@
   addEventListener("error", handleBootError, true);
   addEventListener("unhandledrejection", handleBootRejection);
 
-  function begin() {
-    if (bootFailed) {
+  statusObserver = new MutationObserver(() => {
+    if (renderStatus()) statusObserver.disconnect();
+  });
+  statusObserver.observe(document.documentElement, { childList: true, subtree: true });
+  renderStatus();
+  timer = setTimeout(() => {
+    if (!bootComplete && !bootFailed) {
       show(
-        "error",
-        "ACTIVITY FAILED TO START",
-        `${failureDetail} Close and reopen the Activity to retry.`,
+        "slow",
+        "STILL CONNECTING",
+        "Discord is taking longer than expected. The game will appear as soon as its files finish loading.",
       );
-      return;
     }
-    if (bootComplete) return;
-    show("loading", "OPENING NEON SNAKE", "Preparing the game inside Discord…");
-    timer = setTimeout(() => {
-      if (!bootComplete && !bootFailed) {
-        show(
-          "slow",
-          "STILL CONNECTING",
-          "Discord is taking longer than expected. The game will appear as soon as its files finish loading.",
-        );
-      }
-    }, 5000);
-  }
-
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", begin, { once: true });
-  } else {
-    begin();
-  }
+  }, 5000);
 
   globalThis.NeonSnakeActivityBoot = { embedded, ready, failed };
 })();

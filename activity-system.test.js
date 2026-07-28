@@ -96,6 +96,8 @@ function request(url, {
   assert.match(activityBoot, /addEventListener\("error", handleBootError, true\)/);
   assert.match(activityBoot, /let bootFailed = false/);
   assert.match(activityBoot, /removeEventListener\("error", handleBootError, true\)/);
+  assert.match(activityBoot, /new MutationObserver/);
+  assert.doesNotMatch(activityBoot, /DOMContentLoaded/);
   assert.match(activityBootCss, /\.activity-boot-status\[hidden\]/);
   assert.match(indexHtml, /id="activityBootStatus"/);
   assert.match(indexHtml, /href="activity-boot\.css\?v=81"/);
