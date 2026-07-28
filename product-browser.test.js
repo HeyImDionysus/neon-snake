@@ -39,12 +39,14 @@ const duel = read("public", "duel.html");
 const styles = read("public", "styles.css");
 const duelStyles = read("public", "duel.css");
 const activityRedirect = read("public", "activity-redirect.js");
+const activityBoot = read("public", "activity-boot.js");
+const activityBootStyles = read("public", "activity-boot.css");
 const activityServiceWorkerStub = String.raw`
 window.activityUnregisters = 0;
 Object.defineProperty(navigator, "serviceWorker", {
   configurable: true,
   value: {
-    controller: null,
+    controller: {},
     async getRegistrations() {
       return [{
         async unregister() {
@@ -190,6 +192,14 @@ const activityIndexBrowserTest = String.raw`
   document.querySelector("#activityDockInvite").click();
   await new Promise((resolve) => setTimeout(resolve, 0));
   const resultNode = document.querySelector("#activityIndexResult");
+  const bootReadyHidden = document.querySelector("#activityBootStatus").hidden;
+  dispatchEvent(new ErrorEvent("error", { message: "Synthetic bundle failure." }));
+  const bootFailure = {
+    hidden: document.querySelector("#activityBootStatus").hidden,
+    state: document.querySelector("#activityBootStatus").dataset.state,
+    title: document.querySelector("#activityBootStatus strong").textContent,
+  };
+  window.NeonSnakeActivityBoot.ready();
   resultNode.dataset.json = encodeURIComponent(JSON.stringify({
     dockVisible: getComputedStyle(dock).display !== "none",
     gameVisible: getComputedStyle(document.querySelector(".game-column")).display !== "none",
@@ -210,6 +220,8 @@ const activityIndexBrowserTest = String.raw`
     wallpapersVisible: getComputedStyle(document.querySelector("#activityWallpapersLink")).display !== "none",
     websiteHost: new URL(document.querySelector("#activityWebsiteLink").href).host,
     activityUnregisters: window.activityUnregisters,
+    bootReadyHidden,
+    bootFailure,
   }));
   resultNode.textContent = "complete";
 })();
@@ -230,10 +242,11 @@ const documentSource = downloads
 const activityDocumentSource = duel
   .replace(/<link\b[^>]*>/g, "")
   .replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, "")
-  .replace("</head>", `<style>${styles}\n${duelStyles}</style></head>`)
+  .replace("</head>", `<style>${activityBootStyles}\n${styles}\n${duelStyles}</style></head>`)
   .replace(
     "</body>",
     `<pre id="activityResult" data-json=""></pre>`
+      + `<script>${escapeScript(activityBoot)}</script>`
       + `<script>${escapeScript(activityRedirect)}</script>`
       + `<script>${escapeScript(activityBrowserTest)}</script>`
       + "</body>",
@@ -242,11 +255,12 @@ const activityDocumentSource = duel
 const activityIndexDocumentSource = index
   .replace(/<link\b[^>]*>/g, "")
   .replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, "")
-  .replace("</head>", `<style>${styles}</style></head>`)
+  .replace("</head>", `<style>${activityBootStyles}\n${styles}</style></head>`)
   .replace(
     "</body>",
     `<pre id="activityIndexResult" data-json=""></pre>`
       + `<script>${escapeScript(activityServiceWorkerStub)}</script>`
+      + `<script>${escapeScript(activityBoot)}</script>`
       + `<script>${escapeScript(activityRedirect)}</script>`
       + `<script>${escapeScript(activityIndexBrowserTest)}</script>`
       + "</body>",
@@ -322,7 +336,7 @@ try {
     "--window-size=390,844",
     "--virtual-time-budget=1000",
     "--dump-dom",
-    `${pathToFileURL(activityHtmlPath).href}?frame_id=duel-frame&instance_id=duel-instance&type=live`,
+    `${pathToFileURL(activityHtmlPath).href}?frame_id=duel-frame&type=live`,
   ], {
     encoding: "utf8",
     maxBuffer: 10 * 1024 * 1024,
@@ -349,7 +363,7 @@ try {
     retryVisible: true,
     retryHeight: 44,
     soloFrame: "duel-frame",
-    soloInstance: "duel-instance",
+    soloInstance: null,
   });
 
   const activityIndexBrowser = spawnSync(chrome, [
@@ -361,7 +375,7 @@ try {
     "--window-size=1280,800",
     "--virtual-time-budget=1000",
     "--dump-dom",
-    `${pathToFileURL(activityIndexHtmlPath).href}?frame_id=test-frame&instance_id=test-instance`,
+    `${pathToFileURL(activityIndexHtmlPath).href}?frame_id=test-frame`,
   ], {
     encoding: "utf8",
     maxBuffer: 10 * 1024 * 1024,
@@ -402,12 +416,18 @@ try {
     retried: 1,
     invited: 1,
     routeFrame: "test-frame",
-    routeInstance: "test-instance",
+    routeInstance: null,
     routeType: "live",
     websiteVisible: true,
     wallpapersVisible: true,
     websiteHost: "neon-snake-green-tau.vercel.app",
     activityUnregisters: 1,
+    bootReadyHidden: true,
+    bootFailure: {
+      hidden: false,
+      state: "error",
+      title: "ACTIVITY FAILED TO START",
+    },
   });
   process.stdout.write("PASS mobile site and embedded Activity controls, policy links, and download feedback work in real browsers\n");
 } finally {

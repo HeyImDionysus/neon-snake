@@ -7,7 +7,7 @@
   const livePlayers = document.querySelector("#livePlayers");
   const livePlayerCount = document.querySelector("#livePlayerCount");
   const activityQuery = new URLSearchParams(root.location?.search || "");
-  const embeddedActivity = activityQuery.has("frame_id") && activityQuery.has("instance_id");
+  const embeddedActivity = activityQuery.has("frame_id");
 
   function element(tag, className, text) {
     const node = document.createElement(tag);

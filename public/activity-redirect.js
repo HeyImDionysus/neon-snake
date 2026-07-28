@@ -2,9 +2,8 @@
   "use strict";
 
   const query = new URLSearchParams(location.search);
-  const embedded = query.has("frame_id") && query.has("instance_id");
+  const embedded = query.has("frame_id");
   if (!embedded) return;
-  const serviceWorkerRetireKey = "neon-activity-service-worker-retired";
 
   let latestStage = {
     state: "connecting",
@@ -19,18 +18,7 @@
     const registrations = await navigator.serviceWorker.getRegistrations();
     if (!registrations.length) return false;
     const results = await Promise.all(registrations.map((registration) => registration.unregister()));
-    const retired = results.some(Boolean);
-    if (retired && navigator.serviceWorker.controller) {
-      try {
-        if (sessionStorage.getItem(serviceWorkerRetireKey) !== "true") {
-          sessionStorage.setItem(serviceWorkerRetireKey, "true");
-          location.reload();
-        }
-      } catch {
-        // Unregistration still protects later launches when storage is unavailable.
-      }
-    }
-    return retired;
+    return results.some(Boolean);
   }
 
   void retireServiceWorkers().catch(() => {});
@@ -128,6 +116,7 @@
       });
     });
     renderStage();
+    globalThis.NeonSnakeActivityBoot?.ready();
   }
 
   if (document.readyState === "loading") {

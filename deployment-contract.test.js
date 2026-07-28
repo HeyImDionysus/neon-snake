@@ -93,6 +93,30 @@ const tests = [
       });
     });
   }],
+  ["Discord Activity entry assets use one explicit cache-busting release", () => {
+    const expectedVersion = "81";
+    ["index.html", "duel.html"].forEach((name) => {
+      const htmlFile = path.join(publicRoot, name);
+      const mutableAssets = localReferences(htmlFile).filter((reference) => {
+        const pathname = new URL(reference, `https://neon-snake.invalid/${name}`).pathname;
+        return /\.(?:css|js)$/.test(pathname);
+      });
+      assert.ok(mutableAssets.length > 0, `Expected mutable assets in ${name}`);
+      mutableAssets.forEach((reference) => {
+        const asset = new URL(reference, `https://neon-snake.invalid/${name}`);
+        assert.equal(
+          asset.searchParams.get("v"),
+          expectedVersion,
+          `Discord proxy may serve stale ${reference} from ${name}`,
+        );
+        assert.equal(
+          [...asset.searchParams.keys()].length,
+          1,
+          `Unexpected cache-key parameters on ${reference}`,
+        );
+      });
+    });
+  }],
   ["the install manifest includes browser-compatible raster icons", () => {
     const icons = new Map(manifest.icons.map((icon) => [icon.sizes, icon]));
     assert.equal(icons.get("192x192")?.src, "/assets/icon-192.png");

@@ -14,6 +14,8 @@ const read = (...segments) => fs.readFileSync(path.join(root, ...segments), "utf
 const entry = read("activity", "entry.js");
 const activityTokenApi = read("api", "activity", "token.mjs");
 const redirect = read("public", "activity-redirect.js");
+const activityBoot = read("public", "activity-boot.js");
+const activityBootCss = read("public", "activity-boot.css");
 const indexHtml = read("public", "index.html");
 const game = read("public", "game.js");
 const account = read("public", "account.js");
@@ -77,20 +79,31 @@ function request(url, {
   assert.match(entry, /if \(!sdk \|\| !connected\) return false/);
   assert.match(entry, /EXTERNAL_LINK_TIMEOUT,\s*"Discord did not open the external link in time\."/);
   assert.match(entry, /setOrientationLockState/);
-  assert.match(entry, /query\.has\("frame_id"\) && query\.has\("instance_id"\)/);
+  [entry, redirect, game, account, signalField, duel].forEach((source) => {
+    assert.match(source, /\.has\("frame_id"\)/);
+    assert.doesNotMatch(source, /\.has\("instance_id"\)/);
+  });
   assert.doesNotMatch(redirect, /location\.replace\(destination\)/);
+  assert.doesNotMatch(redirect, /location\.reload\(\)/);
   assert.match(redirect, /preserveActivityQuery/);
   assert.match(redirect, /neon-activity-ready/);
   assert.match(redirect, /neon-activity-error/);
   assert.match(redirect, /getRegistrations/);
   assert.match(redirect, /registration\.unregister\(\)/);
+  assert.match(redirect, /NeonSnakeActivityBoot\?\.ready\(\)/);
+  assert.match(activityBoot, /ACTIVITY FAILED TO START/);
+  assert.match(activityBoot, /addEventListener\("unhandledrejection"/);
+  assert.match(activityBootCss, /\.activity-boot-status\[hidden\]/);
+  assert.match(indexHtml, /id="activityBootStatus"/);
+  assert.match(indexHtml, /href="activity-boot\.css\?v=81"/);
+  assert.match(indexHtml, /src="activity-boot\.js\?v=81"/);
   assert.match(indexHtml, /id="activityDock"/);
   assert.match(indexHtml, /id="activityDockInvite"/);
   assert.match(indexHtml, /id="activityDockRetry"/);
   assert.match(indexHtml, /id="activityWebsiteLink"/);
   assert.match(indexHtml, /id="activityWallpapersLink"/);
   assert.match(indexHtml, /https:\/\/neon-snake-green-tau\.vercel\.app\/downloads\.html/);
-  assert.match(indexHtml, /src="activity-sdk\.js"/);
+  assert.match(indexHtml, /src="activity-sdk\.js\?v=81"/);
   ["classic", "portal", "rush", "canvas"].forEach((mode) => {
     assert.match(indexHtml, new RegExp(`name="mode" value="${mode}"`));
   });
@@ -105,11 +118,11 @@ function request(url, {
   assert.match(duelHtml, /id="activityContext"/);
   assert.match(duelHtml, /id="activitySoloLink"/);
   assert.match(duelHtml, /id="activityContextRetry"/);
-  assert.match(duelHtml, /src="activity-redirect\.js"/);
+  assert.match(duelHtml, /src="activity-redirect\.js\?v=81"/);
   assert.match(duelHtml, /class="activity-legal" aria-label="Activity policies"/);
   assert.match(duelHtml, /href="\/terms\.html" target="_blank"/);
   assert.match(duelHtml, /href="\/privacy\.html" target="_blank"/);
-  assert.match(duelHtml, /src="activity-sdk\.js"/);
+  assert.match(duelHtml, /src="activity-sdk\.js\?v=81"/);
   assert.match(duel, /NeonSnakeActivity\.ready/);
   assert.match(duel, /NeonSnakeActivity\?\.retry\(\)/);
   assert.match(duel, /catch \(error\) \{\s*renderActivityFailure\(error\)/);

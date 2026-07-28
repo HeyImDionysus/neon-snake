@@ -73,7 +73,7 @@
 
     const motionQuery = root.matchMedia?.("(prefers-reduced-motion: reduce)");
     const activityQuery = new URL(root.location.href).searchParams;
-    const activityMode = activityQuery.has("frame_id") && activityQuery.has("instance_id");
+    const activityMode = activityQuery.has("frame_id");
     let reduceMotion = Boolean(motionQuery?.matches) || activityMode;
     const signalElement = root.document.getElementById("signalCode");
     const roomElement = root.document.getElementById("roomCodeInput");
