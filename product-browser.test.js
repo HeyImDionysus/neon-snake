@@ -34,6 +34,7 @@ if (!chrome) {
 const read = (...segments) => fs.readFileSync(path.join(root, ...segments), "utf8");
 const escapeScript = (source) => source.replace(/<\/script/gi, "<\\/script");
 const downloads = read("public", "downloads.html");
+const styles = read("public", "styles.css");
 const scripts = [
   read("public", "site-shell.js"),
   read("public", "game-logic.js"),
@@ -91,6 +92,11 @@ const browserTest = String.raw`
       status: document.querySelector("#windowsDownloadStatus").textContent,
       started: windowsDownload.closest(".download-platform").classList.contains("download-started"),
     },
+    legalFooter: {
+      containerVisible: getComputedStyle(document.querySelector(".site-footer span:last-child")).display !== "none",
+      termsVisible: getComputedStyle(document.querySelector('.site-footer a[href="terms.html"]')).display !== "none",
+      privacyVisible: getComputedStyle(document.querySelector('.site-footer a[href="privacy.html"]')).display !== "none",
+    },
   }));
   resultNode.textContent = "complete";
 })().catch((error) => {
@@ -103,6 +109,7 @@ const browserTest = String.raw`
 const documentSource = downloads
   .replace(/<link\b[^>]*>/g, "")
   .replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, "")
+  .replace("</head>", `<style>${styles}</style></head>`)
   .replace(
     "</body>",
     `<pre id="result" data-json=""></pre>`
@@ -162,7 +169,12 @@ try {
   assert.equal(result.preview.status, "ULTRAVIOLET · WRAP · CALM");
   assert.equal(result.download.status, "WINDOWS DOWNLOAD STARTED · CHECK YOUR BROWSER DOWNLOADS");
   assert.equal(result.download.started, true);
-  process.stdout.write("PASS mobile navigation, wallpaper controls, and download feedback work in a real browser\n");
+  assert.deepEqual(result.legalFooter, {
+    containerVisible: true,
+    termsVisible: true,
+    privacyVisible: true,
+  });
+  process.stdout.write("PASS mobile navigation, wallpaper controls, legal links, and download feedback work in a real browser\n");
 } finally {
   fs.rmSync(temporaryDirectory, { recursive: true, force: true });
 }

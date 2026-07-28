@@ -56,6 +56,7 @@
             <h2>What we collect</h2>
             <p>If you sign in with Discord, Neon Snake stores your Discord user ID, username, display name, avatar reference, and the profile choices you submit: callsign, bio, accent color, favorite mode, and snake style.</p>
             <p>For live rooms, we temporarily store your room presence, connection state, and match outcome. Aggregate wins, losses, and draws remain on your public profile.</p>
+            <p>For HTTP live-room requests, Neon Snake hashes the forwarded network address into a truncated anti-abuse identifier. It is used only for per-request rate limiting and automatically expires from Upstash after one second.</p>
           </div>
         </section>
 

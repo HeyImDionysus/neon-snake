@@ -16,6 +16,7 @@ const roomFunction = fs.readFileSync(path.join(root, "api", "room.mjs"), "utf8")
 const realtimeFunction = fs.readFileSync(path.join(root, "api", "realtime.mjs"), "utf8");
 const roomCore = fs.readFileSync(path.join(root, "server", "room-core.cjs"), "utf8");
 const realtimeCore = fs.readFileSync(path.join(root, "server", "realtime-core.cjs"), "utf8");
+const publicStyles = fs.readFileSync(path.join(publicRoot, "styles.css"), "utf8");
 const packageManifest = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 
 function publicPath(urlPath) {
@@ -158,9 +159,14 @@ const tests = [
     const privacy = fs.readFileSync(path.join(publicRoot, "privacy.html"), "utf8");
     const terms = fs.readFileSync(path.join(publicRoot, "terms.html"), "utf8");
     assert.match(privacy, /Discord user ID/);
+    assert.match(privacy, /hashes the forwarded network address/);
+    assert.match(privacy, /rate limiting/);
+    assert.match(privacy, /expires from Upstash after one second/);
     assert.match(privacy, /does not sell player data/);
     assert.match(terms, /Fair play/);
     assert.match(terms, /privacy\.html/);
+    assert.doesNotMatch(publicStyles, /\.site-footer span:last-child\s*\{\s*display:\s*none/);
+    assert.match(publicStyles, /\.site-footer span:last-child\s*\{[^}]*display:\s*inline/);
     assert.doesNotMatch(`${privacy}\n${terms}`, /STORAGE_KV_REST_API_TOKEN|DISCORD_CLIENT_SECRET/);
   }],
   ["the public response contract keeps restrictive browser boundaries", () => {
