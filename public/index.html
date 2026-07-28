@@ -63,6 +63,29 @@
     </header>
 
     <main class="arcade-shell" id="play">
+      <section class="activity-dock" id="activityDock" data-state="connecting" aria-live="polite" hidden>
+        <div class="activity-dock-copy">
+          <span class="activity-dock-mark"><i aria-hidden="true"></i> DISCORD ACTIVITY</span>
+          <strong id="activityDockTitle">SOLO READY · CONNECTING DISCORD</strong>
+          <small id="activityDockDetail">Single-player is available while the shared channel session connects.</small>
+        </div>
+        <nav class="activity-dock-nav" aria-label="Activity game type">
+          <a class="activity-dock-tab is-active" href="/" data-activity-route="solo" aria-current="page">SOLO</a>
+          <a class="activity-dock-tab" href="duel.html" data-activity-route="multiplayer">MULTIPLAYER</a>
+        </nav>
+        <div class="activity-dock-actions">
+          <button id="activityDockInvite" type="button" disabled>INVITE</button>
+          <button id="activityDockRetry" type="button" hidden>RETRY DISCORD</button>
+          <span class="activity-dock-explore">
+            <a class="activity-external-link activity-website-link" id="activityWebsiteLink" href="https://neon-snake-green-tau.vercel.app/">FULL WEBSITE ↗</a>
+            <a class="activity-external-link" id="activityWallpapersLink" href="https://neon-snake-green-tau.vercel.app/downloads.html">WALLPAPERS ↓</a>
+          </span>
+          <span class="activity-dock-legal">
+            <a class="activity-external-link" href="https://neon-snake-green-tau.vercel.app/terms.html" target="_blank" rel="noopener noreferrer">TERMS</a>
+            <a class="activity-external-link" href="https://neon-snake-green-tau.vercel.app/privacy.html" target="_blank" rel="noopener noreferrer">PRIVACY</a>
+          </span>
+        </div>
+      </section>
       <section class="game-column" aria-label="Neon Snake game">
         <div class="game-console">
           <header class="console-hud">
@@ -345,6 +368,7 @@
     <p class="sr-only" id="gameAnnouncement" aria-live="assertive"></p>
     <script src="signal-field.js"></script>
     <script src="site-shell.js"></script>
+    <script src="activity-sdk.js"></script>
     <script src="account.js"></script>
     <script src="game-logic.js"></script>
     <script src="touch-controls.js"></script>

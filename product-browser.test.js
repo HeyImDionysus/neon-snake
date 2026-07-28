@@ -34,9 +34,11 @@ if (!chrome) {
 const read = (...segments) => fs.readFileSync(path.join(root, ...segments), "utf8");
 const escapeScript = (source) => source.replace(/<\/script/gi, "<\\/script");
 const downloads = read("public", "downloads.html");
+const index = read("public", "index.html");
 const duel = read("public", "duel.html");
 const styles = read("public", "styles.css");
 const duelStyles = read("public", "duel.css");
+const activityRedirect = read("public", "activity-redirect.js");
 const scripts = [
   read("public", "site-shell.js"),
   read("public", "game-logic.js"),
@@ -128,6 +130,62 @@ const activityBrowserTest = String.raw`
 })();
 `;
 
+const activityIndexBrowserTest = String.raw`
+(async () => {
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  const dock = document.querySelector("#activityDock");
+  const multiplayer = document.querySelector('[data-activity-route="multiplayer"]');
+  const multiplayerUrl = new URL(multiplayer.href);
+  const initial = {
+    inviteDisabled: document.querySelector("#activityDockInvite").disabled,
+    retryHidden: document.querySelector("#activityDockRetry").hidden,
+  };
+  let retried = 0;
+  let invited = 0;
+  window.NeonSnakeActivity = {
+    retry() { retried += 1; },
+    async invite() { invited += 1; },
+    async openExternal() { return true; },
+  };
+  dispatchEvent(new CustomEvent("neon-activity-error", {
+    detail: { message: "Synthetic timeout." },
+  }));
+  const error = {
+    state: dock.dataset.state,
+    retryHidden: document.querySelector("#activityDockRetry").hidden,
+    title: document.querySelector("#activityDockTitle").textContent,
+  };
+  document.querySelector("#activityDockRetry").click();
+  dispatchEvent(new CustomEvent("neon-activity-ready", {
+    detail: { roomCode: "ABC234" },
+  }));
+  document.querySelector("#activityDockInvite").click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const resultNode = document.querySelector("#activityIndexResult");
+  resultNode.dataset.json = encodeURIComponent(JSON.stringify({
+    dockVisible: getComputedStyle(dock).display !== "none",
+    gameVisible: getComputedStyle(document.querySelector(".game-column")).display !== "none",
+    controlsVisible: getComputedStyle(document.querySelector(".control-deck")).display !== "none",
+    leaderboardHidden: getComputedStyle(document.querySelector(".public-board")).display === "none",
+    nextMovesHidden: getComputedStyle(document.querySelector(".next-moves")).display === "none",
+    modes: [...document.querySelectorAll('input[name="mode"]')].map((input) => input.value),
+    initial,
+    error,
+    connectedState: dock.dataset.state,
+    inviteDisabled: document.querySelector("#activityDockInvite").disabled,
+    retried,
+    invited,
+    routeFrame: multiplayerUrl.searchParams.get("frame_id"),
+    routeInstance: multiplayerUrl.searchParams.get("instance_id"),
+    routeType: multiplayerUrl.searchParams.get("type"),
+    websiteVisible: getComputedStyle(document.querySelector("#activityWebsiteLink")).display !== "none",
+    wallpapersVisible: getComputedStyle(document.querySelector("#activityWallpapersLink")).display !== "none",
+    websiteHost: new URL(document.querySelector("#activityWebsiteLink").href).host,
+  }));
+  resultNode.textContent = "complete";
+})();
+`;
+
 const documentSource = downloads
   .replace(/<link\b[^>]*>/g, "")
   .replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, "")
@@ -151,11 +209,25 @@ const activityDocumentSource = duel
       + "</body>",
   );
 
+const activityIndexDocumentSource = index
+  .replace(/<link\b[^>]*>/g, "")
+  .replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, "")
+  .replace("</head>", `<style>${styles}</style></head>`)
+  .replace(
+    "</body>",
+    `<pre id="activityIndexResult" data-json=""></pre>`
+      + `<script>${escapeScript(activityRedirect)}</script>`
+      + `<script>${escapeScript(activityIndexBrowserTest)}</script>`
+      + "</body>",
+  );
+
 const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "neon-product-"));
 const htmlPath = path.join(temporaryDirectory, "product-browser.html");
 const activityHtmlPath = path.join(temporaryDirectory, "activity-browser.html");
+const activityIndexHtmlPath = path.join(temporaryDirectory, "activity-index-browser.html");
 fs.writeFileSync(htmlPath, documentSource);
 fs.writeFileSync(activityHtmlPath, activityDocumentSource);
+fs.writeFileSync(activityIndexHtmlPath, activityIndexDocumentSource);
 
 try {
   const browser = spawnSync(chrome, [
@@ -241,6 +313,63 @@ try {
     privacyTarget: "_blank",
     termsHeight: 44,
     privacyHeight: 44,
+  });
+
+  const activityIndexBrowser = spawnSync(chrome, [
+    "--headless=new",
+    "--no-sandbox",
+    "--disable-background-networking",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--window-size=1280,800",
+    "--virtual-time-budget=1000",
+    "--dump-dom",
+    `${pathToFileURL(activityIndexHtmlPath).href}?frame_id=test-frame&instance_id=test-instance`,
+  ], {
+    encoding: "utf8",
+    maxBuffer: 10 * 1024 * 1024,
+    timeout: 30_000,
+  });
+  assert.equal(
+    activityIndexBrowser.status,
+    0,
+    `Activity index Chromium failed (${activityIndexBrowser.status}): ${activityIndexBrowser.stderr.slice(-2000)}`,
+  );
+  const activityIndexEncoded = activityIndexBrowser.stdout
+    .match(/id="activityIndexResult" data-json="([^"]+)"/)?.[1];
+  assert.ok(
+    activityIndexEncoded,
+    `Missing Activity index browser result: ${activityIndexBrowser.stdout.slice(-3000)}`,
+  );
+  const activityIndexResult = JSON.parse(
+    decodeURIComponent(activityIndexEncoded.replaceAll("&amp;", "&")),
+  );
+  assert.deepEqual(activityIndexResult, {
+    dockVisible: true,
+    gameVisible: true,
+    controlsVisible: true,
+    leaderboardHidden: true,
+    nextMovesHidden: true,
+    modes: ["classic", "portal", "rush", "canvas"],
+    initial: {
+      inviteDisabled: true,
+      retryHidden: true,
+    },
+    error: {
+      state: "error",
+      retryHidden: false,
+      title: "SOLO READY · DISCORD LINK OFFLINE",
+    },
+    connectedState: "connected",
+    inviteDisabled: false,
+    retried: 1,
+    invited: 1,
+    routeFrame: "test-frame",
+    routeInstance: "test-instance",
+    routeType: "live",
+    websiteVisible: true,
+    wallpapersVisible: true,
+    websiteHost: "neon-snake-green-tau.vercel.app",
   });
   process.stdout.write("PASS mobile site and embedded Activity controls, policy links, and download feedback work in real browsers\n");
 } finally {

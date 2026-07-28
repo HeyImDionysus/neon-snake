@@ -72,7 +72,9 @@
     if (!context) return null;
 
     const motionQuery = root.matchMedia?.("(prefers-reduced-motion: reduce)");
-    let reduceMotion = Boolean(motionQuery?.matches);
+    const activityQuery = new URL(root.location.href).searchParams;
+    const activityMode = activityQuery.has("frame_id") && activityQuery.has("instance_id");
+    let reduceMotion = Boolean(motionQuery?.matches) || activityMode;
     const signalElement = root.document.getElementById("signalCode");
     const roomElement = root.document.getElementById("roomCodeInput");
     let width = 1;
@@ -227,7 +229,7 @@
     }
 
     function handleMotionPreference(event) {
-      reduceMotion = Boolean(event.matches);
+      reduceMotion = Boolean(event.matches) || activityMode;
       if (reduceMotion) {
         root.cancelAnimationFrame?.(frame);
         frame = 0;
@@ -253,7 +255,7 @@
     if (signalElement) observer.observe(signalElement, { childList: true, characterData: true, subtree: true });
     roomElement?.addEventListener("input", refreshField);
     root.addEventListener("resize", resize, { passive: true });
-    root.addEventListener("pointermove", handlePointerMove, { passive: true });
+    if (!activityMode) root.addEventListener("pointermove", handlePointerMove, { passive: true });
     root.document.addEventListener("visibilitychange", handleVisibility);
     motionQuery?.addEventListener("change", handleMotionPreference);
 
@@ -267,7 +269,7 @@
         root.cancelAnimationFrame?.(frame);
         roomElement?.removeEventListener("input", refreshField);
         root.removeEventListener("resize", resize);
-        root.removeEventListener("pointermove", handlePointerMove);
+        if (!activityMode) root.removeEventListener("pointermove", handlePointerMove);
         root.document.removeEventListener("visibilitychange", handleVisibility);
         motionQuery?.removeEventListener("change", handleMotionPreference);
       },

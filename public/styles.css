@@ -1750,6 +1750,250 @@ body[data-mode="canvas"] .mode-chip { color: #74e1ff; border-color: #74e1ff66; }
   }
 }
 
+/* Discord Activity: complete play surface tuned for an embedded shared viewport. */
+.activity-dock {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto auto;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 20px;
+  min-height: 76px;
+  padding: 12px 14px 12px 18px;
+  overflow: hidden;
+  border: 1px solid #4a6250;
+  background:
+    linear-gradient(110deg, rgba(173, 255, 102, .09), transparent 42%),
+    rgba(8, 14, 10, .96);
+  box-shadow: 0 16px 54px #0007, inset 3px 0 0 var(--acid);
+}
+
+.activity-dock::after {
+  content: "";
+  position: absolute;
+  right: 16%;
+  bottom: -46px;
+  width: 220px;
+  height: 80px;
+  border: 1px solid rgba(173, 255, 102, .16);
+  border-radius: 50%;
+  transform: rotate(-8deg);
+  pointer-events: none;
+}
+
+.activity-dock-copy {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 3px;
+}
+
+.activity-dock-mark {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--acid);
+  font: 700 8px var(--mono);
+  letter-spacing: .19em;
+}
+
+.activity-dock-mark i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 12px currentColor;
+}
+
+.activity-dock[data-state="authorizing"] .activity-dock-mark,
+.activity-dock[data-state="authenticating"] .activity-dock-mark { color: var(--gold); }
+
+.activity-dock[data-state="error"] {
+  border-color: rgba(255, 118, 87, .55);
+  box-shadow: 0 16px 54px #0007, inset 3px 0 0 var(--coral);
+}
+
+.activity-dock[data-state="error"] .activity-dock-mark { color: var(--coral); }
+.activity-dock-copy strong { font: 700 12px var(--mono); letter-spacing: .08em; }
+.activity-dock-copy small { color: var(--muted); font-size: 11px; line-height: 1.35; }
+
+.activity-dock-nav {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-auto-flow: column;
+  border: 1px solid var(--line);
+}
+
+.activity-dock-tab {
+  display: grid;
+  place-items: center;
+  min-height: 42px;
+  padding: 0 14px;
+  color: var(--muted);
+  background: rgba(6, 10, 8, .76);
+  font: 700 9px var(--mono);
+  letter-spacing: .12em;
+  text-decoration: none;
+}
+
+.activity-dock-tab + .activity-dock-tab { border-left: 1px solid var(--line); }
+.activity-dock-tab:hover,
+.activity-dock-tab:focus-visible { color: var(--paper); background: var(--panel-hover); }
+.activity-dock-tab.is-active { color: var(--ink); background: var(--acid); }
+
+.activity-dock-actions {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.activity-dock-actions button {
+  min-height: 42px;
+  padding: 0 13px;
+  border: 1px solid var(--acid);
+  color: var(--ink);
+  background: var(--acid);
+  font: 800 8px var(--mono);
+  letter-spacing: .12em;
+  cursor: pointer;
+}
+
+.activity-dock-actions button:disabled {
+  border-color: var(--line);
+  color: var(--dim);
+  background: rgba(16, 24, 19, .72);
+  cursor: wait;
+}
+
+#activityDockRetry {
+  border-color: var(--coral);
+  color: var(--paper);
+  background: rgba(255, 118, 87, .14);
+}
+
+.activity-dock-legal {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.activity-dock-explore {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.activity-dock-explore a,
+.activity-dock-legal a {
+  color: var(--dim);
+  font: 700 7px var(--mono);
+  letter-spacing: .12em;
+  text-decoration: none;
+}
+
+.activity-dock-explore a {
+  min-height: 20px;
+  color: var(--acid-soft);
+}
+
+.activity-dock-explore .activity-website-link { color: var(--paper); }
+.activity-dock-explore a:hover,
+.activity-dock-explore a:focus-visible,
+.activity-dock-legal a:hover,
+.activity-dock-legal a:focus-visible { color: var(--acid); }
+
+body.activity-mode { background: #060a07; }
+body.activity-mode .activity-dock { display: grid; }
+body.activity-mode::after { display: none; }
+body.activity-mode .signal-field,
+body.activity-mode .ambient,
+body.activity-mode .public-board,
+body.activity-mode .next-moves,
+body.activity-mode .site-footer { display: none; }
+
+body.activity-mode .product-header {
+  position: relative;
+  min-height: 58px;
+  padding-inline:
+    max(14px, var(--discord-safe-area-inset-left, 0px))
+    max(14px, var(--discord-safe-area-inset-right, 0px));
+  background: #070b09;
+  backdrop-filter: none;
+}
+
+body.activity-mode .product-header .brand { min-height: 44px; }
+body.activity-mode .product-header .site-nav a:nth-child(n + 3),
+body.activity-mode .product-header .account-control,
+body.activity-mode .product-header .system-status,
+body.activity-mode .product-header .sound-toggle,
+body.activity-mode .product-header .site-menu-toggle { display: none; }
+
+body.activity-mode .product-header .site-nav {
+  position: static;
+  display: flex;
+  justify-content: flex-end;
+  transform: none;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+body.activity-mode .arcade-shell {
+  width: min(calc(100% - 28px), 1320px);
+  grid-template-columns: minmax(0, 1.55fr) minmax(290px, .85fr);
+  gap: clamp(18px, 3vw, 42px);
+  padding-block:
+    max(14px, var(--discord-safe-area-inset-top, 0px))
+    max(24px, var(--discord-safe-area-inset-bottom, 0px));
+}
+
+body.activity-mode .game-console { box-shadow: 0 22px 62px #0009; }
+body.activity-mode .control-deck { padding-top: 0; }
+body.activity-mode .wallpaper-launch,
+body.activity-mode .career-card,
+body.activity-mode .control-deck .instructions { display: none; }
+
+@media (max-width: 960px) {
+  .activity-dock { grid-template-columns: 1fr auto; }
+  .activity-dock-nav { grid-row: 2; justify-self: start; }
+  .activity-dock-actions { grid-row: 2; grid-column: 2; }
+  body.activity-mode .arcade-shell {
+    grid-template-columns: minmax(0, 720px);
+    justify-content: center;
+  }
+}
+
+@media (max-width: 620px) {
+  body.activity-mode .product-header {
+    width: 100%;
+    grid-template-columns: auto 1fr;
+  }
+  body.activity-mode .product-header .site-nav { display: none; }
+  body.activity-mode .arcade-shell { width: min(100% - 16px, 620px); }
+  .activity-dock {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    padding: 13px;
+  }
+  .activity-dock-nav,
+  .activity-dock-actions {
+    grid-row: auto;
+    grid-column: 1;
+    justify-self: stretch;
+  }
+  .activity-dock-tab,
+  .activity-dock-actions button { min-height: 44px; }
+  .activity-dock-actions { grid-template-columns: 1fr 1fr; }
+  .activity-dock-explore,
+  .activity-dock-legal { justify-content: flex-start; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     scroll-behavior: auto !important;

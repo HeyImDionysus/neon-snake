@@ -1,6 +1,10 @@
 "use strict";
 
 const Rules = window.SnakeRules;
+const activityQuery = new URLSearchParams(location.search);
+const activityEmbedded = activityQuery.has("frame_id") && activityQuery.has("instance_id");
+const ACTIVITY_PIXEL_RATIO_CAP = 1.25;
+const ACTIVITY_IDLE_FRAME_INTERVAL = 50;
 const motionProgress = Rules.motionProgress || ((elapsed, duration) => {
   if (!Number.isFinite(elapsed) || !Number.isFinite(duration) || duration <= 0) return 1;
   return Math.min(1, Math.max(0, elapsed / duration));
@@ -167,6 +171,8 @@ let canvasCompositionName = "";
 let canvasCompositionActive = false;
 let lastFrame = performance.now();
 let renderFrame = 0;
+let lastActivityIdleFrame = -ACTIVITY_IDLE_FRAME_INTERVAL;
+let resizeFrame = 0;
 let lastGamepadPoll = 0;
 let gamepadDirection = "";
 let gamepadPausePressed = false;
@@ -439,7 +445,8 @@ function buildBoardBackdrop() {
 
 function resizeCanvas() {
   const cssSize = Math.max(1, boardWrap.getBoundingClientRect().width);
-  const pixelRatio = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+  const pixelRatioCap = activityEmbedded ? ACTIVITY_PIXEL_RATIO_CAP : 2;
+  const pixelRatio = Math.min(pixelRatioCap, Math.max(1, window.devicePixelRatio || 1));
   const backingSize = Math.max(1, Math.round(cssSize * pixelRatio));
   if (canvas.width === backingSize && canvas.height === backingSize) return;
 
@@ -480,7 +487,7 @@ function resizeCanvas() {
 
 function drawBoard(now) {
   ctx.drawImage(boardBackdrop, 0, 0);
-  drawBoardAtmosphere(now);
+  if (!activityEmbedded) drawBoardAtmosphere(now);
 
   if (activeMode === "canvas") drawCanvasPaint(now);
 
@@ -927,6 +934,18 @@ function updateEffects(delta) {
 function render(now) {
   renderFrame = 0;
   if (document.hidden) return;
+  if (
+    activityEmbedded
+    && runState !== "running"
+    && runState !== "countdown"
+    && now - lastActivityIdleFrame < ACTIVITY_IDLE_FRAME_INTERVAL
+  ) {
+    renderFrame = requestAnimationFrame(render);
+    return;
+  }
+  if (activityEmbedded && runState !== "running" && runState !== "countdown") {
+    lastActivityIdleFrame = now;
+  }
   const delta = Math.min(now - lastFrame, 34);
   lastFrame = now;
   updateEffects(delta);
@@ -1959,6 +1978,7 @@ function exportCanvasArtwork() {
 }
 
 function registerServiceWorker() {
+  if (activityEmbedded) return;
   const localSecureContext = location.hostname === "localhost" || location.hostname === "127.0.0.1";
   if ("serviceWorker" in navigator && (location.protocol === "https:" || localSecureContext)) {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
@@ -2130,10 +2150,17 @@ window.addEventListener("gamepadconnected", () => {
   announcement.textContent = "Gamepad connected.";
 });
 window.addEventListener("load", registerServiceWorker, { once: true });
+function scheduleResizeCanvas() {
+  if (resizeFrame) return;
+  resizeFrame = requestAnimationFrame(() => {
+    resizeFrame = 0;
+    resizeCanvas();
+  });
+}
 if ("ResizeObserver" in window) {
-  new ResizeObserver(resizeCanvas).observe(boardWrap);
+  new ResizeObserver(scheduleResizeCanvas).observe(boardWrap);
 } else {
-  window.addEventListener("resize", resizeCanvas);
+  window.addEventListener("resize", scheduleResizeCanvas);
 }
 
 soundButton.setAttribute("aria-pressed", String(soundEnabled));
