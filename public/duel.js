@@ -2,6 +2,10 @@
 
 const Rules = window.SnakeRules;
 const Transports = window.NeonSnakeTransports;
+const activityQuery = new URLSearchParams(location.search);
+const activityEmbedded = activityQuery.has("frame_id") && activityQuery.has("instance_id");
+const ACTIVITY_PIXEL_RATIO_CAP = 1.25;
+const ACTIVITY_IDLE_FRAME_INTERVAL = 50;
 const $ = (selector) => document.querySelector(selector);
 const canvas = $("#duelCanvas");
 const context = canvas.getContext("2d");
@@ -39,6 +43,7 @@ const roomSlotTwo = $("#roomSlotTwo");
 const activityContext = $("#activityContext");
 const activityContextTitle = $("#activityContextTitle");
 const activityContextDetail = $("#activityContextDetail");
+const activityContextRetry = $("#activityContextRetry");
 const activityLegalLinks = [...document.querySelectorAll(".activity-legal a")];
 
 const DUEL_GRID = Rules.duelGridSize(20);
@@ -91,6 +96,8 @@ let nextMoveAt = 0;
 let pausedMotion = 1;
 let countdownTimer = null;
 let frameHandle = null;
+let lastActivityIdleFrame = -ACTIVITY_IDLE_FRAME_INTERVAL;
+let resizeFrame = 0;
 let roomTransport = null;
 let roomSweep = null;
 let roomCode = "";
@@ -241,7 +248,8 @@ function placeFood() {
 
 function resizeCanvas() {
   const cssSize = Math.max(1, board.getBoundingClientRect().width);
-  const pixelRatio = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+  const pixelRatioCap = activityEmbedded ? ACTIVITY_PIXEL_RATIO_CAP : 2;
+  const pixelRatio = Math.min(pixelRatioCap, Math.max(1, window.devicePixelRatio || 1));
   const backingSize = Math.max(1, Math.round(cssSize * pixelRatio));
   if (canvas.width === backingSize && canvas.height === backingSize) return;
   canvas.width = backingSize;
@@ -350,7 +358,8 @@ function drawArena(now) {
 
   context.save();
   context.globalCompositeOperation = "lighter";
-  for (let index = 0; index < 28; index += 1) {
+  const arenaParticleCount = activityEmbedded ? 10 : 28;
+  for (let index = 0; index < arenaParticleCount; index += 1) {
     const x = ((index * 211 + 47) % 719) / 719 * width;
     const baseY = ((index * 149 + 31) % 709) / 709 * width;
     const y = (baseY + Math.sin(now * .00025 + index) * 4 + width) % width;
@@ -390,6 +399,18 @@ function drawFood(now) {
 function render(now) {
   frameHandle = null;
   if (document.hidden) return;
+  if (
+    activityEmbedded
+    && runState !== "running"
+    && runState !== "countdown"
+    && now - lastActivityIdleFrame < ACTIVITY_IDLE_FRAME_INTERVAL
+  ) {
+    frameHandle = requestAnimationFrame(render);
+    return;
+  }
+  if (activityEmbedded && runState !== "running" && runState !== "countdown") {
+    lastActivityIdleFrame = now;
+  }
   advanceGame(now);
   drawArena(now);
   drawFood(now);
@@ -1116,7 +1137,9 @@ async function connectLiveRoom() {
   connectRoomButton.disabled = false;
   roomSweep = setInterval(syncLiveRoom, 700);
   const url = new URL(window.location.href);
-  url.search = "";
+  url.search = activityEmbedded ? activityQuery.toString() : "";
+  url.searchParams.delete("room");
+  url.searchParams.delete("type");
   url.searchParams.set("room", roomCode);
   url.searchParams.set("type", "live");
   history.replaceState(null, "", url);
@@ -1471,6 +1494,7 @@ function handleTabKey(event) {
 }
 
 function registerServiceWorker() {
+  if (activityEmbedded) return;
   const localSecureContext = location.hostname === "localhost" || location.hostname === "127.0.0.1";
   if ("serviceWorker" in navigator && (location.protocol === "https:" || localSecureContext)) {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
@@ -1519,8 +1543,15 @@ window.addEventListener("beforeunload", () => {
   cancelAnimationFrame(frameHandle);
 });
 window.addEventListener("load", registerServiceWorker, { once: true });
-if ("ResizeObserver" in window) new ResizeObserver(resizeCanvas).observe(board);
-else window.addEventListener("resize", resizeCanvas);
+function scheduleResizeCanvas() {
+  if (resizeFrame) return;
+  resizeFrame = requestAnimationFrame(() => {
+    resizeFrame = 0;
+    resizeCanvas();
+  });
+}
+if ("ResizeObserver" in window) new ResizeObserver(scheduleResizeCanvas).observe(board);
+else window.addEventListener("resize", scheduleResizeCanvas);
 
 resizeCanvas();
 startRendering();
@@ -1536,34 +1567,59 @@ async function openActivityPolicy(event) {
   location.assign(url);
 }
 
+function renderActivityFailure(error) {
+  activityContext.classList.add("is-error");
+  activityContextTitle.textContent = "DISCORD LINK OFFLINE · LOCAL DUEL READY";
+  activityContextDetail.textContent = `${error?.message || "Discord authentication failed."} Return to Solo or retry the Activity connection.`;
+  activityContextRetry.hidden = false;
+  activityContextRetry.disabled = false;
+  roomState.textContent = "ACTIVITY AUTHENTICATION FAILED";
+  connectRoomButton.disabled = true;
+  const invited = hydrateRoomCode();
+  switchDuelType(invited ? "live" : "ai");
+}
+
 async function initializeDuelSurface() {
   if (globalThis.NeonSnakeActivity?.embedded) {
     activityContext.hidden = false;
     document.body.classList.add("activity-mode");
-    activityLegalLinks.forEach((link) => link.addEventListener("click", openActivityPolicy));
     try {
       const activity = await globalThis.NeonSnakeActivity.ready;
+      activityContext.classList.remove("is-error");
       activityContextTitle.textContent = "CHANNEL INSTANCE CONNECTED";
       activityContextDetail.textContent = `Shared room ${activity.roomCode} · authenticated as @${activity.user.username}`;
+      activityContextRetry.hidden = true;
+      activityContextRetry.disabled = false;
+      connectRoomButton.disabled = false;
       copyRoomButton.textContent = "INVITE";
       roomCodeInput.readOnly = true;
       document.querySelector(".duel-intro .section-kicker").textContent = "DISCORD ACTIVITY";
       document.querySelector("#duelTitle").innerHTML = "Your channel.<br><em>One live board.</em>";
       document.querySelector(".duel-intro > p").textContent = "Everyone in this Activity instance joins the same server-authoritative room. Press Ready when both players appear.";
-    } catch {
-      activityContext.classList.add("is-error");
-      activityContextTitle.textContent = "DISCORD ACTIVITY COULD NOT START";
-      activityContextDetail.textContent = "Close this Activity and launch it again from Discord.";
-      roomState.textContent = "ACTIVITY AUTHENTICATION FAILED";
-      connectRoomButton.disabled = true;
-      const invited = hydrateRoomCode();
-      switchDuelType(invited ? "live" : "ai");
+    } catch (error) {
+      renderActivityFailure(error);
       return;
     }
   }
   const invitedToLiveRoom = hydrateRoomCode();
   switchDuelType(invitedToLiveRoom ? "live" : "ai");
   if (invitedToLiveRoom) await connectLiveRoom();
+}
+
+activityContextRetry.addEventListener("click", async () => {
+  activityContextRetry.disabled = true;
+  activityContextTitle.textContent = "RECONNECTING TO DISCORD…";
+  activityContextDetail.textContent = "Local Autopilot remains available while the shared instance reconnects.";
+  try {
+    await globalThis.NeonSnakeActivity?.retry();
+    await initializeDuelSurface();
+  } catch (error) {
+    renderActivityFailure(error);
+  }
+});
+
+if (globalThis.NeonSnakeActivity?.embedded) {
+  activityLegalLinks.forEach((link) => link.addEventListener("click", openActivityPolicy));
 }
 
 void initializeDuelSurface();

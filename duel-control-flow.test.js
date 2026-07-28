@@ -46,6 +46,29 @@ this.exports = { ${names.join(", ")} };`,
 }
 
 const tests = [
+  ["repeated Activity authentication failure restores an actionable retry state", () => {
+    const context = {
+      activityContext: { classList: { add(value) { context.errorClass = value; } } },
+      activityContextTitle: { textContent: "" },
+      activityContextDetail: { textContent: "" },
+      activityContextRetry: { hidden: true, disabled: true },
+      roomState: { textContent: "" },
+      connectRoomButton: { disabled: false },
+      hydrateRoomCode() { return false; },
+      switchDuelType(value) { context.duelType = value; },
+    };
+    const { renderActivityFailure } = installFunctions(["renderActivityFailure"], context);
+    renderActivityFailure(new Error("Synthetic retry failure."));
+    assert.equal(context.errorClass, "is-error");
+    assert.match(context.activityContextTitle.textContent, /DISCORD LINK OFFLINE/);
+    assert.match(context.activityContextDetail.textContent, /Synthetic retry failure/);
+    assert.equal(context.activityContextRetry.hidden, false);
+    assert.equal(context.activityContextRetry.disabled, false);
+    assert.equal(context.connectRoomButton.disabled, true);
+    assert.equal(context.duelType, "ai");
+    assert.match(script, /catch \(error\) \{\s*renderActivityFailure\(error\);\s*\}\s*\}\);/);
+    assert.doesNotMatch(functionBody("initializeDuelSurface"), /addEventListener/);
+  }],
   ["duel page IDs are unique", () => {
     const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1]);
     assert.equal(ids.length, new Set(ids).size);

@@ -6,6 +6,8 @@
   const status = document.querySelector("#onlineLeaderboardStatus");
   const livePlayers = document.querySelector("#livePlayers");
   const livePlayerCount = document.querySelector("#livePlayerCount");
+  const activityQuery = new URLSearchParams(root.location?.search || "");
+  const embeddedActivity = activityQuery.has("frame_id") && activityQuery.has("instance_id");
 
   function element(tag, className, text) {
     const node = document.createElement(tag);
@@ -199,7 +201,9 @@
 
   root.NeonSnakeAccount = {
     profile: null,
-    refresh: () => Promise.all([loadAccount(), loadLeaderboard()]),
+    refresh: () => embeddedActivity
+      ? loadAccount()
+      : Promise.all([loadAccount(), loadLeaderboard()]),
   };
   root.addEventListener("neon-activity-ready", () => {
     void root.NeonSnakeAccount.refresh();
@@ -210,7 +214,7 @@
       .catch(() => {});
   }
   void root.NeonSnakeAccount.refresh();
-  if (leaderboard) {
+  if (leaderboard && !embeddedActivity) {
     setInterval(() => {
       if (!document.hidden) void loadLeaderboard();
     }, 12_000);

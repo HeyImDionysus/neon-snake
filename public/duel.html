@@ -13,6 +13,7 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="duel.css" />
+    <script src="activity-redirect.js"></script>
   </head>
   <body class="duel-page" data-duel-state="ready" data-duel-type="ai">
     <canvas class="signal-field" id="signalField" aria-hidden="true"></canvas>
@@ -56,6 +57,10 @@
         <span class="activity-context-mark">DISCORD ACTIVITY</span>
         <strong id="activityContextTitle">CONNECTING TO YOUR CHANNEL…</strong>
         <small id="activityContextDetail">Discord will securely identify this player and join the shared instance room.</small>
+        <nav class="activity-context-actions" aria-label="Activity navigation">
+          <a id="activitySoloLink" href="/" data-activity-route="solo">SOLO GAME</a>
+          <button id="activityContextRetry" type="button" hidden>RETRY DISCORD</button>
+        </nav>
       </section>
       <section class="duel-stage" aria-labelledby="duelTitle">
         <header class="duel-intro">
