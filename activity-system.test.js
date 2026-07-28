@@ -66,6 +66,7 @@ function request(url, {
   assert.match(entry, /neon-activity-stage/);
   assert.match(entry, /retry/);
   assert.match(entry, /TOKEN_TIMEOUT = 16_000/);
+  assert.match(entry, /EXTERNAL_LINK_TIMEOUT = 2_500/);
   assert.match(activityTokenApi, /from "\.\.\/\.\.\/server\/account-core\.cjs"/);
   assert.match(activityTokenApi, /request\.url = "\/api\/activity\/token"/);
   assert.equal(fs.existsSync(path.join(root, "api", "activity-token.mjs")), false);
@@ -73,6 +74,8 @@ function request(url, {
   assert.match(entry, /commands\.authenticate/);
   assert.match(entry, /commands\.openInviteDialog/);
   assert.match(entry, /commands\.openExternalLink\(\{ url \}\)/);
+  assert.match(entry, /if \(!sdk \|\| !connected\) return false/);
+  assert.match(entry, /EXTERNAL_LINK_TIMEOUT,\s*"Discord did not open the external link in time\."/);
   assert.match(entry, /setOrientationLockState/);
   assert.match(entry, /query\.has\("frame_id"\) && query\.has\("instance_id"\)/);
   assert.doesNotMatch(redirect, /location\.replace\(destination\)/);
@@ -109,6 +112,7 @@ function request(url, {
   assert.match(duelHtml, /src="activity-sdk\.js"/);
   assert.match(duel, /NeonSnakeActivity\.ready/);
   assert.match(duel, /NeonSnakeActivity\?\.retry\(\)/);
+  assert.match(duel, /catch \(error\) \{\s*renderActivityFailure\(error\)/);
   assert.match(duel, /url\.search = activityEmbedded \? activityQuery\.toString\(\) : ""/);
   assert.match(duel, /await globalThis\.NeonSnakeActivity\.invite\(\)/);
   assert.match(duel, /NeonSnakeActivity\.openExternal\(url\)/);

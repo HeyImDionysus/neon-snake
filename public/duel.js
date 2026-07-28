@@ -1567,11 +1567,22 @@ async function openActivityPolicy(event) {
   location.assign(url);
 }
 
+function renderActivityFailure(error) {
+  activityContext.classList.add("is-error");
+  activityContextTitle.textContent = "DISCORD LINK OFFLINE · LOCAL DUEL READY";
+  activityContextDetail.textContent = `${error?.message || "Discord authentication failed."} Return to Solo or retry the Activity connection.`;
+  activityContextRetry.hidden = false;
+  activityContextRetry.disabled = false;
+  roomState.textContent = "ACTIVITY AUTHENTICATION FAILED";
+  connectRoomButton.disabled = true;
+  const invited = hydrateRoomCode();
+  switchDuelType(invited ? "live" : "ai");
+}
+
 async function initializeDuelSurface() {
   if (globalThis.NeonSnakeActivity?.embedded) {
     activityContext.hidden = false;
     document.body.classList.add("activity-mode");
-    activityLegalLinks.forEach((link) => link.addEventListener("click", openActivityPolicy));
     try {
       const activity = await globalThis.NeonSnakeActivity.ready;
       activityContext.classList.remove("is-error");
@@ -1586,15 +1597,7 @@ async function initializeDuelSurface() {
       document.querySelector("#duelTitle").innerHTML = "Your channel.<br><em>One live board.</em>";
       document.querySelector(".duel-intro > p").textContent = "Everyone in this Activity instance joins the same server-authoritative room. Press Ready when both players appear.";
     } catch (error) {
-      activityContext.classList.add("is-error");
-      activityContextTitle.textContent = "DISCORD LINK OFFLINE · LOCAL DUEL READY";
-      activityContextDetail.textContent = `${error?.message || "Discord authentication failed."} Return to Solo or retry the Activity connection.`;
-      activityContextRetry.hidden = false;
-      activityContextRetry.disabled = false;
-      roomState.textContent = "ACTIVITY AUTHENTICATION FAILED";
-      connectRoomButton.disabled = true;
-      const invited = hydrateRoomCode();
-      switchDuelType(invited ? "live" : "ai");
+      renderActivityFailure(error);
       return;
     }
   }
@@ -1610,9 +1613,13 @@ activityContextRetry.addEventListener("click", async () => {
   try {
     await globalThis.NeonSnakeActivity?.retry();
     await initializeDuelSurface();
-  } catch {
-    // initializeDuelSurface renders the actionable failure and keeps local play available.
+  } catch (error) {
+    renderActivityFailure(error);
   }
 });
+
+if (globalThis.NeonSnakeActivity?.embedded) {
+  activityLegalLinks.forEach((link) => link.addEventListener("click", openActivityPolicy));
+}
 
 void initializeDuelSurface();

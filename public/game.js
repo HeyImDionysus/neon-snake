@@ -5,6 +5,7 @@ const activityQuery = new URLSearchParams(location.search);
 const activityEmbedded = activityQuery.has("frame_id") && activityQuery.has("instance_id");
 const ACTIVITY_PIXEL_RATIO_CAP = 1.25;
 const ACTIVITY_IDLE_FRAME_INTERVAL = 50;
+const PUBLIC_SITE_ORIGIN = "https://neon-snake-green-tau.vercel.app";
 const motionProgress = Rules.motionProgress || ((elapsed, duration) => {
   if (!Number.isFinite(elapsed) || !Number.isFinite(duration) || duration <= 0) return 1;
   return Math.min(1, Math.max(0, elapsed / duration));
@@ -290,6 +291,14 @@ function challengeUrl() {
   url.searchParams.delete("signal");
   url.searchParams.delete("mode");
   url.searchParams.delete("pace");
+  url.searchParams.set("signal", runSignal);
+  url.searchParams.set("mode", activeMode);
+  url.searchParams.set("pace", difficultySelect.value);
+  return url;
+}
+
+function publicChallengeUrl() {
+  const url = new URL("/", PUBLIC_SITE_ORIGIN);
   url.searchParams.set("signal", runSignal);
   url.searchParams.set("mode", activeMode);
   url.searchParams.set("pace", difficultySelect.value);
@@ -1883,7 +1892,7 @@ function toggleLens() {
 }
 
 async function shareGame() {
-  const url = challengeUrl();
+  const url = publicChallengeUrl();
   const dna = runState === "over"
     ? ` Decision DNA: ${lastDecisionProfile.style} (${lastDecisionProfile.alignment}% engine match).`
     : "";

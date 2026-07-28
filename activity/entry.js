@@ -8,10 +8,12 @@ const SIGNAL_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const READY_TIMEOUT = 8_000;
 const COMMAND_TIMEOUT = 15_000;
 const TOKEN_TIMEOUT = 16_000;
+const EXTERNAL_LINK_TIMEOUT = 2_500;
 const query = new URLSearchParams(location.search);
 const embedded = query.has("frame_id") && query.has("instance_id");
 let sdk = null;
 let readyPromise = null;
+let connected = false;
 
 function instanceSignal(value) {
   let hash = 2166136261;
@@ -48,6 +50,7 @@ function withTimeout(promise, timeout, message) {
 
 async function initialize() {
   if (!embedded) return null;
+  connected = false;
   document.documentElement.classList.add("activity-mode");
   document.body?.classList.add("activity-mode");
   stage(
@@ -131,6 +134,7 @@ async function initialize() {
     roomCode,
     user: auth.user,
   };
+  connected = true;
   stage(
     "connected",
     "CHANNEL INSTANCE CONNECTED",
@@ -147,8 +151,12 @@ async function invite() {
 }
 
 async function openExternal(url) {
-  if (!sdk) return false;
-  const result = await sdk.commands.openExternalLink({ url });
+  if (!sdk || !connected) return false;
+  const result = await withTimeout(
+    sdk.commands.openExternalLink({ url }),
+    EXTERNAL_LINK_TIMEOUT,
+    "Discord did not open the external link in time.",
+  );
   return result?.opened === true;
 }
 
@@ -156,6 +164,7 @@ function begin({ force = false } = {}) {
   if (!embedded) return Promise.resolve(null);
   if (readyPromise && !force) return readyPromise;
   const attempt = initialize().catch((error) => {
+    connected = false;
     const message = error instanceof Error ? error.message : "Activity startup failed.";
     stage(
       "error",
@@ -171,6 +180,7 @@ function begin({ force = false } = {}) {
 }
 
 function retry() {
+  connected = false;
   sdk = null;
   return begin({ force: true });
 }

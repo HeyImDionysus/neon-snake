@@ -84,6 +84,25 @@ const tests = [
     assert.equal(result.searchParams.get("mode"), "canvas");
     assert.equal(result.searchParams.get("pace"), "overdrive");
   }],
+  ["shared challenges use the canonical public site without Discord identity", () => {
+    const context = {
+      URL,
+      PUBLIC_SITE_ORIGIN: "https://neon-snake-green-tau.vercel.app",
+      activeMode: "classic",
+      difficultySelect: { value: "arcade" },
+      runSignal: "PUB234",
+    };
+    vm.runInNewContext(`${functionBody("publicChallengeUrl")}\nthis.result = publicChallengeUrl().href;`, context);
+    const result = new URL(context.result);
+    assert.equal(result.origin, "https://neon-snake-green-tau.vercel.app");
+    assert.equal(result.pathname, "/");
+    assert.equal(result.searchParams.get("signal"), "PUB234");
+    assert.equal(result.searchParams.get("mode"), "classic");
+    assert.equal(result.searchParams.get("pace"), "arcade");
+    assert.equal(result.searchParams.has("frame_id"), false);
+    assert.equal(result.searchParams.has("instance_id"), false);
+    assert.match(functionBody("shareGame"), /const url = publicChallengeUrl\(\)/);
+  }],
   ["direction input cannot start or replace a run", () => {
     const body = functionBody("requestDirection");
     assert.ok(!body.includes("prepareRun("));
