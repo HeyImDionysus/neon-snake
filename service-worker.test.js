@@ -114,12 +114,12 @@ async function main() {
   const shell = stores.get(activeName);
   assert.ok(activeName, "Expected a versioned shell cache");
   assert.equal(skipWaitingCalls, 1);
-  ["/index.html", "/duel.html", "/downloads.html", "/downloads.js", "/profile.html", "/privacy.html", "/terms.html", "/legal.css", "/wallpaper.html", "/assets/icon-192.png", "/assets/icon-512.png"].forEach((url) => {
+  ["/index.html", "/duel.html", "/activity-boot.css", "/activity-boot.js", "/styles.css?v=81", "/activity-boot.js?v=81", "/activity-redirect.js?v=81", "/game.js?v=81", "/duel.js?v=81", "/downloads.html", "/downloads.js", "/profile.html", "/privacy.html", "/terms.html", "/legal.css", "/wallpaper.html", "/assets/icon-192.png", "/assets/icon-512.png"].forEach((url) => {
     assert.ok(shell.has(requestKey(url)), `Install omitted ${url}`);
   });
   process.stdout.write("PASS install primes the complete versioned app shell\n");
 
-  assert.match(source, /neon-snake-shell-v80/);
+  assert.match(source, /neon-snake-shell-v81/);
   process.stdout.write("PASS product redesign ships behind a fresh shell cache version\n");
 
   stores.set("neon-snake-shell-stale", new Map());
@@ -152,6 +152,14 @@ async function main() {
   sandbox.fetch = async () => {
     throw new Error("offline");
   };
+  const versionedAssetFallback = await dispatchFetch({
+    method: "GET",
+    mode: "no-cors",
+    url: `${origin}/game.js?v=81`,
+  });
+  assert.equal(versionedAssetFallback.body, "shell:/game.js?v=81");
+  process.stdout.write("PASS offline public entry resolves exact versioned assets\n");
+
   const soloFallback = await dispatchFetch({
     method: "GET",
     mode: "navigate",
@@ -196,7 +204,7 @@ async function main() {
   assert.equal(termsFallback.body, "shell:/terms.html");
   process.stdout.write("PASS offline navigation preserves game, profile, legal, and wallpaper routes\n");
 
-  process.stdout.write("\n6 deterministic service-worker lifecycle tests passed.\n");
+  process.stdout.write("\n7 deterministic service-worker lifecycle tests passed.\n");
 }
 
 main().catch((error) => {

@@ -1,10 +1,12 @@
 "use strict";
 
-const CACHE_NAME = "neon-snake-shell-v80";
+const CACHE_NAME = "neon-snake-shell-v81";
 const APP_SHELL = [
   "/",
   "/index.html",
   "/styles.css",
+  "/activity-boot.css",
+  "/activity-boot.js",
   "/duel.html",
   "/activity-redirect.js",
   "/activity-sdk.js",
@@ -32,6 +34,21 @@ const APP_SHELL = [
   "/signal-field.js",
   "/game-logic.js",
   "/game.js",
+  "/activity-boot.css?v=81",
+  "/styles.css?v=81",
+  "/duel.css?v=81",
+  "/activity-boot.js?v=81",
+  "/activity-redirect.js?v=81",
+  "/signal-field.js?v=81",
+  "/site-shell.js?v=81",
+  "/runtime-config.js?v=81",
+  "/activity-sdk.js?v=81",
+  "/account.js?v=81",
+  "/game-logic.js?v=81",
+  "/room-transport.js?v=81",
+  "/touch-controls.js?v=81",
+  "/game.js?v=81",
+  "/duel.js?v=81",
   "/manifest.webmanifest",
   "/assets/signal-mark.svg",
   "/assets/icon.svg",

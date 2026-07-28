@@ -3,7 +3,7 @@
 const Rules = window.SnakeRules;
 const Transports = window.NeonSnakeTransports;
 const activityQuery = new URLSearchParams(location.search);
-const activityEmbedded = activityQuery.has("frame_id") && activityQuery.has("instance_id");
+const activityEmbedded = activityQuery.has("frame_id");
 const ACTIVITY_PIXEL_RATIO_CAP = 1.25;
 const ACTIVITY_IDLE_FRAME_INTERVAL = 50;
 const $ = (selector) => document.querySelector(selector);

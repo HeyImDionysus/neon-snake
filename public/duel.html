@@ -11,11 +11,19 @@
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/assets/icon-180.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css" />
-    <link rel="stylesheet" href="duel.css" />
-    <script src="activity-redirect.js"></script>
+    <link rel="stylesheet" href="activity-boot.css?v=81" />
+    <link rel="stylesheet" href="styles.css?v=81" />
+    <link rel="stylesheet" href="duel.css?v=81" />
   </head>
   <body class="duel-page" data-duel-state="ready" data-duel-type="ai">
+    <div class="activity-boot-status" id="activityBootStatus" role="status" aria-live="polite">
+      <div>
+        <strong>OPENING NEON SNAKE</strong>
+        <span>Preparing multiplayer…</span>
+      </div>
+    </div>
+    <script src="activity-boot.js?v=81"></script>
+    <script src="activity-redirect.js?v=81" data-activity-critical></script>
     <canvas class="signal-field" id="signalField" aria-hidden="true"></canvas>
     <div class="ambient ambient-one" aria-hidden="true"></div>
     <div class="ambient ambient-two" aria-hidden="true"></div>
@@ -234,14 +242,14 @@
     </main>
 
     <p class="sr-only" id="duelAnnouncement" aria-live="assertive"></p>
-    <script src="signal-field.js"></script>
-    <script src="site-shell.js"></script>
-    <script src="runtime-config.js"></script>
-    <script src="activity-sdk.js"></script>
-    <script src="account.js"></script>
-    <script src="game-logic.js"></script>
-    <script src="room-transport.js"></script>
-    <script src="touch-controls.js"></script>
-    <script src="duel.js"></script>
+    <script src="signal-field.js?v=81"></script>
+    <script src="site-shell.js?v=81"></script>
+    <script src="runtime-config.js?v=81"></script>
+    <script src="activity-sdk.js?v=81"></script>
+    <script src="account.js?v=81"></script>
+    <script src="game-logic.js?v=81" data-activity-critical></script>
+    <script src="room-transport.js?v=81" data-activity-critical></script>
+    <script src="touch-controls.js?v=81" data-activity-critical></script>
+    <script src="duel.js?v=81" data-activity-critical></script>
   </body>
 </html>
