@@ -6,6 +6,7 @@
 
   document.documentElement.classList.add("activity-mode");
   let settled = false;
+  let failureDetail = "";
   let status = null;
   let timer = null;
 
@@ -26,6 +27,7 @@
   }
 
   function ready() {
+    if (failureDetail) return;
     settled = true;
     clearTimeout(timer);
     const node = findStatus();
@@ -35,8 +37,8 @@
   function failed(reason) {
     settled = true;
     clearTimeout(timer);
-    const detail = reason instanceof Error ? reason.message : String(reason || "Unknown startup error.");
-    show("error", "ACTIVITY FAILED TO START", `${detail} Close and reopen the Activity to retry.`);
+    failureDetail = reason instanceof Error ? reason.message : String(reason || "Unknown startup error.");
+    show("error", "ACTIVITY FAILED TO START", `${failureDetail} Close and reopen the Activity to retry.`);
   }
 
   addEventListener("error", (event) => {
@@ -47,6 +49,14 @@
   });
 
   function begin() {
+    if (failureDetail) {
+      show(
+        "error",
+        "ACTIVITY FAILED TO START",
+        `${failureDetail} Close and reopen the Activity to retry.`,
+      );
+      return;
+    }
     show("loading", "OPENING NEON SNAKE", "Preparing the game inside Discord…");
     timer = setTimeout(() => {
       if (!settled) {

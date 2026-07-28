@@ -227,6 +227,21 @@ const activityIndexBrowserTest = String.raw`
 })();
 `;
 
+const activityEarlyFailureBrowserTest = String.raw`
+(async () => {
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  const status = document.querySelector("#activityBootStatus");
+  const resultNode = document.querySelector("#activityEarlyFailureResult");
+  resultNode.dataset.json = encodeURIComponent(JSON.stringify({
+    hidden: status.hidden,
+    state: status.dataset.state,
+    title: status.querySelector("strong").textContent,
+    detail: status.querySelector("span").textContent,
+  }));
+  resultNode.textContent = "complete";
+})();
+`;
+
 const documentSource = downloads
   .replace(/<link\b[^>]*>/g, "")
   .replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, "")
@@ -266,13 +281,30 @@ const activityIndexDocumentSource = index
       + "</body>",
   );
 
+const activityEarlyFailureDocumentSource = index
+  .replace(/<link\b[^>]*>/g, "")
+  .replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, "")
+  .replace("</head>", `<style>${activityBootStyles}\n${styles}</style></head>`)
+  .replace(
+    "</body>",
+    `<pre id="activityEarlyFailureResult" data-json=""></pre>`
+      + `<script>${escapeScript(activityServiceWorkerStub)}</script>`
+      + `<script>${escapeScript(activityBoot)}</script>`
+      + `<script>window.NeonSnakeActivityBoot.failed(new Error("Synthetic pre-DOM failure."));</script>`
+      + `<script>${escapeScript(activityRedirect)}</script>`
+      + `<script>${escapeScript(activityEarlyFailureBrowserTest)}</script>`
+      + "</body>",
+  );
+
 const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "neon-product-"));
 const htmlPath = path.join(temporaryDirectory, "product-browser.html");
 const activityHtmlPath = path.join(temporaryDirectory, "activity-browser.html");
 const activityIndexHtmlPath = path.join(temporaryDirectory, "activity-index-browser.html");
+const activityEarlyFailureHtmlPath = path.join(temporaryDirectory, "activity-early-failure-browser.html");
 fs.writeFileSync(htmlPath, documentSource);
 fs.writeFileSync(activityHtmlPath, activityDocumentSource);
 fs.writeFileSync(activityIndexHtmlPath, activityIndexDocumentSource);
+fs.writeFileSync(activityEarlyFailureHtmlPath, activityEarlyFailureDocumentSource);
 
 try {
   const browser = spawnSync(chrome, [
@@ -428,6 +460,42 @@ try {
       state: "error",
       title: "ACTIVITY FAILED TO START",
     },
+  });
+
+  const activityEarlyFailureBrowser = spawnSync(chrome, [
+    "--headless=new",
+    "--no-sandbox",
+    "--disable-background-networking",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--window-size=1280,800",
+    "--virtual-time-budget=1000",
+    "--dump-dom",
+    `${pathToFileURL(activityEarlyFailureHtmlPath).href}?frame_id=early-failure-frame`,
+  ], {
+    encoding: "utf8",
+    maxBuffer: 10 * 1024 * 1024,
+    timeout: 30_000,
+  });
+  assert.equal(
+    activityEarlyFailureBrowser.status,
+    0,
+    `Early-failure Activity Chromium failed (${activityEarlyFailureBrowser.status}): ${activityEarlyFailureBrowser.stderr?.slice(-2000)}`,
+  );
+  const activityEarlyFailureEncoded = activityEarlyFailureBrowser.stdout
+    .match(/id="activityEarlyFailureResult" data-json="([^"]+)"/)?.[1];
+  assert.ok(
+    activityEarlyFailureEncoded,
+    `Missing early-failure Activity result: ${activityEarlyFailureBrowser.stdout.slice(-3000)}`,
+  );
+  const activityEarlyFailureResult = JSON.parse(
+    decodeURIComponent(activityEarlyFailureEncoded.replaceAll("&amp;", "&")),
+  );
+  assert.deepEqual(activityEarlyFailureResult, {
+    hidden: false,
+    state: "error",
+    title: "ACTIVITY FAILED TO START",
+    detail: "Synthetic pre-DOM failure. Close and reopen the Activity to retry.",
   });
   process.stdout.write("PASS mobile site and embedded Activity controls, policy links, and download feedback work in real browsers\n");
 } finally {

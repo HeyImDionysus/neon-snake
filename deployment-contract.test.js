@@ -21,7 +21,7 @@ const packageManifest = JSON.parse(fs.readFileSync(path.join(root, "package.json
 
 function publicPath(urlPath) {
   if (urlPath === "/") return path.join(publicRoot, "index.html");
-  return path.join(publicRoot, urlPath.replace(/^\/+/, ""));
+  return path.join(publicRoot, urlPath.split(/[?#]/, 1)[0].replace(/^\/+/, ""));
 }
 
 function localReferences(htmlFile) {
@@ -95,6 +95,11 @@ const tests = [
   }],
   ["Discord Activity entry assets use one explicit cache-busting release", () => {
     const expectedVersion = "81";
+    const shell = serviceWorker.match(/const APP_SHELL = \[([^]*?)\];/);
+    assert.ok(shell, "Expected an APP_SHELL declaration");
+    const cachedUrls = new Set(
+      [...shell[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]),
+    );
     ["index.html", "duel.html"].forEach((name) => {
       const htmlFile = path.join(publicRoot, name);
       const mutableAssets = localReferences(htmlFile).filter((reference) => {
@@ -113,6 +118,10 @@ const tests = [
           [...asset.searchParams.keys()].length,
           1,
           `Unexpected cache-key parameters on ${reference}`,
+        );
+        assert.ok(
+          cachedUrls.has(`${asset.pathname}${asset.search}`),
+          `Offline shell omits exact versioned asset ${reference}`,
         );
       });
     });
