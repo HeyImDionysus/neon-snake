@@ -50,14 +50,14 @@ function waitForFixture(url) {
   throw new Error(`Browser fixture did not start: ${url}`);
 }
 
-function runShippedActivityFixture(mode) {
-  const port = fixturePort(mode);
+function runShippedActivityFixture(mode, page = "/") {
+  const port = fixturePort(`${mode}:${page}`);
   const server = spawn(
     process.execPath,
     [path.join(root, "browser-fixture-server.cjs"), path.join(root, "public"), String(port), mode],
     { stdio: ["ignore", "ignore", "pipe"] },
   );
-  const url = `http://127.0.0.1:${port}/?frame_id=fixture-${port}`;
+  const url = `http://127.0.0.1:${port}${page}?frame_id=fixture-${port}`;
   try {
     waitForFixture(`http://127.0.0.1:${port}/manifest.webmanifest`);
     const browser = spawnSync(chrome, [
@@ -635,6 +635,16 @@ try {
     shippedBootSnapshot(runShippedActivityFixture("fail:activity-boot.js")),
     { hidden: false, state: "", failed: false },
     "The shipped fallback must remain visible when its external guard cannot load.",
+  );
+  assert.deepEqual(
+    shippedBootSnapshot(runShippedActivityFixture("fail:styles.css")),
+    { hidden: false, state: "error", failed: true },
+    "A failed solo stylesheet must remain an explicit shipped Activity startup failure.",
+  );
+  assert.deepEqual(
+    shippedBootSnapshot(runShippedActivityFixture("fail:duel.css", "/duel.html")),
+    { hidden: false, state: "error", failed: true },
+    "A failed duel stylesheet must remain an explicit shipped Activity startup failure.",
   );
   for (const optionalMode of [
     "fail:signal-field.js",

@@ -98,7 +98,9 @@ function request(url, {
   assert.match(activityBoot, /removeEventListener\("error", handleBootError, true\)/);
   assert.match(activityBoot, /hasAttribute\("data-activity-critical"\)/);
   assert.match(activityBoot, /belongsToCriticalScript/);
-  assert.match(activityBoot, /link\[rel~="stylesheet"\]/);
+  assert.match(activityBoot, /verifyRequiredStylesheets/);
+  assert.match(activityBoot, /cache: "force-cache"/);
+  assert.match(activityBoot, /if \(!resourceChecksComplete\)/);
   assert.match(activityBoot, /new MutationObserver/);
   assert.doesNotMatch(activityBoot, /DOMContentLoaded/);
   assert.match(activityBootCss, /\.activity-boot-status\[hidden\]/);

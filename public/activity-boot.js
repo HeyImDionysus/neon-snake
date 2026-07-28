@@ -14,6 +14,8 @@
   let failureDetail = "";
   let timer = null;
   let statusObserver = null;
+  let resourceChecksComplete = false;
+  let readyRequested = false;
   const openingDetail = document.body?.classList.contains("duel-page")
     ? "Preparing multiplayer inside Discord…"
     : "Preparing the game inside Discord…";
@@ -47,6 +49,10 @@
 
   function ready() {
     if (bootFailed || bootComplete) return;
+    if (!resourceChecksComplete) {
+      readyRequested = true;
+      return;
+    }
     bootComplete = true;
     clearTimeout(timer);
     statusObserver?.disconnect();
@@ -110,13 +116,25 @@
     }
   }
 
+  async function verifyRequiredStylesheets() {
+    const stylesheets = [...document.querySelectorAll('link[rel~="stylesheet"]')];
+    await Promise.all(stylesheets.map(async (stylesheet) => {
+      const response = await fetch(stylesheet.href, {
+        cache: "force-cache",
+        credentials: "same-origin",
+      });
+      if (!response.ok) {
+        const resource = new URL(stylesheet.href).pathname.split("/").pop();
+        throw new Error(`A required Activity file could not load (${resource}).`);
+      }
+    }));
+    resourceChecksComplete = true;
+    if (readyRequested) ready();
+  }
+
   addEventListener("error", handleBootError, true);
   addEventListener("unhandledrejection", handleBootRejection);
-  document.querySelectorAll('link[rel~="stylesheet"]').forEach((stylesheet) => {
-    if (!stylesheet.sheet) {
-      handleBootError({ target: stylesheet });
-    }
-  });
+  void verifyRequiredStylesheets().catch(failed);
 
   statusObserver = new MutationObserver(() => {
     if (renderStatus()) statusObserver.disconnect();
