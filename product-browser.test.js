@@ -193,13 +193,8 @@ const activityIndexBrowserTest = String.raw`
   await new Promise((resolve) => setTimeout(resolve, 0));
   const resultNode = document.querySelector("#activityIndexResult");
   const bootReadyHidden = document.querySelector("#activityBootStatus").hidden;
-  dispatchEvent(new ErrorEvent("error", { message: "Synthetic bundle failure." }));
-  const bootFailure = {
-    hidden: document.querySelector("#activityBootStatus").hidden,
-    state: document.querySelector("#activityBootStatus").dataset.state,
-    title: document.querySelector("#activityBootStatus strong").textContent,
-  };
-  window.NeonSnakeActivityBoot.ready();
+  dispatchEvent(new ErrorEvent("error", { message: "Synthetic post-ready action failure." }));
+  const bootStillHiddenAfterReady = document.querySelector("#activityBootStatus").hidden;
   resultNode.dataset.json = encodeURIComponent(JSON.stringify({
     dockVisible: getComputedStyle(dock).display !== "none",
     gameVisible: getComputedStyle(document.querySelector(".game-column")).display !== "none",
@@ -221,7 +216,7 @@ const activityIndexBrowserTest = String.raw`
     websiteHost: new URL(document.querySelector("#activityWebsiteLink").href).host,
     activityUnregisters: window.activityUnregisters,
     bootReadyHidden,
-    bootFailure,
+    bootStillHiddenAfterReady,
   }));
   resultNode.textContent = "complete";
 })();
@@ -290,7 +285,28 @@ const activityEarlyFailureDocumentSource = index
     `<pre id="activityEarlyFailureResult" data-json=""></pre>`
       + `<script>${escapeScript(activityServiceWorkerStub)}</script>`
       + `<script>${escapeScript(activityBoot)}</script>`
-      + `<script>window.NeonSnakeActivityBoot.failed(new Error("Synthetic pre-DOM failure."));</script>`
+      + `<script>window.NeonSnakeActivityBoot.failed(new Error());</script>`
+      + `<script>${escapeScript(activityRedirect)}</script>`
+      + `<script>${escapeScript(activityEarlyFailureBrowserTest)}</script>`
+      + "</body>",
+  );
+
+const activityResourceFailureDocumentSource = index
+  .replace(/<link\b[^>]*>/g, "")
+  .replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, "")
+  .replace("</head>", `<style>${activityBootStyles}\n${styles}</style></head>`)
+  .replace(
+    "</body>",
+    `<pre id="activityEarlyFailureResult" data-json=""></pre>`
+      + `<script>${escapeScript(activityServiceWorkerStub)}</script>`
+      + `<script>${escapeScript(activityBoot)}</script>`
+      + `<script>`
+      + `const failedResource = document.createElement("script");`
+      + `failedResource.src = "synthetic-missing.js";`
+      + `document.head.appendChild(failedResource);`
+      + `failedResource.dispatchEvent(new Event("error"));`
+      + `failedResource.remove();`
+      + `</script>`
       + `<script>${escapeScript(activityRedirect)}</script>`
       + `<script>${escapeScript(activityEarlyFailureBrowserTest)}</script>`
       + "</body>",
@@ -301,10 +317,12 @@ const htmlPath = path.join(temporaryDirectory, "product-browser.html");
 const activityHtmlPath = path.join(temporaryDirectory, "activity-browser.html");
 const activityIndexHtmlPath = path.join(temporaryDirectory, "activity-index-browser.html");
 const activityEarlyFailureHtmlPath = path.join(temporaryDirectory, "activity-early-failure-browser.html");
+const activityResourceFailureHtmlPath = path.join(temporaryDirectory, "activity-resource-failure-browser.html");
 fs.writeFileSync(htmlPath, documentSource);
 fs.writeFileSync(activityHtmlPath, activityDocumentSource);
 fs.writeFileSync(activityIndexHtmlPath, activityIndexDocumentSource);
 fs.writeFileSync(activityEarlyFailureHtmlPath, activityEarlyFailureDocumentSource);
+fs.writeFileSync(activityResourceFailureHtmlPath, activityResourceFailureDocumentSource);
 
 try {
   const browser = spawnSync(chrome, [
@@ -455,11 +473,7 @@ try {
     websiteHost: "neon-snake-green-tau.vercel.app",
     activityUnregisters: 1,
     bootReadyHidden: true,
-    bootFailure: {
-      hidden: false,
-      state: "error",
-      title: "ACTIVITY FAILED TO START",
-    },
+    bootStillHiddenAfterReady: true,
   });
 
   const activityEarlyFailureBrowser = spawnSync(chrome, [
@@ -495,7 +509,43 @@ try {
     hidden: false,
     state: "error",
     title: "ACTIVITY FAILED TO START",
-    detail: "Synthetic pre-DOM failure. Close and reopen the Activity to retry.",
+    detail: "Unknown startup error. Close and reopen the Activity to retry.",
+  });
+
+  const activityResourceFailureBrowser = spawnSync(chrome, [
+    "--headless=new",
+    "--no-sandbox",
+    "--disable-background-networking",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--window-size=1280,800",
+    "--virtual-time-budget=1000",
+    "--dump-dom",
+    `${pathToFileURL(activityResourceFailureHtmlPath).href}?frame_id=resource-failure-frame`,
+  ], {
+    encoding: "utf8",
+    maxBuffer: 10 * 1024 * 1024,
+    timeout: 30_000,
+  });
+  assert.equal(
+    activityResourceFailureBrowser.status,
+    0,
+    `Resource-failure Activity Chromium failed (${activityResourceFailureBrowser.status}): ${activityResourceFailureBrowser.stderr?.slice(-2000)}`,
+  );
+  const activityResourceFailureEncoded = activityResourceFailureBrowser.stdout
+    .match(/id="activityEarlyFailureResult" data-json="([^"]+)"/)?.[1];
+  assert.ok(
+    activityResourceFailureEncoded,
+    `Missing resource-failure Activity result: ${activityResourceFailureBrowser.stdout.slice(-3000)}`,
+  );
+  const activityResourceFailureResult = JSON.parse(
+    decodeURIComponent(activityResourceFailureEncoded.replaceAll("&amp;", "&")),
+  );
+  assert.deepEqual(activityResourceFailureResult, {
+    hidden: false,
+    state: "error",
+    title: "ACTIVITY FAILED TO START",
+    detail: "A required Activity file could not load (synthetic-missing.js). Close and reopen the Activity to retry.",
   });
   process.stdout.write("PASS mobile site and embedded Activity controls, policy links, and download feedback work in real browsers\n");
 } finally {

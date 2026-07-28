@@ -5,7 +5,8 @@
   if (!embedded) return;
 
   document.documentElement.classList.add("activity-mode");
-  let settled = false;
+  let bootComplete = false;
+  let bootFailed = false;
   let failureDetail = "";
   let status = null;
   let timer = null;
@@ -27,29 +28,45 @@
   }
 
   function ready() {
-    if (failureDetail) return;
-    settled = true;
+    if (bootFailed || bootComplete) return;
+    bootComplete = true;
     clearTimeout(timer);
+    removeEventListener("error", handleBootError, true);
+    removeEventListener("unhandledrejection", handleBootRejection);
     const node = findStatus();
     if (node) node.hidden = true;
   }
 
   function failed(reason) {
-    settled = true;
+    if (bootFailed || bootComplete) return;
+    bootFailed = true;
     clearTimeout(timer);
-    failureDetail = reason instanceof Error ? reason.message : String(reason || "Unknown startup error.");
+    failureDetail = (
+      reason instanceof Error ? reason.message : String(reason || "")
+    ) || "Unknown startup error.";
     show("error", "ACTIVITY FAILED TO START", `${failureDetail} Close and reopen the Activity to retry.`);
   }
 
-  addEventListener("error", (event) => {
+  function handleBootError(event) {
+    const tagName = event.target?.tagName?.toLowerCase();
+    if (tagName === "script" || tagName === "link") {
+      const source = event.target.src || event.target.href || "required resource";
+      const resource = new URL(source, location.href).pathname.split("/").pop() || "required resource";
+      failed(new Error(`A required Activity file could not load (${resource}).`));
+      return;
+    }
     failed(event.error || event.message);
-  });
-  addEventListener("unhandledrejection", (event) => {
+  }
+
+  function handleBootRejection(event) {
     failed(event.reason);
-  });
+  }
+
+  addEventListener("error", handleBootError, true);
+  addEventListener("unhandledrejection", handleBootRejection);
 
   function begin() {
-    if (failureDetail) {
+    if (bootFailed) {
       show(
         "error",
         "ACTIVITY FAILED TO START",
@@ -57,9 +74,10 @@
       );
       return;
     }
+    if (bootComplete) return;
     show("loading", "OPENING NEON SNAKE", "Preparing the game inside Discord…");
     timer = setTimeout(() => {
-      if (!settled) {
+      if (!bootComplete && !bootFailed) {
         show(
           "slow",
           "STILL CONNECTING",

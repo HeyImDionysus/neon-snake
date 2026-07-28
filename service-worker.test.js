@@ -158,7 +158,7 @@ async function main() {
     url: `${origin}/game.js?v=81`,
   });
   assert.equal(versionedAssetFallback.body, "shell:/game.js?v=81");
-  process.stdout.write("PASS offline Activity startup resolves exact versioned assets\n");
+  process.stdout.write("PASS offline public entry resolves exact versioned assets\n");
 
   const soloFallback = await dispatchFetch({
     method: "GET",

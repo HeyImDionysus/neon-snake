@@ -93,6 +93,9 @@ function request(url, {
   assert.match(redirect, /NeonSnakeActivityBoot\?\.ready\(\)/);
   assert.match(activityBoot, /ACTIVITY FAILED TO START/);
   assert.match(activityBoot, /addEventListener\("unhandledrejection"/);
+  assert.match(activityBoot, /addEventListener\("error", handleBootError, true\)/);
+  assert.match(activityBoot, /let bootFailed = false/);
+  assert.match(activityBoot, /removeEventListener\("error", handleBootError, true\)/);
   assert.match(activityBootCss, /\.activity-boot-status\[hidden\]/);
   assert.match(indexHtml, /id="activityBootStatus"/);
   assert.match(indexHtml, /href="activity-boot\.css\?v=81"/);
@@ -113,6 +116,7 @@ function request(url, {
   assert.match(game, /activityEmbedded/);
   assert.match(game, /url\.search = activityEmbedded \? activityQuery\.toString\(\) : ""/);
   assert.match(game, /if \(activityEmbedded\) return;/);
+  assert.match(duel, /if \(activityEmbedded\) return;/);
   assert.match(account, /embeddedActivity/);
   assert.match(signalField, /activityMode/);
   assert.match(duelHtml, /id="activityContext"/);
