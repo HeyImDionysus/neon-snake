@@ -89,7 +89,7 @@ const tests = [
       "1,400 retained marks must not add per-frame drawing operations",
     );
   }],
-  ["one new Canvas step adds one glow stroke and keeps only bounded route metadata", () => {
+  ["one new Canvas step adds a bounded two-stroke halo and keeps only bounded route metadata", () => {
     const context = recordingContext();
     const marks = Array.from({ length: 1400 }, () => ({}));
     const loaded = loadFunctions(["strokeCanvasMark", "addCanvasMark"], {
@@ -111,7 +111,7 @@ const tests = [
     assert.equal(loaded.sandbox.canvasStrokeCount, 1401);
     assert.equal(
       context.calls.filter(({ operation }) => operation === "stroke").length,
-      1,
+      2,
     );
   }],
   ["expired visual effects are retired instead of accumulating across a long run", () => {

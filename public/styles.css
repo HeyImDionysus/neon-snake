@@ -1552,7 +1552,15 @@ body[data-mode="canvas"] .mode-chip { color: #74e1ff; border-color: #74e1ff66; }
   .mode-option:nth-last-of-type(-n + 2) { border-bottom: 1px solid var(--line); }
   .mode-option:last-child { border-bottom: 0; }
   .radio-mark { position: static; }
-  .site-footer span:last-child { display: none; }
+  .site-footer {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .site-footer span:last-child {
+    display: inline;
+    line-height: 1.8;
+  }
   .next-moves { width: min(100% - 28px, 620px); }
   .next-moves > header { grid-template-columns: 1fr; align-items: start; }
   .next-moves-list a { grid-template-columns: 30px minmax(0, 1fr) auto; gap: 12px; }

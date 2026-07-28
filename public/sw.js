@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE_NAME = "neon-snake-shell-v77";
+const CACHE_NAME = "neon-snake-shell-v79";
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -10,12 +10,15 @@ const APP_SHELL = [
   "/activity-sdk.js",
   "/downloads.html",
   "/profile.html",
+  "/privacy.html",
+  "/terms.html",
   "/wallpaper.html",
   "/duel.css",
   "/site-shell.js",
   "/downloads.css",
   "/downloads.js",
   "/profile.css",
+  "/legal.css",
   "/duel.js",
   "/account.js",
   "/profile-config.js",
@@ -75,15 +78,13 @@ self.addEventListener("fetch", (event) => {
         const cached = await caches.match(event.request);
         if (cached) return cached;
         if (event.request.mode === "navigate") {
-          const fallback = requestUrl.pathname.startsWith("/duel")
-            ? "/duel.html"
-            : requestUrl.pathname.startsWith("/downloads")
-              ? "/downloads.html"
-              : requestUrl.pathname.startsWith("/profile")
-                ? "/profile.html"
-            : requestUrl.pathname.startsWith("/wallpaper")
-              ? "/wallpaper.html"
-              : "/index.html";
+          let fallback = "/index.html";
+          if (requestUrl.pathname.startsWith("/duel")) fallback = "/duel.html";
+          else if (requestUrl.pathname.startsWith("/downloads")) fallback = "/downloads.html";
+          else if (requestUrl.pathname.startsWith("/profile")) fallback = "/profile.html";
+          else if (requestUrl.pathname.startsWith("/privacy")) fallback = "/privacy.html";
+          else if (requestUrl.pathname.startsWith("/terms")) fallback = "/terms.html";
+          else if (requestUrl.pathname.startsWith("/wallpaper")) fallback = "/wallpaper.html";
           return caches.match(fallback);
         }
         return Response.error();

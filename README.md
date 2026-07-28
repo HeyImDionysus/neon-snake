@@ -189,9 +189,12 @@ The Activity reuses the same Vercel deployment and Discord application; it does 
 2. In **Activities → Settings**, enable Activities and enable Web, iOS, and Android support.
 3. Keep the default `Launch` Entry Point command. Set phone/tablet orientation to unlocked; the app requests landscape only for picture-in-picture and grid tiles.
 4. In **OAuth2**, retain the existing production callback. Activity authorization requests only `identify`; the existing client secret stays in Vercel and never enters the browser bundle.
-5. Install the application to the intended server and leave Discovery disabled if the Activity should not be publicly listed.
+5. In **General Information**, use `/terms` and `/privacy` from the production host. The exact-size portal artwork is versioned under `public/assets/discord/`.
+6. Install the application to the intended server and leave Discovery disabled if the Activity should not be publicly listed.
 
 Discord currently limits unverified Activities to servers with fewer than 25 members. A 40-member server therefore requires Discord app verification even when Discovery remains disabled. Until verification is approved, the same build can be tested in a smaller private server by the owner or invited App Testers.
+
+Verification also requires team ownership, a complete app identity, a Terms of Service URL, a Privacy Policy URL, verified email, and 2FA. Moving an existing personally owned app to a developer Team is irreversible in the portal and should be confirmed by the owner immediately before transfer.
 
 `vercel.json` supplies security headers, service-worker cache behavior, and conservative asset caching. `manifest.webmanifest` and `sw.js` provide an installable, offline-capable shell after the first successful visit.
 

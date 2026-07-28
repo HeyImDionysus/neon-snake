@@ -114,12 +114,12 @@ async function main() {
   const shell = stores.get(activeName);
   assert.ok(activeName, "Expected a versioned shell cache");
   assert.equal(skipWaitingCalls, 1);
-  ["/index.html", "/duel.html", "/downloads.html", "/downloads.js", "/profile.html", "/wallpaper.html", "/assets/icon-192.png", "/assets/icon-512.png"].forEach((url) => {
+  ["/index.html", "/duel.html", "/downloads.html", "/downloads.js", "/profile.html", "/privacy.html", "/terms.html", "/legal.css", "/wallpaper.html", "/assets/icon-192.png", "/assets/icon-512.png"].forEach((url) => {
     assert.ok(shell.has(requestKey(url)), `Install omitted ${url}`);
   });
   process.stdout.write("PASS install primes the complete versioned app shell\n");
 
-  assert.match(source, /neon-snake-shell-v77/);
+  assert.match(source, /neon-snake-shell-v79/);
   process.stdout.write("PASS product redesign ships behind a fresh shell cache version\n");
 
   stores.set("neon-snake-shell-stale", new Map());
@@ -177,12 +177,24 @@ async function main() {
     mode: "navigate",
     url: `${origin}/profile?user=signal_player`,
   });
+  const privacyFallback = await dispatchFetch({
+    method: "GET",
+    mode: "navigate",
+    url: `${origin}/privacy`,
+  });
+  const termsFallback = await dispatchFetch({
+    method: "GET",
+    mode: "navigate",
+    url: `${origin}/terms`,
+  });
   assert.equal(soloFallback.body, "shell:/index.html");
   assert.equal(duelFallback.body, "shell:/duel.html");
   assert.equal(wallpaperFallback.body, "shell:/wallpaper.html");
   assert.equal(downloadsFallback.body, "shell:/downloads.html");
   assert.equal(profileFallback.body, "shell:/profile.html");
-  process.stdout.write("PASS offline navigation preserves solo, Duel, downloads, profile, and wallpaper routes\n");
+  assert.equal(privacyFallback.body, "shell:/privacy.html");
+  assert.equal(termsFallback.body, "shell:/terms.html");
+  process.stdout.write("PASS offline navigation preserves game, profile, legal, and wallpaper routes\n");
 
   process.stdout.write("\n6 deterministic service-worker lifecycle tests passed.\n");
 }

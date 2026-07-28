@@ -1,20 +1,55 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { execFileSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const zlib = require("node:zlib");
 
 const root = __dirname;
 const read = (...segments) => fs.readFileSync(path.join(root, ...segments), "utf8");
 const readBytes = (...segments) => fs.readFileSync(path.join(root, ...segments));
 const sha256 = (value) => crypto.createHash("sha256").update(value).digest("hex");
-const readArchiveText = (archive, file) => execFileSync(
-  "unzip",
-  ["-p", path.join(root, ...archive), file],
-  { encoding: "utf8" },
-);
+
+function readArchiveText(archive, requestedFile) {
+  const bytes = readBytes(...archive);
+  let endRecord = -1;
+  for (let offset = bytes.length - 22; offset >= Math.max(0, bytes.length - 65_557); offset -= 1) {
+    if (bytes.readUInt32LE(offset) === 0x06054b50) {
+      endRecord = offset;
+      break;
+    }
+  }
+  assert.notEqual(endRecord, -1, "ZIP end record missing");
+
+  const entries = bytes.readUInt16LE(endRecord + 10);
+  let centralOffset = bytes.readUInt32LE(endRecord + 16);
+  for (let index = 0; index < entries; index += 1) {
+    assert.equal(bytes.readUInt32LE(centralOffset), 0x02014b50, "ZIP central record missing");
+    const method = bytes.readUInt16LE(centralOffset + 10);
+    const compressedSize = bytes.readUInt32LE(centralOffset + 20);
+    const nameLength = bytes.readUInt16LE(centralOffset + 28);
+    const extraLength = bytes.readUInt16LE(centralOffset + 30);
+    const commentLength = bytes.readUInt16LE(centralOffset + 32);
+    const localOffset = bytes.readUInt32LE(centralOffset + 42);
+    const name = bytes.subarray(centralOffset + 46, centralOffset + 46 + nameLength).toString("utf8");
+
+    if (name === requestedFile) {
+      assert.equal(bytes.readUInt32LE(localOffset), 0x04034b50, "ZIP local record missing");
+      const localNameLength = bytes.readUInt16LE(localOffset + 26);
+      const localExtraLength = bytes.readUInt16LE(localOffset + 28);
+      const dataOffset = localOffset + 30 + localNameLength + localExtraLength;
+      const compressed = bytes.subarray(dataOffset, dataOffset + compressedSize);
+      if (method === 0) return compressed.toString("utf8");
+      if (method === 8) return zlib.inflateRawSync(compressed).toString("utf8");
+      throw new Error(`Unsupported ZIP compression method ${method}`);
+    }
+
+    centralOffset += 46 + nameLength + extraLength + commentLength;
+  }
+
+  throw new Error(`Archive entry ${requestedFile} missing`);
+}
 
 const wallpaperHtml = read("public", "wallpaper.html");
 const wallpaperScript = read("public", "wallpaper.js");

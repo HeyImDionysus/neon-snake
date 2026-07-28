@@ -508,9 +508,8 @@ function drawBoardAtmosphere(now) {
     const alpha = .035 + (Math.sin(time * 3 + index * 1.7) + 1) * .025;
     ctx.globalAlpha = alpha;
     ctx.fillStyle = index % 5 === 0 ? "#a98bff" : "#d4ffa8";
-    ctx.beginPath();
-    ctx.arc(x, y, index % 4 === 0 ? 1.4 : .8, 0, Math.PI * 2);
-    ctx.fill();
+    const size = index % 4 === 0 ? 2 : 1;
+    ctx.fillRect(Math.round(x), Math.round(y), size, size);
   }
   ctx.restore();
 }
@@ -627,21 +626,37 @@ function strokeCanvasMark(target, mark, scale = 1) {
   const fromY = (mark.from.y * TILE + TILE / 2) * scale;
   const toX = (mark.to.x * TILE + TILE / 2) * scale;
   const toY = (mark.to.y * TILE + TILE / 2) * scale;
+  const traceMark = () => {
+    target.beginPath();
+    if (mark.wraps) {
+      target.moveTo(fromX, fromY);
+      target.lineTo(
+        fromX + mark.direction.x * TILE * .46 * scale,
+        fromY + mark.direction.y * TILE * .46 * scale,
+      );
+      target.moveTo(
+        toX - mark.direction.x * TILE * .46 * scale,
+        toY - mark.direction.y * TILE * .46 * scale,
+      );
+      target.lineTo(toX, toY);
+    } else {
+      target.moveTo(fromX, fromY);
+      target.lineTo(toX, toY);
+    }
+  };
+
+  // A second translucent stroke creates a crisp neon halo without invoking
+  // Canvas' expensive software shadow blur on every movement frame.
+  target.strokeStyle = mark.glow;
+  target.globalAlpha = .1 + mark.energy * .14;
+  target.lineWidth = (11 + mark.energy * 7) * scale;
+  traceMark();
+  target.stroke();
+
   target.strokeStyle = mark.color;
-  target.shadowColor = mark.glow;
-  target.shadowBlur = 13 * scale;
-  target.globalAlpha = .3 + mark.energy * .45;
-  target.lineWidth = (5 + mark.energy * 5) * scale;
-  target.beginPath();
-  if (mark.wraps) {
-    target.moveTo(fromX, fromY);
-    target.lineTo(fromX + mark.direction.x * TILE * .46 * scale, fromY + mark.direction.y * TILE * .46 * scale);
-    target.moveTo(toX - mark.direction.x * TILE * .46 * scale, toY - mark.direction.y * TILE * .46 * scale);
-    target.lineTo(toX, toY);
-  } else {
-    target.moveTo(fromX, fromY);
-    target.lineTo(toX, toY);
-  }
+  target.globalAlpha = .42 + mark.energy * .38;
+  target.lineWidth = (4 + mark.energy * 5) * scale;
+  traceMark();
   target.stroke();
   target.restore();
 }
@@ -872,12 +887,17 @@ function drawSnakeHead(head, now, isOverdrive, target = ctx, scale = 1) {
 }
 
 function drawEffects() {
+  ctx.save();
   particles.forEach((particle) => {
     ctx.globalAlpha = Math.max(0, particle.life);
     ctx.fillStyle = particle.color;
-    ctx.beginPath();
-    ctx.arc(particle.x, particle.y, particle.size / 2, 0, Math.PI * 2);
-    ctx.fill();
+    const size = Math.max(1, Math.round(particle.size));
+    ctx.fillRect(
+      Math.round(particle.x - size / 2),
+      Math.round(particle.y - size / 2),
+      size,
+      size,
+    );
   });
   ripples.forEach((ripple) => {
     ctx.globalAlpha = Math.max(0, ripple.life);
@@ -887,7 +907,7 @@ function drawEffects() {
     ctx.arc(ripple.x, ripple.y, ripple.radius, 0, Math.PI * 2);
     ctx.stroke();
   });
-  ctx.globalAlpha = 1;
+  ctx.restore();
 }
 
 function updateEffects(delta) {
