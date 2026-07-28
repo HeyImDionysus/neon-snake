@@ -100,6 +100,13 @@ function request(url, {
   assert.match(indexHtml, /id="activityBootStatus"/);
   assert.match(indexHtml, /href="activity-boot\.css\?v=81"/);
   assert.match(indexHtml, /src="activity-boot\.js\?v=81"/);
+  [indexHtml, duelHtml].forEach((html) => {
+    assert.ok(
+      html.indexOf('src="activity-boot.js?v=81"') < html.indexOf('rel="stylesheet"'),
+      "Activity boot guard must install before required stylesheets",
+    );
+    assert.match(html, /src="activity-redirect\.js\?v=81" defer/);
+  });
   assert.match(indexHtml, /id="activityDock"/);
   assert.match(indexHtml, /id="activityDockInvite"/);
   assert.match(indexHtml, /id="activityDockRetry"/);

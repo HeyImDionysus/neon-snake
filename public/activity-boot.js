@@ -49,12 +49,17 @@
 
   function handleBootError(event) {
     const tagName = event.target?.tagName?.toLowerCase();
-    if (tagName === "script" || tagName === "link") {
+    const requiredStylesheet = (
+      tagName === "link"
+      && event.target.relList?.contains("stylesheet")
+    );
+    if (tagName === "script" || requiredStylesheet) {
       const source = event.target.src || event.target.href || "required resource";
       const resource = new URL(source, location.href).pathname.split("/").pop() || "required resource";
       failed(new Error(`A required Activity file could not load (${resource}).`));
       return;
     }
+    if (tagName) return;
     failed(event.error || event.message);
   }
 

@@ -271,6 +271,14 @@ const activityIndexDocumentSource = index
     `<pre id="activityIndexResult" data-json=""></pre>`
       + `<script>${escapeScript(activityServiceWorkerStub)}</script>`
       + `<script>${escapeScript(activityBoot)}</script>`
+      + `<script>`
+      + `const optionalLink = document.createElement("link");`
+      + `optionalLink.rel = "icon";`
+      + `optionalLink.href = "synthetic-missing-icon.svg";`
+      + `document.head.appendChild(optionalLink);`
+      + `optionalLink.dispatchEvent(new Event("error"));`
+      + `optionalLink.remove();`
+      + `</script>`
       + `<script>${escapeScript(activityRedirect)}</script>`
       + `<script>${escapeScript(activityIndexBrowserTest)}</script>`
       + "</body>",
@@ -301,8 +309,9 @@ const activityResourceFailureDocumentSource = index
       + `<script>${escapeScript(activityServiceWorkerStub)}</script>`
       + `<script>${escapeScript(activityBoot)}</script>`
       + `<script>`
-      + `const failedResource = document.createElement("script");`
-      + `failedResource.src = "synthetic-missing.js";`
+      + `const failedResource = document.createElement("link");`
+      + `failedResource.rel = "stylesheet";`
+      + `failedResource.href = "synthetic-missing.css";`
       + `document.head.appendChild(failedResource);`
       + `failedResource.dispatchEvent(new Event("error"));`
       + `failedResource.remove();`
@@ -545,7 +554,7 @@ try {
     hidden: false,
     state: "error",
     title: "ACTIVITY FAILED TO START",
-    detail: "A required Activity file could not load (synthetic-missing.js). Close and reopen the Activity to retry.",
+    detail: "A required Activity file could not load (synthetic-missing.css). Close and reopen the Activity to retry.",
   });
   process.stdout.write("PASS mobile site and embedded Activity controls, policy links, and download feedback work in real browsers\n");
 } finally {
