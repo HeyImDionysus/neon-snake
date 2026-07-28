@@ -107,7 +107,14 @@ function request(url, {
       html.indexOf('src="activity-boot.js?v=81"') < html.indexOf('rel="stylesheet"'),
       "Activity boot guard must install before required stylesheets",
     );
-    assert.match(html, /src="activity-redirect\.js\?v=81" defer/);
+    assert.ok(
+      html.indexOf('id="activityBootStatus"') < html.indexOf('src="activity-redirect.js?v=81"'),
+      "Activity fallback markup must parse before the shell script",
+    );
+    assert.ok(
+      html.indexOf('src="activity-redirect.js?v=81"') < html.indexOf('src="activity-sdk.js?v=81"'),
+      "Activity shell listeners must install before SDK startup",
+    );
   });
   assert.match(indexHtml, /id="activityDock"/);
   assert.match(indexHtml, /id="activityDockInvite"/);
