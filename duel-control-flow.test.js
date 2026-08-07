@@ -148,6 +148,31 @@ const tests = [
     assert.equal(networkInterpolationOffset(1_000, 2_000, 180), 122);
     assert.match(functionBody("handleRoomStatus"), /PREDICTION ON/);
   }],
+  ["authoritative rosters do not expire from a server clock timestamp", () => {
+    const context = {
+      PEER_TIMEOUT: 6_000,
+      roomTransport: { authoritative: true },
+      roomConnected: true,
+      roomRole: "player",
+      roomPeers: new Map([[
+        "remote-player",
+        { id: "remote-player", connected: true, slot: 1, seenAt: 1 },
+      ]]),
+      roomIdentity() {
+        return { id: "local-player", connected: true, slot: 0 };
+      },
+    };
+    const { activeRoomRoster } = installFunctions(["activeRoomRoster"], context);
+    assert.equal(
+      Array.from(activeRoomRoster(), (player) => player.id).join(","),
+      "local-player,remote-player",
+    );
+    context.roomTransport = { kind: "broadcast-channel" };
+    assert.equal(
+      Array.from(activeRoomRoster(), (player) => player.id).join(","),
+      "local-player",
+    );
+  }],
   ["live rooms remain waiting until two connected players are ready", () => {
     const body = functionBody("syncLiveRoom");
     assert.match(body, /Rules\.liveRoomPhase\(participants\)/);

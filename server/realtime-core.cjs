@@ -620,23 +620,27 @@ class RoomSimulation {
         sentAt: Date.now(),
       },
     });
-    try {
-      await publishing;
-    } catch (error) {
-      this.hub.abortRound(this.room, this, error);
-      return;
-    }
     if (game.over) {
+      try {
+        await publishing;
+      } catch (error) {
+        this.hub.abortRound(this.room, this, error);
+        return;
+      }
       await this.hub.recordMatch(this.room, game.round, result);
       await this.hub.resetReady(this.room);
       this.stop();
       return;
     }
     this.nextTickAt += TICK_DURATION;
+    if (this.nextTickAt <= Date.now()) this.nextTickAt = Date.now() + TICK_DURATION;
     this.tickTimer = setTimeout(
       () => void this.tick(),
       Math.max(0, this.nextTickAt - Date.now()),
     );
+    await publishing.catch((error) => {
+      this.hub.abortRound(this.room, this, error);
+    });
   }
 }
 
@@ -1062,6 +1066,11 @@ function createRealtimeHub({
         return;
       }
       const state = stateFor(connection.room);
+      const authoritativeStartsAt = now() + 3_200;
+      const authoritativeCountdown = {
+        ...message,
+        startsAt: authoritativeStartsAt,
+      };
       state.simulation?.stop();
       state.simulation = new RoomSimulation(
         {
@@ -1075,10 +1084,14 @@ function createRealtimeHub({
         connection.room,
         connection.connectionId,
       );
-      state.simulation.start(message);
+      state.simulation.start(authoritativeCountdown);
       await publish(connection.room, {
         kind: "countdown",
-        payload: { ...message, from: connection.clientId, sentAt: timestamp },
+        payload: {
+          ...authoritativeCountdown,
+          from: connection.clientId,
+          sentAt: authoritativeStartsAt - 3_200,
+        },
       });
       return;
     }
@@ -1121,7 +1134,7 @@ function createRealtimeHub({
         }
       }
       scheduleHeartbeat();
-    }, 10_000);
+    }, 2_000);
   }
 
   async function connect(socket, request) {
