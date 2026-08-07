@@ -193,7 +193,7 @@ async function flush() {
   assert.ok(validateRealtimeMessage({
     type: "countdown",
     round: timestamp,
-    startsAt: timestamp + 3_200,
+    startsAt: timestamp - 86_400_000,
   }, { slot: 0, allReady: true, now: timestamp }));
   assert.equal(validateRealtimeMessage({
     type: "countdown",
@@ -364,7 +364,7 @@ async function flush() {
   assert.equal(secondHub.roomAllReady("ABC234"), true);
 
   const round = Date.now();
-  first.message({ type: "countdown", round, startsAt: round + 5_000 });
+  first.message({ type: "countdown", round, startsAt: round - 86_400_000 });
   await flush();
   assert.ok(first.messages.some((message) => message.type === "countdown"));
   assert.ok(second.messages.some((message) => message.type === "countdown"));

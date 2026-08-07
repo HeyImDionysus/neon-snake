@@ -245,14 +245,8 @@ function validateRealtimeMessage(value, { slot, allReady, now = Date.now() } = {
     };
   }
   if (value.type === "countdown" && slot === 0 && allReady) {
-    const startsAt = Number(value.startsAt);
-    if (
-      !safeInteger(value.round, 1)
-      || !Number.isFinite(startsAt)
-      || startsAt < now - 1_000
-      || startsAt > now + 10_000
-    ) return null;
-    return { type: "countdown", round: Number(value.round), startsAt: Math.round(startsAt) };
+    if (!safeInteger(value.round, 1)) return null;
+    return { type: "countdown", round: Number(value.round) };
   }
   if (value.type === "state" && slot === 0) return { type: "state" };
   return null;
@@ -1090,7 +1084,7 @@ function createRealtimeHub({
         payload: {
           ...authoritativeCountdown,
           from: connection.clientId,
-          sentAt: authoritativeStartsAt - 3_200,
+          sentAt: timestamp,
         },
       });
       return;
@@ -1134,7 +1128,7 @@ function createRealtimeHub({
         }
       }
       scheduleHeartbeat();
-    }, 2_000);
+    }, 10_000);
   }
 
   async function connect(socket, request) {

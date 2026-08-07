@@ -24,7 +24,6 @@
 
     let anchor = null;
     let committed = false;
-    let armed = true;
 
     function point(touch) {
       return touch ? { x: Number(touch.clientX), y: Number(touch.clientY) } : null;
@@ -33,30 +32,21 @@
     function start(event) {
       anchor = point(event.touches?.[0] || event.changedTouches?.[0]);
       committed = false;
-      armed = true;
     }
 
     function move(event) {
       const current = point(event.touches?.[0] || event.changedTouches?.[0]);
       if (!anchor || !current) return;
-      const dx = current.x - anchor.x;
-      const dy = current.y - anchor.y;
-      const distance = Math.max(Math.abs(dx), Math.abs(dy));
-      const minimum = Math.max(4, Number(threshold) || DEFAULT_THRESHOLD);
-      if (committed && !armed) {
-        if (distance <= minimum / 2) armed = true;
-        return;
-      }
       const direction = directionFromDelta(
-        dx,
-        dy,
+        current.x - anchor.x,
+        current.y - anchor.y,
         threshold,
       );
       if (!direction) return;
       event.preventDefault();
       onDirection(direction);
       committed = true;
-      armed = false;
+      anchor = current;
     }
 
     function end(event) {
@@ -71,7 +61,6 @@
       }
       anchor = null;
       committed = false;
-      armed = true;
     }
 
     element.addEventListener("touchstart", start, { passive: true });

@@ -33,7 +33,7 @@ assert.equal(directionFromDelta(20, 1), "right");
 assert.equal(directionFromDelta(-20, 2), "left");
 assert.equal(directionFromDelta(1, -20), "up");
 assert.equal(directionFromDelta(2, 20), "down");
-process.stdout.write("PASS mobile swipes commit after five CSS pixels in every direction\n");
+process.stdout.write("PASS mobile swipes commit after twenty CSS pixels in every direction\n");
 
 const surface = eventTarget();
 const directions = [];
@@ -45,17 +45,13 @@ surface.emit("touchmove", {
   preventDefault() { prevented += 1; },
 });
 surface.emit("touchmove", {
-  touches: [{ clientX: 100, clientY: 100 }],
+  touches: [{ clientX: 125, clientY: 125 }],
   preventDefault() { prevented += 1; },
 });
-surface.emit("touchmove", {
-  touches: [{ clientX: 100, clientY: 75 }],
-  preventDefault() { prevented += 1; },
-});
-assert.deepEqual(directions, ["right", "up"]);
+assert.deepEqual(directions, ["right", "down"]);
 assert.equal(prevented, 2);
 assert.equal(surface.listener("touchmove").options.passive, false);
-process.stdout.write("PASS board swipes require a deliberate reset before a chained turn\n");
+process.stdout.write("PASS board swipes accept chained turns during one continuous drag\n");
 
 const button = eventTarget();
 button.dataset.direction = "left";
