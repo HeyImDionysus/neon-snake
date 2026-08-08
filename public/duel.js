@@ -1459,7 +1459,7 @@ function cancelLiveRound(message) {
   if (liveCountdownActive) abortLiveCountdown();
   nextMoveAt = 0;
   syncLiveRoom();
-  if (duelType === "live" && roomRole !== "player") {
+  if (duelType === "live" && roomRole === "spectator" && roomQueuePosition > 0) {
     setRunState("ready", roomQueuePosition === 1 ? "NEXT UP" : "IN WAITING LINE");
     showOverlay(
       roomQueuePosition === 1 ? "NEXT UP" : "WAITING LINE",
