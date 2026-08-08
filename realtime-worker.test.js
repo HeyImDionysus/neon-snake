@@ -80,16 +80,7 @@ function createFakeRedis() {
     if (action === "join") {
       const generation = (roomGeneration.get(room) || 0) + 1;
       roomGeneration.set(room, generation);
-      const used = new Set([...players.values()].filter((item) => item.slot >= 0).map((item) => item.slot));
       let slot = current?.slot ?? -1;
-      if (!current) {
-        for (let candidate = 0; candidate < DEFAULT_ROOM_CAPACITY; candidate += 1) {
-          if (!used.has(candidate)) {
-            slot = candidate;
-            break;
-          }
-        }
-      }
       current = {
         id: clientId,
         connectionId,
@@ -126,7 +117,7 @@ function createFakeRedis() {
     if (action === "rotate") {
       const losers = [Number(command[20]), Number(command[21])];
       for (const player of players.values()) {
-        if (losers.includes(player.slot)) {
+        if (losers.some((slot) => Number(slot) >= 0 && Number(slot) === Number(player.slot))) {
           player.slot = -1;
           player.joinEpoch = (roomGeneration.get(room) || 0) + 1;
           roomGeneration.set(room, player.joinEpoch);
@@ -420,6 +411,30 @@ async function flush() {
     && message.players.some((player) => player.id === "queue-third" && player.slot === 1)
   )), "A seated departure promotes the queue head atomically");
   assert.ok(queueThird.messages.some((message) => message.type === "countdown-cancel"));
+  const rotateFirst = new FakeSocket();
+  const rotateSecond = new FakeSocket();
+  const rotateWaitingOne = new FakeSocket();
+  const rotateWaitingTwo = new FakeSocket();
+  await firstHub.connect(rotateFirst, request("345678", "rotate-first"));
+  await firstHub.connect(rotateSecond, request("345678", "rotate-second"));
+  await firstHub.connect(rotateWaitingOne, request("345678", "rotate-waiting-one"));
+  await firstHub.connect(rotateWaitingTwo, request("345678", "rotate-waiting-two"));
+  await flush();
+  assert.equal(firstHub._state.rooms.get("345678").waiting.length, 2);
+  await firstHub.rotateRound("345678", {
+    winner: "opponent",
+    crashes: { player: "wall", opponent: null },
+  });
+  await flush();
+  const rotatedRoster = rotateFirst.messages
+    .filter((message) => message.type === "roster")
+    .at(-1);
+  assert.equal(rotatedRoster.players.find((player) => player.id === "rotate-waiting-one").slot, 0);
+  assert.deepEqual(
+    rotatedRoster.waiting.map((player) => player.id),
+    ["rotate-waiting-two", "rotate-first"],
+    "A rotated loser joins behind everyone already waiting",
+  );
   first.message({ type: "ready", ready: true });
   second.message({ type: "ready", ready: true });
   await flush();

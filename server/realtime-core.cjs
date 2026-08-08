@@ -96,16 +96,6 @@ if action == "join" then
     return cjson.encode({ error = "room_full" })
   end
   local slot = current and tonumber(current["slot"]) or -1
-  if not current then
-    local used = {}
-    for _, id in ipairs(redis.call("ZRANGE", presenceKey, 0, -1)) do
-      local item = read(id)
-      if item and tonumber(item["slot"]) >= 0 then used[tonumber(item["slot"])] = true end
-    end
-    for candidate = 0, ${DEFAULT_ROOM_CAPACITY - 1} do
-      if not used[candidate] then slot = candidate break end
-    end
-  end
   current = {
     id = clientId,
     connectionId = connectionId,
@@ -172,7 +162,10 @@ if action == "rotate" then
   for _, id in ipairs(redis.call("ZRANGE", presenceKey, 0, -1)) do
     local item = read(id)
     local itemSlot = item and tonumber(item["slot"]) or -1
-    if item and (itemSlot == loserSlotA or itemSlot == loserSlotB) then
+    if item and (
+      (loserSlotA >= 0 and itemSlot == loserSlotA)
+      or (loserSlotB >= 0 and itemSlot == loserSlotB)
+    ) then
       item["slot"] = -1
       item["joinEpoch"] = redis.call("INCR", generationKey)
       item["ready"] = false
@@ -192,6 +185,8 @@ if action == "rotate" then
 elseif action == "join" or action == "leave" then
   fillEmptySeats()
 end
+
+if current then current = read(clientId) end
 
 if current and tonumber(current["slot"]) >= 0 and current["userId"] and current["userId"] ~= "" then
   redis.call("ZADD", activePlayersKey, now, current["userId"])
@@ -855,6 +850,10 @@ function createRealtimeHub({
 
   async function rotateRound(room, result) {
     const state = stateFor(room);
+    const observer = localConnections(room)[0];
+    if (!observer) return;
+    const fresh = await presence(observer, "touch");
+    setRoster(room, fresh.players || [], fresh.waiting || []);
     if (!state.waiting.length) {
       await resetReady(room);
       return;
@@ -874,8 +873,6 @@ function createRealtimeHub({
       await resetReady(room);
       return;
     }
-    const observer = localConnections(room)[0];
-    if (!observer) return;
     const resultPayload = await presence(observer, "rotate", {
       profile: observer.profile,
       loserSlots: selected,

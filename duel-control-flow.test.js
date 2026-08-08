@@ -161,6 +161,71 @@ const tests = [
     assert.match(functionBody("advanceGame"), /roomTransport\?\.authoritative/);
     assert.match(functionBody("handleRoomMessage"), /round !== liveRoundId/);
   }],
+  ["queued viewers apply authoritative snapshots while holding no seat", () => {
+    const context = {
+      authoritativeOpponentSnake: [],
+      authoritativePlayerSnake: [],
+      clientId: "queued-viewer",
+      cloneSnake(snake) {
+        return snake.map((point) => ({ ...point }));
+      },
+      liveClockOffsetMs: null,
+      liveLatencyMs: 0,
+      TICK_DURATION: 138,
+      lastMoveAt: 900,
+      lastRemoteSequence: -1,
+      liveRoundId: 7,
+      nextMoveAt: 0,
+      opponentDirection: { x: -1, y: 0 },
+      opponentInputBuffer: [],
+      opponentInputSequences: [],
+      opponentPredictionIndex: 0,
+      opponentScore: 0,
+      playerDirection: { x: 1, y: 0 },
+      playerInputBuffer: [],
+      playerInputSequences: [],
+      playerPredictionIndex: 0,
+      playerScore: 0,
+      roomPlayers: [
+        { id: "seat-one", slot: 0 },
+        { id: "seat-two", slot: 1 },
+      ],
+      roomTransport: { authoritative: true },
+      runState: "running",
+      updateHud() {
+        context.updated = true;
+      },
+      networkInterpolationOffset() {
+        return 50;
+      },
+      performance: { now: () => 1_000 },
+      Date: { now: () => 2_000 },
+      state: {},
+    };
+    const { applyRemoteSnapshot } = installFunctions(["applyRemoteSnapshot"], context);
+    applyRemoteSnapshot({
+      sequence: 1,
+      sentAt: 1_950,
+      state: {
+        round: 7,
+        playerSnake: [{ x: 1, y: 1 }],
+        opponentSnake: [{ x: 4, y: 4 }],
+        playerDirection: { x: 1, y: 0 },
+        opponentDirection: { x: -1, y: 0 },
+        playerInputAck: 0,
+        guestInputAck: 0,
+        playerScore: 2,
+        opponentScore: 3,
+        food: { x: 8, y: 8 },
+        signalCursor: 11,
+        over: false,
+      },
+    });
+    assert.equal(context.lastRemoteSequence, 1);
+    assert.equal(context.playerSnake[0].x, 1);
+    assert.equal(context.opponentSnake[0].x, 4);
+    assert.equal(context.updated, true);
+  }],
   ["live interpolation subtracts transit time instead of replaying a full delayed tick", () => {
     const context = { TICK_DURATION: 138 };
     const { networkInterpolationOffset } = installFunctions(
