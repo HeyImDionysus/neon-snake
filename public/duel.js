@@ -40,6 +40,8 @@ const aiTraceRisk = $("#aiTraceRisk");
 const aiTraceDepth = $("#aiTraceDepth");
 const roomSlotOne = $("#roomSlotOne");
 const roomSlotTwo = $("#roomSlotTwo");
+const roomWaiting = $("#roomWaiting");
+const roomQueueState = $("#roomQueueState");
 const activityContext = $("#activityContext");
 const activityContextTitle = $("#activityContextTitle");
 const activityContextDetail = $("#activityContextDetail");
@@ -48,6 +50,7 @@ const activityContextRetry = $("#activityContextRetry");
 const DUEL_GRID = Rules.duelGridSize(20);
 const SIGNAL_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const TICK_DURATION = 138;
+const LIVE_ROOM_CAPACITY = 2;
 const PEER_TIMEOUT = 6000;
 const DIRECTIONS = {
   up: { x: 0, y: -1 },
@@ -112,6 +115,8 @@ let roomRole = "disconnected";
 let roomSlot = -1;
 let roomConnectionState = "disconnected";
 let roomPlayers = [];
+let roomWaitingPlayers = [];
+let roomQueuePosition = 0;
 let roomPeers = new Map();
 let authoritativeDeparturePending = false;
 let liveCountdownTimer = null;
@@ -736,7 +741,7 @@ function updateHud() {
   const localIndex = duelType === "live"
     ? roomPlayers.findIndex((player) => player.id === clientId)
     : 0;
-  if (duelType === "live" && roomPlayers.length === 2 && localIndex < 0) {
+  if (duelType === "live" && roomPlayers.length === LIVE_ROOM_CAPACITY && localIndex < 0) {
     leftLabel.textContent = "PLAYER 1";
     rightLabel.textContent = "PLAYER 2";
     leftScore.textContent = String(playerScore).padStart(2, "0");
@@ -889,13 +894,27 @@ function reconcileLocalRoomReady(players) {
   roomReadyConfirmed = authoritativeReady;
 }
 
-function applyAuthoritativeRoomRoster(players) {
+function applyAuthoritativeRoomRoster(players, waiting = [], queuePosition = 0) {
   if (!Array.isArray(players)) return;
+  const capacity = typeof LIVE_ROOM_CAPACITY === "number" ? LIVE_ROOM_CAPACITY : 2;
   const previousPlayerCount = (roomRole === "player" ? 1 : 0)
-    + [...roomPeers.values()].filter((player) => player.slot === 0 || player.slot === 1).length;
-  const nextPlayerCount = players.filter((player) => player?.slot === 0 || player?.slot === 1).length;
-  authoritativeDeparturePending = previousPlayerCount >= 2 && nextPlayerCount < 2;
+    + [...roomPeers.values()].filter((player) => (
+      Number(player.slot) >= 0 && Number(player.slot) < capacity
+    )).length;
+  const nextPlayerCount = players.filter((player) => (
+    Number(player?.slot) >= 0 && Number(player?.slot) < capacity
+  )).length;
+  authoritativeDeparturePending = previousPlayerCount >= capacity && nextPlayerCount < capacity;
+  const previousRole = roomRole;
   reconcileLocalRoomReady(players);
+  roomWaitingPlayers = Array.isArray(waiting) ? waiting : [];
+  roomQueuePosition = Number(queuePosition) || 0;
+  if (previousRole !== roomRole) {
+    roomReadyDesired = false;
+    roomReady = false;
+    roomReadyConfirmed = false;
+    roomReadyUpdatePending = false;
+  }
   roomPeers = new Map(players
     .filter((player) => player?.id && player.id !== clientId)
     .map((player) => [player.id, {
@@ -906,7 +925,7 @@ function applyAuthoritativeRoomRoster(players) {
       seenAt: Number.isFinite(Number(player.seenAt)) ? Number(player.seenAt) : Date.now(),
       profile: player.profile && typeof player.profile === "object" ? player.profile : null,
     }]));
-  roomPlayers = activeRoomRoster().slice(0, 2);
+  roomPlayers = activeRoomRoster().slice(0, capacity);
 }
 
 function setRoomReadyIntent(nextReady, pending = true) {
@@ -966,11 +985,30 @@ function syncLiveRoom() {
   const authoritativeDeparture = authoritativeDeparturePending;
   authoritativeDeparturePending = false;
   const roomRoster = activeRoomRoster();
-  roomPlayers = roomRoster.slice(0, 2);
+  roomPlayers = roomRoster.slice(0, LIVE_ROOM_CAPACITY);
   updateRosterSlot(roomSlotOne, roomPlayers[0], 0);
   updateRosterSlot(roomSlotTwo, roomPlayers[1], 1);
+  if (roomWaiting) {
+    roomWaiting.replaceChildren(...roomWaitingPlayers.map((player) => {
+      const entry = document.createElement("div");
+      entry.textContent = `${Number(player.position) || 0}. ${
+        player.id === clientId ? "YOU" : String(
+          player.profile?.callsign || player.profile?.displayName || "PLAYER",
+        ).toUpperCase()
+      }`;
+      return entry;
+    }));
+  }
+  if (roomQueueState) {
+    roomQueueState.textContent = roomRole === "player"
+      ? "YOU'RE IN · READY WHEN YOU ARE"
+      : roomQueuePosition === 1
+        ? "NEXT UP · WATCHING LIVE"
+        : roomQueuePosition > 1
+          ? `WAITING LINE · POSITION ${roomQueuePosition}`
+          : roomConnected ? "WATCHING LIVE" : "NOT CONNECTED";
+  }
   const localIndex = roomPlayers.findIndex((player) => player.id === clientId);
-  const roomFull = roomConnected && roomRole === "spectator";
   const participants = roomPlayers.map((player) => ({
     connected: true,
     ready: Boolean(player.ready),
@@ -983,19 +1021,21 @@ function syncLiveRoom() {
   connectRoomButton.querySelector("span").textContent = roomTransport ? "Disconnect" : "Connect room";
   roomCodeInput.disabled = Boolean(roomTransport);
 
-  if (roomFull) {
-    roomState.textContent = "ROOM FULL · SPECTATING";
+  if (roomConnected && roomRole === "spectator") {
+    roomState.textContent = roomQueuePosition === 1
+      ? "NEXT UP · WATCHING LIVE"
+      : roomQueuePosition > 1
+        ? `WAITING LINE · POSITION ${roomQueuePosition}`
+        : "WATCHING LIVE";
     readyRoomButton.disabled = true;
-    if (runState === "ready") {
-      setRunState("ready", "ROOM FULL · SPECTATOR");
+    if (runState === "ready" && roomQueuePosition > 0) {
+      setRunState("ready", roomQueuePosition === 1 ? "NEXT UP" : "IN WAITING LINE");
       showOverlay(
-        "TWO PLAYER LIMIT",
-        "ROOM FULL<br><em>SPECTATOR</em>",
-        "This Signal already has two players. You can watch, but cannot steer or Ready up.",
+        roomQueuePosition === 1 ? "NEXT UP" : "WAITING LINE",
+        roomQueuePosition === 1 ? "YOU'RE<br><em>UP NEXT</em>" : `POSITION ${roomQueuePosition}<br><em>IN LINE</em>`,
+        "Watch the live duel. You will be seated automatically when a seat opens.",
       );
     }
-    updateHud();
-    return;
   }
 
   if (phase === "waiting") {
@@ -1073,7 +1113,19 @@ function syncLiveRoom() {
 function handleRoomStatus(status) {
   if (!status || typeof status !== "object") return;
   if (status.state === "synchronized") {
-    applyAuthoritativeRoomRoster(status.players);
+    const previousRole = roomRole;
+    roomRole = status.role === "player" ? "player" : "spectator";
+    roomSlot = roomRole === "player" && Number.isInteger(status.slot) ? status.slot : -1;
+    if (previousRole !== roomRole) {
+      roomReadyDesired = false;
+      roomReady = false;
+      roomReadyConfirmed = false;
+      roomReadyUpdatePending = false;
+      announcement.textContent = roomRole === "player"
+        ? "You’re in. Press Ready when you want to play."
+        : "You joined the waiting line.";
+    }
+    applyAuthoritativeRoomRoster(status.players, status.waiting, status.queuePosition);
     if (roomTransport) syncLiveRoom();
     return;
   }
@@ -1112,12 +1164,22 @@ function handleRoomStatus(status) {
     return;
   }
   if (status.state !== "connected") return;
+  const previousRole = roomRole;
   roomConnectionState = "connected";
   roomConnected = true;
   roomLatency.textContent = "WEBSOCKET CONNECTED · MEASURING";
   roomRole = status.role === "player" ? "player" : "spectator";
   roomSlot = roomRole === "player" && Number.isInteger(status.slot) ? status.slot : -1;
-  applyAuthoritativeRoomRoster(status.players);
+  if (previousRole !== roomRole) {
+    roomReadyDesired = false;
+    roomReady = false;
+    roomReadyConfirmed = false;
+    roomReadyUpdatePending = false;
+    announcement.textContent = roomRole === "player"
+      ? "You’re in. Press Ready when you want to play."
+      : "You joined the waiting line.";
+  }
+  applyAuthoritativeRoomRoster(status.players, status.waiting, status.queuePosition);
   if (roomTransport) syncLiveRoom();
 }
 

@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const {
   PRESENCE_SCRIPT,
+  DEFAULT_ROOM_CAPACITY,
   RoomSimulation,
   createRealtimeHub,
   createRedisRestBus,
@@ -80,7 +81,15 @@ function createFakeRedis() {
       const generation = (roomGeneration.get(room) || 0) + 1;
       roomGeneration.set(room, generation);
       const used = new Set([...players.values()].filter((item) => item.slot >= 0).map((item) => item.slot));
-      const slot = current?.slot ?? (!used.has(0) ? 0 : !used.has(1) ? 1 : -1);
+      let slot = current?.slot ?? -1;
+      if (!current) {
+        for (let candidate = 0; candidate < DEFAULT_ROOM_CAPACITY; candidate += 1) {
+          if (!used.has(candidate)) {
+            slot = candidate;
+            break;
+          }
+        }
+      }
       current = {
         id: clientId,
         connectionId,
@@ -114,6 +123,33 @@ function createFakeRedis() {
         }
       }
     }
+    if (action === "rotate") {
+      const losers = [Number(command[20]), Number(command[21])];
+      for (const player of players.values()) {
+        if (losers.includes(player.slot)) {
+          player.slot = -1;
+          player.joinEpoch = (roomGeneration.get(room) || 0) + 1;
+          roomGeneration.set(room, player.joinEpoch);
+          player.ready = false;
+          player.readyEpoch = 0;
+        }
+        player.ready = false;
+        player.readyEpoch = 0;
+      }
+    }
+    const usedAfter = new Set([...players.values()].filter((item) => item.slot >= 0).map((item) => item.slot));
+    [...players.values()]
+      .filter((item) => item.slot < 0)
+      .sort((first, second) => first.joinEpoch - second.joinEpoch)
+      .forEach((item) => {
+        for (let candidate = 0; candidate < DEFAULT_ROOM_CAPACITY; candidate += 1) {
+          if (!usedAfter.has(candidate)) {
+            item.slot = candidate;
+            usedAfter.add(candidate);
+            break;
+          }
+        }
+      });
     const roster = [...players.values()]
       .filter((item) => item.slot >= 0)
       .sort((first, second) => first.slot - second.slot);
@@ -123,6 +159,16 @@ function createFakeRedis() {
       slot: current?.slot ?? -1,
       joinEpoch: current?.joinEpoch ?? 0,
       players: roster,
+      waiting: [...players.values()]
+        .filter((item) => item.slot < 0)
+        .sort((first, second) => first.joinEpoch - second.joinEpoch)
+        .map((item, index) => ({ ...item, position: index + 1 })),
+      queuePosition: current?.slot < 0
+        ? [...players.values()]
+          .filter((item) => item.slot < 0)
+          .sort((first, second) => first.joinEpoch - second.joinEpoch)
+          .findIndex((item) => item.id === current.id) + 1
+        : 0,
     });
   };
 }
@@ -356,7 +402,24 @@ async function flush() {
   assert.ok(first.messages.some((message) => (
     message.type === "roster" && message.players.length === 2
   )));
-
+  const queueFirst = new FakeSocket();
+  const queueSecond = new FakeSocket();
+  const queueThird = new FakeSocket();
+  await firstHub.connect(queueFirst, request("234567", "queue-first"));
+  await firstHub.connect(queueSecond, request("234567", "queue-second"));
+  await firstHub.connect(queueThird, request("234567", "queue-third"));
+  await flush();
+  const queueWelcome = queueThird.messages.find((message) => message.type === "welcome");
+  assert.equal(queueWelcome.role, "spectator");
+  assert.equal(queueWelcome.queuePosition, 1);
+  assert.equal(queueWelcome.waiting[0].id, "queue-third");
+  queueSecond.emit("close");
+  await flush();
+  assert.ok(queueThird.messages.some((message) => (
+    message.type === "roster"
+    && message.players.some((player) => player.id === "queue-third" && player.slot === 1)
+  )), "A seated departure promotes the queue head atomically");
+  assert.ok(queueThird.messages.some((message) => message.type === "countdown-cancel"));
   first.message({ type: "ready", ready: true });
   second.message({ type: "ready", ready: true });
   await flush();

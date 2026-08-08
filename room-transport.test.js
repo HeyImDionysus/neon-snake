@@ -269,6 +269,18 @@ const tests = [
       && message.profile?.favoriteMode === "rush"
       && message.profile?.snakeStyle === "spectral"
     )));
+    const sentBeforePromotion = socket.messages.length;
+    socket.message({
+      type: "roster",
+      waiting: [],
+      players: [
+        { id: "client-two", slot: 0, ready: false, seenAt: 980, profile: null },
+        { id: "client-one", slot: 1, ready: false, seenAt: 980, profile: null },
+      ],
+    });
+    assert.equal(statuses.at(-1).role, "player");
+    assert.equal(statuses.at(-1).slot, 1);
+    assert.equal(socket.messages.length, sentBeforePromotion);
 
     const input = {
       type: "input",

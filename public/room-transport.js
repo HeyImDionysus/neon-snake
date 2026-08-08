@@ -48,6 +48,8 @@
     let role = "spectator";
     let slot = -1;
     let roster = [];
+    let waiting = [];
+    let queuePosition = 0;
     let failures = 0;
     let reconnectTimer = null;
     let heartbeatTimer = null;
@@ -82,6 +84,8 @@
           role,
           slot,
           players: roster,
+          waiting,
+          queuePosition,
           code: "state_timeout",
         });
         onMessage({
@@ -106,6 +110,10 @@
     function emitRoster(players) {
       if (!Array.isArray(players)) return;
       roster = players;
+      const previousRole = role;
+      const localPlayer = roster.find((player) => player?.id === clientId);
+      role = localPlayer && Number(localPlayer.slot) >= 0 ? "player" : "spectator";
+      slot = role === "player" ? Number(localPlayer.slot) : -1;
       players.forEach((player) => {
         if (!player || player.id === clientId) return;
         onMessage({
@@ -135,10 +143,18 @@
           sentAt: now(),
         });
       });
-      onStatus({ state: "synchronized", role, slot, players: roster });
-      const localPlayer = roster.find((player) => player?.id === clientId);
+      onStatus({
+        state: "synchronized",
+        role,
+        slot,
+        players: roster,
+        waiting,
+        queuePosition,
+        roleChanged: previousRole !== role,
+      });
       if (
         role === "player"
+        && previousRole === "player"
         && localPlayer
         && Boolean(localPlayer.ready) !== ready
         && now() - lastReadySentAt >= 500
@@ -194,7 +210,7 @@
       nextSocket.addEventListener("open", () => {
         if (socket !== nextSocket || closed) return;
         failures = 0;
-        onStatus({ state: "socket-open", role, slot, players: roster });
+        onStatus({ state: "socket-open", role, slot, players: roster, waiting, queuePosition });
         scheduleHeartbeat();
       });
       nextSocket.addEventListener("message", (event) => {
@@ -223,9 +239,11 @@
           lastPongAt = now();
           role = message.role === "player" ? "player" : "spectator";
           slot = role === "player" && Number.isInteger(message.slot) ? message.slot : -1;
+          waiting = Array.isArray(message.waiting) ? message.waiting : [];
+          queuePosition = Number(message.queuePosition) || 0;
           if (role === "player") sendReady();
           emitRoster(message.players);
-          onStatus({ state: "connected", role, slot, players: roster });
+          onStatus({ state: "connected", role, slot, players: roster, waiting, queuePosition });
           scheduleHeartbeat(750);
           if (active) armStateWatchdog(3_000);
           return;
@@ -234,6 +252,10 @@
           return;
         }
         if (message.type === "roster") {
+          waiting = Array.isArray(message.waiting) ? message.waiting : [];
+          queuePosition = Number(message.queuePosition) || (
+            waiting.find((entry) => entry?.id === clientId)?.position || 0
+          );
           emitRoster(message.players);
           return;
         }
@@ -262,6 +284,8 @@
             role,
             slot,
             players: roster,
+            waiting,
+            queuePosition,
             latency,
             clockOffset,
           });
