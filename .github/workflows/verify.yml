@@ -57,6 +57,7 @@ jobs:
           node control-flow.test.js
           node duel-control-flow.test.js
           node duel-quality.test.js
+          node duel-authority-consistency.test.js
           node room-transport.test.js
           node room-api.test.js
           node identity-system.test.js

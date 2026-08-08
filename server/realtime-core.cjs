@@ -523,30 +523,43 @@ class RoomSimulation {
   enqueue(slot, message) {
     if (!this.game || message.round !== this.game.round) return;
     const queue = slot === 0 ? this.game.playerInputs : this.game.opponentInputs;
-    if (queue.some((input) => input.sequence === message.sequence) || queue.length >= 4) return;
+    const acknowledged = slot === 0
+      ? this.game.playerInputAck
+      : this.game.guestInputAck;
+    if (
+      message.sequence <= acknowledged
+      || queue.some((input) => input.sequence === message.sequence)
+      || queue.length >= 4
+    ) return;
     queue.push(message);
     queue.sort((first, second) => first.sequence - second.sequence);
   }
 
   consumeInput(queue, currentDirection) {
+    let consumedThrough = 0;
     while (queue.length) {
       const input = queue.shift();
-      if (!this.reverse(input.direction, currentDirection)) return input;
+      consumedThrough = Math.max(consumedThrough, input.sequence);
+      if (!this.reverse(input.direction, currentDirection)) {
+        return { input, consumedThrough };
+      }
     }
-    return null;
+    return { input: null, consumedThrough };
   }
 
   resolveTick() {
     const game = this.game;
-    const playerInput = this.consumeInput(game.playerInputs, game.playerDirection);
-    const opponentInput = this.consumeInput(game.opponentInputs, game.opponentDirection);
+    const playerCommand = this.consumeInput(game.playerInputs, game.playerDirection);
+    const opponentCommand = this.consumeInput(game.opponentInputs, game.opponentDirection);
+    const playerInput = playerCommand.input;
+    const opponentInput = opponentCommand.input;
+    game.playerInputAck = Math.max(game.playerInputAck, playerCommand.consumedThrough);
+    game.guestInputAck = Math.max(game.guestInputAck, opponentCommand.consumedThrough);
     if (playerInput) {
       game.playerDirection = { ...playerInput.direction };
-      game.playerInputAck = Math.max(game.playerInputAck, playerInput.sequence);
     }
     if (opponentInput) {
       game.opponentDirection = { ...opponentInput.direction };
-      game.guestInputAck = Math.max(game.guestInputAck, opponentInput.sequence);
     }
     const resolved = Rules.resolveDuelTick({
       players: {

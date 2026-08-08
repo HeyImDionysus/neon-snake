@@ -18,6 +18,7 @@ node canvas-browser-performance.test.js
 node control-flow.test.js
 node duel-control-flow.test.js
 node duel-quality.test.js
+node duel-authority-consistency.test.js
 node room-transport.test.js
 node room-api.test.js
 node identity-system.test.js
@@ -143,6 +144,7 @@ Discord sign-in is optional for play and required only for a verified profile or
 - `control-flow.test.js` — executable ownership and explicit-start regressions.
 - `duel-control-flow.test.js` — executable expanded-arena and room-gate regressions.
 - `duel-quality.test.js` — executable 1,200-state simultaneous-resolution symmetry gate plus a 36-run, both-spawn adversarial planner matrix.
+- `duel-authority-consistency.test.js` — long-run tick-for-tick local AI versus authoritative live-room equivalence, including monotonic late-input acknowledgement diagnostics.
 - `room-transport.test.js` — executable transport lifecycle and envelope regressions.
 - `room-api.test.js` — executable origin, validation, role, rate, expiry, and configuration regressions.
 - `identity-system.test.js` — executable identity, deterministic field, protocol-glyph, cache, and motion-budget regressions.
