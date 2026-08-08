@@ -214,6 +214,10 @@
             <div id="roomSlotOne" role="listitem"><i aria-hidden="true"></i><span>PLAYER 1</span><strong>OPEN</strong></div>
             <div id="roomSlotTwo" role="listitem"><i aria-hidden="true"></i><span>PLAYER 2</span><strong>OPEN</strong></div>
           </div>
+          <section class="room-waiting" aria-labelledby="roomWaitingTitle">
+            <header><span id="roomWaitingTitle">WAITING LINE</span><strong id="roomQueueState">NOT CONNECTED</strong></header>
+            <div id="roomWaiting" role="list" aria-label="Players waiting for a seat"></div>
+          </section>
 
           <p class="room-state" id="roomState" aria-live="polite">NOT CONNECTED</p>
           <p class="room-latency" id="roomLatency">REALTIME PING · NOT MEASURED</p>

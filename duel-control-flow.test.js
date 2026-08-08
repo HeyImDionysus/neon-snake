@@ -161,6 +161,71 @@ const tests = [
     assert.match(functionBody("advanceGame"), /roomTransport\?\.authoritative/);
     assert.match(functionBody("handleRoomMessage"), /round !== liveRoundId/);
   }],
+  ["queued viewers apply authoritative snapshots while holding no seat", () => {
+    const context = {
+      authoritativeOpponentSnake: [],
+      authoritativePlayerSnake: [],
+      clientId: "queued-viewer",
+      cloneSnake(snake) {
+        return snake.map((point) => ({ ...point }));
+      },
+      liveClockOffsetMs: null,
+      liveLatencyMs: 0,
+      TICK_DURATION: 138,
+      lastMoveAt: 900,
+      lastRemoteSequence: -1,
+      liveRoundId: 7,
+      nextMoveAt: 0,
+      opponentDirection: { x: -1, y: 0 },
+      opponentInputBuffer: [],
+      opponentInputSequences: [],
+      opponentPredictionIndex: 0,
+      opponentScore: 0,
+      playerDirection: { x: 1, y: 0 },
+      playerInputBuffer: [],
+      playerInputSequences: [],
+      playerPredictionIndex: 0,
+      playerScore: 0,
+      roomPlayers: [
+        { id: "seat-one", slot: 0 },
+        { id: "seat-two", slot: 1 },
+      ],
+      roomTransport: { authoritative: true },
+      runState: "running",
+      updateHud() {
+        context.updated = true;
+      },
+      networkInterpolationOffset() {
+        return 50;
+      },
+      performance: { now: () => 1_000 },
+      Date: { now: () => 2_000 },
+      state: {},
+    };
+    const { applyRemoteSnapshot } = installFunctions(["applyRemoteSnapshot"], context);
+    applyRemoteSnapshot({
+      sequence: 1,
+      sentAt: 1_950,
+      state: {
+        round: 7,
+        playerSnake: [{ x: 1, y: 1 }],
+        opponentSnake: [{ x: 4, y: 4 }],
+        playerDirection: { x: 1, y: 0 },
+        opponentDirection: { x: -1, y: 0 },
+        playerInputAck: 0,
+        guestInputAck: 0,
+        playerScore: 2,
+        opponentScore: 3,
+        food: { x: 8, y: 8 },
+        signalCursor: 11,
+        over: false,
+      },
+    });
+    assert.equal(context.lastRemoteSequence, 1);
+    assert.equal(context.playerSnake[0].x, 1);
+    assert.equal(context.opponentSnake[0].x, 4);
+    assert.equal(context.updated, true);
+  }],
   ["live interpolation subtracts transit time instead of replaying a full delayed tick", () => {
     const context = { TICK_DURATION: 138 };
     const { networkInterpolationOffset } = installFunctions(
@@ -323,7 +388,7 @@ const tests = [
     assert.equal(context.roomReady, false);
     assert.equal(context.roomReadyConfirmed, false);
     assert.match(functionBody("roomIdentity"), /ready: roomReadyConfirmed/);
-    assert.match(functionBody("handleRoomStatus"), /applyAuthoritativeRoomRoster\(status\.players\)/);
+    assert.match(functionBody("handleRoomStatus"), /applyAuthoritativeRoomRoster\(status\.players, status\.waiting, status\.queuePosition\)/);
   }],
   ["synchronized WebSocket rosters acknowledge the local Ready signal", () => {
     const context = {
@@ -360,7 +425,7 @@ const tests = [
     assert.equal(context.roomPlayers.length, 2);
     assert.match(
       functionBody("handleRoomStatus"),
-      /status\.state === "synchronized"[\s\S]*applyAuthoritativeRoomRoster\(status\.players\)/,
+      /status\.state === "synchronized"[\s\S]*applyAuthoritativeRoomRoster\(status\.players, status\.waiting, status\.queuePosition\)/,
     );
   }],
   ["newer local Ready intent wins over stale authoritative responses", () => {
@@ -420,7 +485,7 @@ const tests = [
     assert.match(status, /ROOM UPDATE REJECTED/);
     assert.match(status, /roomConnectionState/);
     assert.match(functionBody("applyAuthoritativeRoomRoster"), /roomPeers = new Map\(players/);
-    assert.match(functionBody("applyAuthoritativeRoomRoster"), /roomPlayers = activeRoomRoster\(\)\.slice\(0, 2\)/);
+    assert.match(functionBody("applyAuthoritativeRoomRoster"), /roomPlayers = activeRoomRoster\(\)\.slice\(0, capacity\)/);
     assert.match(status, /status\.state === "synchronized"/);
     assert.match(status, /if \(roomTransport\) syncLiveRoom\(\)/);
     assert.match(functionBody("disconnectLiveRoom"), /roomConnectionState = "disconnected"/);
@@ -465,7 +530,7 @@ const tests = [
       "Only an authoritative departure may replace a completed-round result",
     );
     const roster = functionBody("applyAuthoritativeRoomRoster");
-    assert.match(roster, /previousPlayerCount >= 2 && nextPlayerCount < 2/);
+    assert.match(roster, /previousPlayerCount >= capacity && nextPlayerCount < capacity/);
     const handler = functionBody("handleRoomMessage");
     assert.match(handler, /message\.type === "countdown-cancel"/);
     assert.match(handler, /cancelLiveRound\(message\)/);
@@ -517,11 +582,11 @@ const tests = [
     const body = functionBody("syncLiveRoom");
     assert.match(body, /roomCodeInput\.disabled = Boolean\(roomTransport\)/);
   }],
-  ["a third participant is explicitly treated as a spectator", () => {
+  ["a third participant is explicitly shown in the waiting line", () => {
     const body = functionBody("syncLiveRoom");
-    assert.match(body, /ROOM FULL · SPECTATING/);
-    assert.match(body, /roomFull/);
-    assert.match(body, /SPECTATOR/);
+    assert.match(body, /WAITING LINE/);
+    assert.match(body, /roomQueuePosition/);
+    assert.match(body, /NEXT UP/);
     const hud = functionBody("updateHud");
     assert.match(hud, /PLAYER 1/);
     assert.match(hud, /PLAYER 2/);

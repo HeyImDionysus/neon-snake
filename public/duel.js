@@ -40,6 +40,8 @@ const aiTraceRisk = $("#aiTraceRisk");
 const aiTraceDepth = $("#aiTraceDepth");
 const roomSlotOne = $("#roomSlotOne");
 const roomSlotTwo = $("#roomSlotTwo");
+const roomWaiting = $("#roomWaiting");
+const roomQueueState = $("#roomQueueState");
 const activityContext = $("#activityContext");
 const activityContextTitle = $("#activityContextTitle");
 const activityContextDetail = $("#activityContextDetail");
@@ -48,6 +50,7 @@ const activityContextRetry = $("#activityContextRetry");
 const DUEL_GRID = Rules.duelGridSize(20);
 const SIGNAL_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const TICK_DURATION = 138;
+const LIVE_ROOM_CAPACITY = 2;
 const PEER_TIMEOUT = 6000;
 const DIRECTIONS = {
   up: { x: 0, y: -1 },
@@ -112,6 +115,8 @@ let roomRole = "disconnected";
 let roomSlot = -1;
 let roomConnectionState = "disconnected";
 let roomPlayers = [];
+let roomWaitingPlayers = [];
+let roomQueuePosition = 0;
 let roomPeers = new Map();
 let authoritativeDeparturePending = false;
 let liveCountdownTimer = null;
@@ -736,7 +741,7 @@ function updateHud() {
   const localIndex = duelType === "live"
     ? roomPlayers.findIndex((player) => player.id === clientId)
     : 0;
-  if (duelType === "live" && roomPlayers.length === 2 && localIndex < 0) {
+  if (duelType === "live" && roomPlayers.length === LIVE_ROOM_CAPACITY && localIndex < 0) {
     leftLabel.textContent = "PLAYER 1";
     rightLabel.textContent = "PLAYER 2";
     leftScore.textContent = String(playerScore).padStart(2, "0");
@@ -889,13 +894,20 @@ function reconcileLocalRoomReady(players) {
   roomReadyConfirmed = authoritativeReady;
 }
 
-function applyAuthoritativeRoomRoster(players) {
+function applyAuthoritativeRoomRoster(players, waiting = [], queuePosition = 0) {
   if (!Array.isArray(players)) return;
+  const capacity = typeof LIVE_ROOM_CAPACITY === "number" ? LIVE_ROOM_CAPACITY : 2;
   const previousPlayerCount = (roomRole === "player" ? 1 : 0)
-    + [...roomPeers.values()].filter((player) => player.slot === 0 || player.slot === 1).length;
-  const nextPlayerCount = players.filter((player) => player?.slot === 0 || player?.slot === 1).length;
-  authoritativeDeparturePending = previousPlayerCount >= 2 && nextPlayerCount < 2;
+    + [...roomPeers.values()].filter((player) => (
+      Number(player.slot) >= 0 && Number(player.slot) < capacity
+    )).length;
+  const nextPlayerCount = players.filter((player) => (
+    Number(player?.slot) >= 0 && Number(player?.slot) < capacity
+  )).length;
+  authoritativeDeparturePending = previousPlayerCount >= capacity && nextPlayerCount < capacity;
   reconcileLocalRoomReady(players);
+  roomWaitingPlayers = Array.isArray(waiting) ? waiting : [];
+  roomQueuePosition = Number(queuePosition) || 0;
   roomPeers = new Map(players
     .filter((player) => player?.id && player.id !== clientId)
     .map((player) => [player.id, {
@@ -906,7 +918,7 @@ function applyAuthoritativeRoomRoster(players) {
       seenAt: Number.isFinite(Number(player.seenAt)) ? Number(player.seenAt) : Date.now(),
       profile: player.profile && typeof player.profile === "object" ? player.profile : null,
     }]));
-  roomPlayers = activeRoomRoster().slice(0, 2);
+  roomPlayers = activeRoomRoster().slice(0, capacity);
 }
 
 function setRoomReadyIntent(nextReady, pending = true) {
@@ -966,11 +978,30 @@ function syncLiveRoom() {
   const authoritativeDeparture = authoritativeDeparturePending;
   authoritativeDeparturePending = false;
   const roomRoster = activeRoomRoster();
-  roomPlayers = roomRoster.slice(0, 2);
+  roomPlayers = roomRoster.slice(0, LIVE_ROOM_CAPACITY);
   updateRosterSlot(roomSlotOne, roomPlayers[0], 0);
   updateRosterSlot(roomSlotTwo, roomPlayers[1], 1);
+  if (roomWaiting) {
+    roomWaiting.replaceChildren(...roomWaitingPlayers.map((player) => {
+      const entry = document.createElement("div");
+      entry.textContent = `${Number(player.position) || 0}. ${
+        player.id === clientId ? "YOU" : String(
+          player.profile?.callsign || player.profile?.displayName || "PLAYER",
+        ).toUpperCase()
+      }`;
+      return entry;
+    }));
+  }
+  if (roomQueueState) {
+    roomQueueState.textContent = roomRole === "player"
+      ? "YOU'RE IN · READY WHEN YOU ARE"
+      : roomQueuePosition === 1
+        ? "NEXT UP · WATCHING LIVE"
+        : roomQueuePosition > 1
+          ? `WAITING LINE · POSITION ${roomQueuePosition}`
+          : roomConnected ? "WATCHING LIVE" : "NOT CONNECTED";
+  }
   const localIndex = roomPlayers.findIndex((player) => player.id === clientId);
-  const roomFull = roomConnected && roomRole === "spectator";
   const participants = roomPlayers.map((player) => ({
     connected: true,
     ready: Boolean(player.ready),
@@ -983,22 +1014,23 @@ function syncLiveRoom() {
   connectRoomButton.querySelector("span").textContent = roomTransport ? "Disconnect" : "Connect room";
   roomCodeInput.disabled = Boolean(roomTransport);
 
-  if (roomFull) {
-    roomState.textContent = "ROOM FULL · SPECTATING";
+  const queuedViewer = roomConnected && roomRole === "spectator" && roomQueuePosition > 0;
+  if (queuedViewer) {
+    roomState.textContent = roomQueuePosition === 1
+      ? "NEXT UP · WATCHING LIVE"
+      : roomQueuePosition > 1
+        ? `WAITING LINE · POSITION ${roomQueuePosition}`
+        : "WATCHING LIVE";
     readyRoomButton.disabled = true;
-    if (runState === "ready") {
-      setRunState("ready", "ROOM FULL · SPECTATOR");
+    if (runState === "ready" || runState === "over") {
+      setRunState("ready", roomQueuePosition === 1 ? "NEXT UP" : "IN WAITING LINE");
       showOverlay(
-        "TWO PLAYER LIMIT",
-        "ROOM FULL<br><em>SPECTATOR</em>",
-        "This Signal already has two players. You can watch, but cannot steer or Ready up.",
+        roomQueuePosition === 1 ? "NEXT UP" : "WAITING LINE",
+        roomQueuePosition === 1 ? "YOU'RE<br><em>UP NEXT</em>" : `POSITION ${roomQueuePosition}<br><em>IN LINE</em>`,
+        "Watch the live duel. You will be seated automatically when a seat opens.",
       );
     }
-    updateHud();
-    return;
-  }
-
-  if (phase === "waiting") {
+  } else if (phase === "waiting") {
     roomState.textContent = roomConnected ? "WAITING FOR PLAYER 2" : "NOT CONNECTED";
     if (liveCountdownActive) abortLiveCountdown();
     if (runState === "ready" || (runState === "over" && authoritativeDeparture)) {
@@ -1073,7 +1105,8 @@ function syncLiveRoom() {
 function handleRoomStatus(status) {
   if (!status || typeof status !== "object") return;
   if (status.state === "synchronized") {
-    applyAuthoritativeRoomRoster(status.players);
+    updateAuthoritativeRoomRole(status.role, status.slot);
+    applyAuthoritativeRoomRoster(status.players, status.waiting, status.queuePosition);
     if (roomTransport) syncLiveRoom();
     return;
   }
@@ -1115,10 +1148,25 @@ function handleRoomStatus(status) {
   roomConnectionState = "connected";
   roomConnected = true;
   roomLatency.textContent = "WEBSOCKET CONNECTED · MEASURING";
-  roomRole = status.role === "player" ? "player" : "spectator";
-  roomSlot = roomRole === "player" && Number.isInteger(status.slot) ? status.slot : -1;
-  applyAuthoritativeRoomRoster(status.players);
+  updateAuthoritativeRoomRole(status.role, status.slot);
+  applyAuthoritativeRoomRoster(status.players, status.waiting, status.queuePosition);
   if (roomTransport) syncLiveRoom();
+}
+
+function updateAuthoritativeRoomRole(nextRole, nextSlot) {
+  const next = nextRole === "player" ? "player" : "spectator";
+  const changed = roomRole !== next;
+  roomRole = next;
+  roomSlot = next === "player" && Number.isInteger(nextSlot) ? nextSlot : -1;
+  if (changed) {
+    roomReadyDesired = false;
+    roomReady = false;
+    roomReadyConfirmed = false;
+    roomReadyUpdatePending = false;
+    announcement.textContent = next === "player"
+      ? "You’re in. Press Ready when you want to play."
+      : "You joined the waiting line.";
+  }
 }
 
 async function connectLiveRoom() {
@@ -1401,7 +1449,7 @@ function applyRemoteSnapshot(message) {
 
 function cancelLiveRound(message) {
   const departedSlot = Number.isInteger(message?.slot) ? message.slot : -1;
-  const authoritativeDeparture = departedSlot === 0 || departedSlot === 1;
+  const authoritativeDeparture = departedSlot >= 0 && departedSlot < LIVE_ROOM_CAPACITY;
   if (authoritativeDeparture) {
     roomPeers = new Map([...roomPeers].filter(([, peer]) => peer.slot !== departedSlot));
   }
@@ -1411,6 +1459,18 @@ function cancelLiveRound(message) {
   if (liveCountdownActive) abortLiveCountdown();
   nextMoveAt = 0;
   syncLiveRoom();
+  if (duelType === "live" && roomRole === "spectator" && roomQueuePosition > 0) {
+    setRunState("ready", roomQueuePosition === 1 ? "NEXT UP" : "IN WAITING LINE");
+    showOverlay(
+      roomQueuePosition === 1 ? "NEXT UP" : "WAITING LINE",
+      roomQueuePosition === 1 ? "YOU'RE<br><em>UP NEXT</em>" : `POSITION ${roomQueuePosition}<br><em>IN LINE</em>`,
+      "The live round ended. Keep watching while the waiting line advances.",
+    );
+    announcement.textContent = roomQueuePosition === 1
+      ? "A seat opened. You are next up."
+      : "The live round ended. You remain in the waiting line.";
+    return;
+  }
   if (completedDeparture && duelType === "live") {
     setRunState("ready", "WAITING FOR PLAYER 2");
     showOverlay(

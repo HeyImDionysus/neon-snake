@@ -694,6 +694,42 @@ body[data-duel-state="running"] .duel-board { touch-action: none; }
   text-align: center;
 }
 
+.room-waiting {
+  margin-top: .85rem;
+  padding: .7rem .8rem;
+  border: 1px solid #ffffff1c;
+  background: #07131db8;
+}
+
+.room-waiting header {
+  display: flex;
+  justify-content: space-between;
+  gap: .75rem;
+  color: #8ea8b8;
+  font-size: .68rem;
+  letter-spacing: .12em;
+}
+
+.room-waiting header strong {
+  color: #dffcff;
+  font-size: .66rem;
+}
+
+.room-waiting > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem .8rem;
+  margin-top: .45rem;
+  color: #b4c8d1;
+  font-size: .75rem;
+}
+
+@media (max-width: 560px) {
+  .room-waiting {
+    padding: .6rem;
+  }
+}
+
 .room-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;

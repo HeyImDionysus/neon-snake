@@ -19,6 +19,7 @@ const MAX_MESSAGE_BYTES = 32 * 1024;
 const MAX_MESSAGES_PER_SECOND = 40;
 const CONNECTION_TTL_MS = 30_000;
 const ROOM_TTL_SECONDS = 45;
+const DEFAULT_ROOM_CAPACITY = 2;
 const DUEL_GRID = 30;
 const TICK_DURATION = 138;
 const Rules = globalThis.SnakeRules;
@@ -43,6 +44,8 @@ local callsign = ARGV[10]
 local accent = ARGV[11]
 local favoriteMode = ARGV[12]
 local snakeStyle = ARGV[13]
+local loserSlotA = tonumber(ARGV[14] or "-1")
+local loserSlotB = tonumber(ARGV[15] or "-1")
 local cutoff = now - ${CONNECTION_TTL_MS}
 
 local stale = redis.call("ZRANGEBYSCORE", presenceKey, "-inf", cutoff)
@@ -55,6 +58,37 @@ local function read(id)
   return cjson.decode(raw)
 end
 
+local function fillEmptySeats()
+  local used = {}
+  for _, id in ipairs(redis.call("ZRANGE", presenceKey, 0, -1)) do
+    local item = read(id)
+    if item and tonumber(item["slot"]) >= 0 then used[tonumber(item["slot"])] = true end
+  end
+  local waiting = {}
+  for _, id in ipairs(redis.call("ZRANGE", presenceKey, 0, -1)) do
+    local item = read(id)
+    if item and tonumber(item["slot"]) < 0 then table.insert(waiting, item) end
+  end
+  table.sort(waiting, function(first, second)
+    local firstEpoch = tonumber(first["joinEpoch"]) or 0
+    local secondEpoch = tonumber(second["joinEpoch"]) or 0
+    if firstEpoch == secondEpoch then return tostring(first["id"]) < tostring(second["id"]) end
+    return firstEpoch < secondEpoch
+  end)
+  local waitingIndex = 1
+  for slot = 0, ${DEFAULT_ROOM_CAPACITY - 1} do
+    if not used[slot] and waiting[waitingIndex] then
+      local item = waiting[waitingIndex]
+      item["slot"] = slot
+      item["ready"] = false
+      item["readyEpoch"] = 0
+      redis.call("HSET", metadataKey, item["id"], cjson.encode(item))
+      used[slot] = true
+      waitingIndex = waitingIndex + 1
+    end
+  end
+end
+
 local current = read(clientId)
 if action == "join" then
   local generation = redis.call("INCR", generationKey)
@@ -62,14 +96,6 @@ if action == "join" then
     return cjson.encode({ error = "room_full" })
   end
   local slot = current and tonumber(current["slot"]) or -1
-  if not current then
-    local used = {}
-    for _, id in ipairs(redis.call("ZRANGE", presenceKey, 0, -1)) do
-      local item = read(id)
-      if item and tonumber(item["slot"]) >= 0 then used[tonumber(item["slot"])] = true end
-    end
-    if not used[0] then slot = 0 elseif not used[1] then slot = 1 end
-  end
   current = {
     id = clientId,
     connectionId = connectionId,
@@ -132,6 +158,36 @@ elseif current and current["connectionId"] == connectionId then
   end
 end
 
+if action == "rotate" then
+  for _, id in ipairs(redis.call("ZRANGE", presenceKey, 0, -1)) do
+    local item = read(id)
+    local itemSlot = item and tonumber(item["slot"]) or -1
+    if item and (
+      (loserSlotA >= 0 and itemSlot == loserSlotA)
+      or (loserSlotB >= 0 and itemSlot == loserSlotB)
+    ) then
+      item["slot"] = -1
+      item["joinEpoch"] = redis.call("INCR", generationKey)
+      item["ready"] = false
+      item["readyEpoch"] = 0
+      redis.call("HSET", metadataKey, id, cjson.encode(item))
+    end
+  end
+  for _, id in ipairs(redis.call("ZRANGE", presenceKey, 0, -1)) do
+    local item = read(id)
+    if item then
+      item["ready"] = false
+      item["readyEpoch"] = 0
+      redis.call("HSET", metadataKey, id, cjson.encode(item))
+    end
+  end
+  fillEmptySeats()
+elseif action == "join" or action == "leave" then
+  fillEmptySeats()
+end
+
+if current then current = read(clientId) end
+
 if current and tonumber(current["slot"]) >= 0 and current["userId"] and current["userId"] ~= "" then
   redis.call("ZADD", activePlayersKey, now, current["userId"])
   redis.call("EXPIRE", activePlayersKey, ${ROOM_TTL_SECONDS * 3})
@@ -142,18 +198,35 @@ redis.call("EXPIRE", metadataKey, ${ROOM_TTL_SECONDS})
 redis.call("EXPIRE", generationKey, ${ROOM_TTL_SECONDS})
 
 local players = {}
+local waiting = {}
 for _, id in ipairs(redis.call("ZRANGE", presenceKey, 0, -1)) do
   local item = read(id)
-  if item and tonumber(item["slot"]) >= 0 then table.insert(players, item) end
+  if item and tonumber(item["slot"]) >= 0 then table.insert(players, item)
+  elseif item then table.insert(waiting, item) end
 end
 table.sort(players, function(first, second) return tonumber(first["slot"]) < tonumber(second["slot"]) end)
+table.sort(waiting, function(first, second)
+  local firstEpoch = tonumber(first["joinEpoch"]) or 0
+  local secondEpoch = tonumber(second["joinEpoch"]) or 0
+  if firstEpoch == secondEpoch then return tostring(first["id"]) < tostring(second["id"]) end
+  return firstEpoch < secondEpoch
+end)
+for position, item in ipairs(waiting) do item["position"] = position end
+local queuePosition = 0
+if current and tonumber(current["slot"]) < 0 then
+  for position, item in ipairs(waiting) do
+    if item["id"] == current["id"] then queuePosition = position break end
+  end
+end
 
 return cjson.encode({
   active = current ~= nil and current["connectionId"] == connectionId,
   role = current and tonumber(current["slot"]) >= 0 and "player" or "spectator",
   slot = current and tonumber(current["slot"]) or -1,
   joinEpoch = current and tonumber(current["joinEpoch"]) or 0,
-  players = players
+  players = players,
+  waiting = waiting,
+  queuePosition = queuePosition
 })
 `;
 
@@ -225,15 +298,15 @@ function safeInteger(value, minimum = 0, maximum = Number.MAX_SAFE_INTEGER) {
   return Number.isSafeInteger(number) && number >= minimum && number <= maximum;
 }
 
-function validateRealtimeMessage(value, { slot, allReady, now = Date.now() } = {}) {
+function validateRealtimeMessage(value, { slot, allReady, capacity = DEFAULT_ROOM_CAPACITY } = {}) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   if (value.type === "ping") {
     return safeInteger(value.at, 0) ? { type: "ping", at: Number(value.at) } : null;
   }
-  if (value.type === "ready" && (slot === 0 || slot === 1)) {
+  if (value.type === "ready" && Number.isInteger(slot) && slot >= 0 && slot < capacity) {
     return { type: "ready", ready: Boolean(value.ready) };
   }
-  if (value.type === "input" && (slot === 0 || slot === 1)) {
+  if (value.type === "input" && Number.isInteger(slot) && slot >= 0 && slot < capacity) {
     if (!safeInteger(value.round, 1) || !safeInteger(value.sequence, 1) || !validDirection(value.direction)) {
       return null;
     }
@@ -622,7 +695,8 @@ class RoomSimulation {
         return;
       }
       await this.hub.recordMatch(this.room, game.round, result);
-      await this.hub.resetReady(this.room);
+      if (this.hub.rotateRound) await this.hub.rotateRound(this.room, result);
+      else await this.hub.resetReady(this.room);
       this.stop();
       return;
     }
@@ -679,6 +753,7 @@ function createRealtimeHub({
     if (!state) {
       state = {
         players: [],
+        waiting: [],
         simulation: null,
         unsubscribe: null,
         subscription: null,
@@ -712,12 +787,25 @@ function createRealtimeHub({
     localConnections(room).forEach((connection) => send(connection, payload));
   }
 
-  function setRoster(room, players) {
+  function setRoster(room, players, waiting = []) {
     const state = stateFor(room);
     state.players = Array.isArray(players) ? players : [];
+    state.waiting = Array.isArray(waiting) ? waiting : [];
+    localConnections(room).forEach((connection) => {
+      const local = [...state.players, ...state.waiting]
+        .find((player) => player.id === connection.clientId);
+      if (local) {
+        connection.slot = Number(local.slot);
+        connection.joinEpoch = Number(local.joinEpoch) || connection.joinEpoch;
+      }
+    });
     broadcast(room, {
       type: "roster",
       players: state.players.map(publicPlayer),
+      waiting: state.waiting.map((player, index) => ({
+        ...publicPlayer(player),
+        position: Number(player.position) || index + 1,
+      })),
       sentAt: now(),
     });
     if (state.simulation && !roomAllReady(room)) {
@@ -749,7 +837,7 @@ function createRealtimeHub({
 
   function roomAllReady(room, minimumReadyEpoch = 0) {
     const players = stateFor(room).players;
-    return players.length === 2 && players.every((player) => (
+    return players.length === DEFAULT_ROOM_CAPACITY && players.every((player) => (
       player.ready && Number(player.readyEpoch) >= minimumReadyEpoch
     ));
   }
@@ -760,12 +848,44 @@ function createRealtimeHub({
     ));
   }
 
+  async function rotateRound(room, result) {
+    const state = stateFor(room);
+    const observer = localConnections(room)[0];
+    if (!observer) return;
+    const fresh = await presence(observer, "touch");
+    setRoster(room, fresh.players || [], fresh.waiting || []);
+    if (!state.waiting.length) {
+      await resetReady(room);
+      return;
+    }
+    const losers = [];
+    if (result?.winner === null && state.waiting.length === 1) {
+      const seated = state.players
+        .filter((player) => Number(player.slot) >= 0)
+        .sort((first, second) => Number(first.joinEpoch) - Number(second.joinEpoch));
+      if (seated[0]) losers.push(Number(seated[0].slot));
+    } else {
+      if (result?.crashes?.player) losers.push(0);
+      if (result?.crashes?.opponent) losers.push(1);
+    }
+    const selected = losers.slice(0, state.waiting.length);
+    if (!selected.length) {
+      await resetReady(room);
+      return;
+    }
+    const resultPayload = await presence(observer, "rotate", {
+      profile: observer.profile,
+      loserSlots: selected,
+    });
+    await publishRoster(room, resultPayload.players || [], resultPayload.waiting || []);
+  }
+
   function dispatch(room, envelope) {
     if (!envelope || envelope.room !== room) return;
     if (envelope.origin === instanceId) return;
     const state = stateFor(room);
     if (envelope.kind === "roster") {
-      setRoster(room, envelope.players);
+      setRoster(room, envelope.players, envelope.waiting);
       return;
     }
     if (envelope.kind === "input" && state.simulation) {
@@ -807,6 +927,7 @@ function createRealtimeHub({
   async function presence(connection, action, {
     ready = false,
     profile = connection.profile,
+    loserSlots = [],
   } = {}) {
     const clean = cleanProfile(profile);
     const result = await runRedis([
@@ -828,6 +949,8 @@ function createRealtimeHub({
       clean?.accent || "acid",
       clean?.favoriteMode || "classic",
       clean?.snakeStyle || "signal",
+      String(loserSlots[0] ?? -1),
+      String(loserSlots[1] ?? -1),
     ]);
     const payload = typeof result === "string" ? JSON.parse(result) : result;
     if (!payload || typeof payload !== "object") throw new Error("Invalid realtime presence response.");
@@ -856,7 +979,7 @@ function createRealtimeHub({
       origin: instanceId,
       sentAt: now(),
     };
-    if (event.kind === "roster") setRoster(room, event.players);
+    if (event.kind === "roster") setRoster(room, event.players, event.waiting);
     else if (event.kind === "input") {
       const simulation = stateFor(room).simulation;
       if (
@@ -878,8 +1001,8 @@ function createRealtimeHub({
     await eventBus.publish(room, envelope);
   }
 
-  async function publishRoster(room, players) {
-    await publish(room, { kind: "roster", players });
+  async function publishRoster(room, players, waiting = []) {
+    await publish(room, { kind: "roster", players, waiting });
   }
 
   async function refresh(connection, action = "touch", options = {}) {
@@ -888,7 +1011,7 @@ function createRealtimeHub({
       connection.socket.close(4001, "Realtime session replaced");
       return result;
     }
-    await publishRoster(connection.room, result.players || []);
+    await publishRoster(connection.room, result.players || [], result.waiting || []);
     return result;
   }
 
@@ -905,14 +1028,14 @@ function createRealtimeHub({
     const observer = localConnections(room)[0];
     if (!observer) return;
     const result = await presence(observer, "touch");
-    await publishRoster(room, result.players || []);
+    await publishRoster(room, result.players || [], result.waiting || []);
   }
 
   async function recordCompletedMatch(room, round, result) {
     const players = stateFor(room).players
-      .filter((player) => (Number(player.slot) === 0 || Number(player.slot) === 1) && player.userId)
+      .filter((player) => Number(player.slot) >= 0 && Number(player.slot) < DEFAULT_ROOM_CAPACITY && player.userId)
       .sort((first, second) => Number(first.slot) - Number(second.slot));
-    if (players.length !== 2 || players[0].userId === players[1].userId) return;
+    if (players.length !== DEFAULT_ROOM_CAPACITY || players[0].userId === players[1].userId) return;
     const winnerUserId = result.winner === "player"
       ? players[0].userId
       : result.winner === "opponent" ? players[1].userId : null;
@@ -945,7 +1068,7 @@ function createRealtimeHub({
         name: typeof error?.name === "string" ? error.name : "Error",
       });
     };
-    const cancelTask = connection.slot === 0 || connection.slot === 1
+    const cancelTask = connection.slot >= 0 && connection.slot < DEFAULT_ROOM_CAPACITY
       ? publish(connection.room, {
         kind: "cancel",
         slot: connection.slot,
@@ -953,16 +1076,19 @@ function createRealtimeHub({
         reportFailure("cancel", error);
       })
       : Promise.resolve();
-    let players = null;
+    let presenceResult = null;
     try {
-      const result = await presence(connection, "leave");
-      players = result.players || [];
+      presenceResult = await presence(connection, "leave");
     } catch (error) {
       reportFailure("presence", error);
     }
-    if (players) {
+    if (presenceResult) {
       try {
-        await publishRoster(connection.room, players);
+        await publishRoster(
+          connection.room,
+          presenceResult.players || [],
+          presenceResult.waiting || [],
+        );
       } catch (error) {
         reportFailure("roster", error);
       }
@@ -1051,7 +1177,7 @@ function createRealtimeHub({
     }
     if (message.type === "countdown") {
       const result = await refresh(connection, "touch");
-      setRoster(connection.room, result.players || []);
+      setRoster(connection.room, result.players || [], result.waiting || []);
       if (
         !roomAllReady(connection.room, connection.joinEpoch)
         || !connectionOwnsSlot(connection.room, connection.connectionId, 0)
@@ -1074,6 +1200,7 @@ function createRealtimeHub({
           connectionOwnsSlot,
           recordMatch: recordCompletedMatch,
           resetReady,
+          rotateRound,
         },
         connection.room,
         connection.connectionId,
@@ -1112,15 +1239,18 @@ function createRealtimeHub({
           if (!result.active) {
             connection.socket.close(4001, "Realtime session replaced");
           } else {
-            byRoom.set(connection.room, result.players || []);
+            byRoom.set(connection.room, {
+              players: result.players || [],
+              waiting: result.waiting || [],
+            });
           }
         } catch {
           connection.socket.close(1012, "Realtime presence unavailable");
         }
       }
-      for (const [room, players] of byRoom) {
+      for (const [room, roster] of byRoom) {
         try {
-          await publishRoster(room, players);
+          await publishRoster(room, roster.players, roster.waiting);
         } catch {
           localConnections(room).forEach((connection) => {
             connection.socket.close(1012, "Realtime relay unavailable");
@@ -1169,11 +1299,17 @@ function createRealtimeHub({
       connection.slot = Number(result.slot);
       connection.joinEpoch = Number(result.joinEpoch) || 0;
       stateFor(room).players = result.players || [];
+      stateFor(room).waiting = result.waiting || [];
       send(connection, {
         type: "welcome",
         role: result.role === "player" ? "player" : "spectator",
         slot: connection.slot,
         players: (result.players || []).map(publicPlayer),
+        waiting: (result.waiting || []).map((player, index) => ({
+          ...publicPlayer(player),
+          position: Number(player.position) || index + 1,
+        })),
+        queuePosition: Number(result.queuePosition) || 0,
         sentAt: now(),
       });
       if (connection.profile) {
@@ -1187,7 +1323,7 @@ function createRealtimeHub({
           }).profile,
         });
       }
-      await publishRoster(room, result.players || []);
+      await publishRoster(room, result.players || [], result.waiting || []);
       scheduleHeartbeat();
     } catch (error) {
       logger.error("Realtime connection failed.", {
@@ -1217,6 +1353,7 @@ function createRealtimeHub({
     },
     connectionOwnsSlot,
     publish,
+    rotateRound,
     resetReady,
     roomAllReady,
     recordMatch: recordCompletedMatch,
@@ -1226,6 +1363,7 @@ function createRealtimeHub({
 
 module.exports = {
   CONNECTION_TTL_MS,
+  DEFAULT_ROOM_CAPACITY,
   DUEL_GRID,
   MAX_CONNECTIONS,
   MAX_MESSAGE_BYTES,
