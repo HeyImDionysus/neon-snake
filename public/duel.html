@@ -87,7 +87,7 @@
             </div>
             <div class="duel-hud-center">
               <span>ARENA</span>
-              <strong>30 × 30</strong>
+              <strong id="gridReadout">30 × 30</strong>
             </div>
             <div role="status" aria-atomic="true">
               <span id="rightLabel">AUTOPILOT</span>
@@ -213,6 +213,16 @@
           <div class="room-roster" role="list" aria-label="Room players">
             <div id="roomSlotOne" role="listitem"><i aria-hidden="true"></i><span>PLAYER 1</span><strong>OPEN</strong></div>
             <div id="roomSlotTwo" role="listitem"><i aria-hidden="true"></i><span>PLAYER 2</span><strong>OPEN</strong></div>
+            <div id="roomSlotThree" role="listitem"><i aria-hidden="true"></i><span>PLAYER 3</span><strong>OPEN</strong></div>
+            <div id="roomSlotFour" role="listitem"><i aria-hidden="true"></i><span>PLAYER 4</span><strong>OPEN</strong></div>
+          </div>
+          <div class="room-mode-row">
+            <label for="roomModeSelect">ROOM MODE</label>
+            <select id="roomModeSelect" disabled>
+              <option value="duel">DUEL · 2 SEATS</option>
+              <option value="arena">ARENA · 4 SEATS</option>
+            </select>
+            <small id="roomModeHelp">Seat 1 chooses the mode before a round.</small>
           </div>
           <section class="room-waiting" aria-labelledby="roomWaitingTitle">
             <header><span id="roomWaitingTitle">WAITING LINE</span><strong id="roomQueueState">NOT CONNECTED</strong></header>

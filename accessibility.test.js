@@ -79,7 +79,7 @@ const tests = [
     assert.match(soloHtml, /class="mobile-controls" role="group" aria-label="Touch movement controls"/);
     assert.match(duelHtml, /class="duel-mobile-controls" role="group" aria-label="Touch duel controls"/);
     assert.match(duelHtml, /class="room-roster" role="list" aria-label="Room players"/);
-    assert.equal((duelHtml.match(/role="listitem"/g) || []).length, 2);
+    assert.equal((duelHtml.match(/role="listitem"/g) || []).length, 4);
   }],
   ["native controls carry explicit types and form labels", () => {
     [...soloHtml.matchAll(/<button\b([^>]*)>/g), ...duelHtml.matchAll(/<button\b([^>]*)>/g)]

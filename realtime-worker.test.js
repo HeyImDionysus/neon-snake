@@ -52,6 +52,7 @@ function request(room, clientId) {
 function createFakeRedis() {
   const roomState = new Map();
   const roomGeneration = new Map();
+  const roomModes = new Map();
   return async function redisCommand(command) {
     assert.equal(command[0], "EVAL");
     assert.equal(command[1], PRESENCE_SCRIPT);
@@ -59,25 +60,29 @@ function createFakeRedis() {
     assert.ok(room);
     if (!roomState.has(room)) roomState.set(room, new Map());
     const players = roomState.get(room);
-    assert.equal(command[2], "4");
+    assert.equal(command[2], "5");
     assert.equal(command[6], "neon-snake:players:active");
-    const timestamp = Number(command[7]);
-    const action = command[8];
-    const clientId = command[9];
-    const connectionId = command[10];
-    const ready = command[11] === "1";
+    const timestamp = Number(command[8]);
+    const action = command[9];
+    const clientId = command[10];
+    const connectionId = command[11];
+    const ready = command[12] === "1";
+    const requestedMode = command[21] || "";
+    let mode = roomModes.get(room) || "duel";
+    let capacity = mode === "arena" ? 4 : DEFAULT_ROOM_CAPACITY;
     const profile = {
-      userId: command[12],
-      displayName: command[13],
-      avatar: command[14],
-      username: command[15],
-      callsign: command[16],
-      accent: command[17],
-      favoriteMode: command[18],
-      snakeStyle: command[19],
+      userId: command[13],
+      displayName: command[14],
+      avatar: command[15],
+      username: command[16],
+      callsign: command[17],
+      accent: command[18],
+      favoriteMode: command[19],
+      snakeStyle: command[20],
     };
     let current = players.get(clientId);
     if (action === "join") {
+      if (!roomModes.has(room)) roomModes.set(room, "duel");
       const generation = (roomGeneration.get(room) || 0) + 1;
       roomGeneration.set(room, generation);
       let slot = current?.slot ?? -1;
@@ -114,8 +119,18 @@ function createFakeRedis() {
         }
       }
     }
+    if (action === "set-mode" && current?.connectionId === connectionId) {
+      roomModes.set(room, requestedMode);
+      mode = requestedMode;
+      capacity = mode === "arena" ? 4 : DEFAULT_ROOM_CAPACITY;
+      players.forEach((player) => {
+        if (player.slot >= (requestedMode === "arena" ? 4 : 2)) player.slot = -1;
+        player.ready = false;
+        player.readyEpoch = 0;
+      });
+    }
     if (action === "rotate") {
-      const losers = [Number(command[20]), Number(command[21])];
+      const losers = JSON.parse(command[22] || "[]");
       for (const player of players.values()) {
         if (losers.some((slot) => Number(slot) >= 0 && Number(slot) === Number(player.slot))) {
           player.slot = -1;
@@ -133,7 +148,7 @@ function createFakeRedis() {
       .filter((item) => item.slot < 0)
       .sort((first, second) => first.joinEpoch - second.joinEpoch)
       .forEach((item) => {
-        for (let candidate = 0; candidate < DEFAULT_ROOM_CAPACITY; candidate += 1) {
+        for (let candidate = 0; candidate < capacity; candidate += 1) {
           if (!usedAfter.has(candidate)) {
             item.slot = candidate;
             usedAfter.add(candidate);
@@ -160,6 +175,8 @@ function createFakeRedis() {
           .sort((first, second) => first.joinEpoch - second.joinEpoch)
           .findIndex((item) => item.id === current.id) + 1
         : 0,
+      mode: roomModes.get(room) || "duel",
+      capacity: roomModes.get(room) === "arena" ? 4 : DEFAULT_ROOM_CAPACITY,
     });
   };
 }
@@ -227,6 +244,25 @@ async function flush() {
     sequence: 10,
     direction: { x: 2, y: 0 },
   }, { slot: 1, allReady: true, now: timestamp }), null);
+  assert.deepEqual(validateRealtimeMessage({
+    type: "set-mode",
+    mode: "arena",
+  }, { slot: 0, allReady: false, simulation: false }), {
+    type: "set-mode",
+    mode: "arena",
+  });
+  assert.equal(validateRealtimeMessage({
+    type: "set-mode",
+    mode: "arena",
+  }, { slot: 1, allReady: false, simulation: false }), null);
+  assert.equal(validateRealtimeMessage({
+    type: "set-mode",
+    mode: "invalid",
+  }, { slot: 0, allReady: false, simulation: false }), null);
+  assert.equal(validateRealtimeMessage({
+    type: "set-mode",
+    mode: "arena",
+  }, { slot: 0, allReady: false, simulation: true }), null);
   assert.ok(validateRealtimeMessage({
     type: "countdown",
     round: timestamp,
@@ -322,12 +358,12 @@ async function flush() {
   await flush();
   const authenticatedJoin = authenticatedCommands.find((command) => command[0] === "EVAL");
   assert.equal(authenticatedJoin[6], "neon-snake:players:active");
-  assert.equal(authenticatedJoin[12], "123456789012345678");
-  assert.equal(authenticatedJoin[15], "signal_player");
-  assert.equal(authenticatedJoin[16], "Night Viper");
-  assert.equal(authenticatedJoin[17], "magenta");
-  assert.equal(authenticatedJoin[18], "rush");
-  assert.equal(authenticatedJoin[19], "spectral");
+  assert.equal(authenticatedJoin[13], "123456789012345678");
+  assert.equal(authenticatedJoin[16], "signal_player");
+  assert.equal(authenticatedJoin[17], "Night Viper");
+  assert.equal(authenticatedJoin[18], "magenta");
+  assert.equal(authenticatedJoin[19], "rush");
+  assert.equal(authenticatedJoin[20], "spectral");
   assert.ok(authenticatedCommands.some((command) => (
     command[0] === "SET"
     && command[1] === "neon-snake:activity:123456789012345678"
@@ -435,6 +471,24 @@ async function flush() {
     ["rotate-waiting-two", "rotate-first"],
     "A rotated loser joins behind everyone already waiting",
   );
+  rotateWaitingOne.message({ type: "set-mode", mode: "arena" });
+  await flush();
+  const arenaRoster = rotateWaitingOne.messages.filter((message) => message.type === "roster").at(-1);
+  assert.equal(arenaRoster.mode, "arena");
+  assert.equal(arenaRoster.capacity, 4);
+  const rotateThird = new FakeSocket();
+  const rotateFourth = new FakeSocket();
+  await firstHub.connect(rotateThird, request("345678", "rotate-third"));
+  await firstHub.connect(rotateFourth, request("345678", "rotate-fourth"));
+  await flush();
+  assert.equal(firstHub._state.rooms.get("345678").players.length, 4);
+  rotateWaitingOne.message({ type: "set-mode", mode: "duel" });
+  await flush();
+  const duelRoster = rotateWaitingOne.messages.filter((message) => message.type === "roster").at(-1);
+  assert.equal(duelRoster.mode, "duel");
+  assert.equal(duelRoster.capacity, 2);
+  assert.equal(duelRoster.players.length, 2);
+  assert.equal(duelRoster.waiting.length, 4);
   first.message({ type: "ready", ready: true });
   second.message({ type: "ready", ready: true });
   await flush();
@@ -517,7 +571,7 @@ async function flush() {
   const cleanupErrors = [];
   const cleanupHub = createRealtimeHub({
     redisCommand: async (command) => {
-      if (command[8] === "leave") {
+      if (command[9] === "leave") {
         const error = new Error("Redis cleanup timed out.");
         error.name = "TimeoutError";
         throw error;
@@ -557,7 +611,7 @@ async function flush() {
   let failReconnectLeave = false;
   const reconnectHub = createRealtimeHub({
     redisCommand: async (command) => {
-      if (failReconnectLeave && command[8] === "leave") {
+      if (failReconnectLeave && command[9] === "leave") {
         throw Object.assign(new Error("Redis leave timed out."), {
           name: "TimeoutError",
         });

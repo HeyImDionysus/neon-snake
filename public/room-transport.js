@@ -50,6 +50,8 @@
     let roster = [];
     let waiting = [];
     let queuePosition = 0;
+    let mode = "duel";
+    let capacity = 2;
     let failures = 0;
     let reconnectTimer = null;
     let heartbeatTimer = null;
@@ -210,7 +212,7 @@
       nextSocket.addEventListener("open", () => {
         if (socket !== nextSocket || closed) return;
         failures = 0;
-        onStatus({ state: "socket-open", role, slot, players: roster, waiting, queuePosition });
+          onStatus({ state: "socket-open", role, slot, players: roster, waiting, queuePosition, mode, capacity });
         scheduleHeartbeat();
       });
       nextSocket.addEventListener("message", (event) => {
@@ -241,9 +243,11 @@
           slot = role === "player" && Number.isInteger(message.slot) ? message.slot : -1;
           waiting = Array.isArray(message.waiting) ? message.waiting : [];
           queuePosition = Number(message.queuePosition) || 0;
+          mode = message.mode === "arena" ? "arena" : "duel";
+          capacity = Number(message.capacity) || (mode === "arena" ? 4 : 2);
           if (role === "player") sendReady();
           emitRoster(message.players);
-          onStatus({ state: "connected", role, slot, players: roster, waiting, queuePosition });
+          onStatus({ state: "connected", role, slot, players: roster, waiting, queuePosition, mode, capacity });
           scheduleHeartbeat(750);
           if (active) armStateWatchdog(3_000);
           return;
@@ -256,7 +260,10 @@
           queuePosition = Number(message.queuePosition) || (
             waiting.find((entry) => entry?.id === clientId)?.position || 0
           );
+          mode = message.mode === "arena" ? "arena" : mode;
+          capacity = Number(message.capacity) || (mode === "arena" ? 4 : 2);
           emitRoster(message.players);
+          onStatus({ state: "synchronized", role, slot, players: roster, waiting, queuePosition, mode, capacity });
           return;
         }
         if (message.type === "pong") {
@@ -353,6 +360,7 @@
           ready = Boolean(message.ready);
           if (!readySent) return false;
         }
+        if (message.type === "set-mode" && role !== "player") return false;
         if (message.type === "leave") return true;
         if (socket?.readyState !== WebSocketImpl.OPEN) return false;
         if (message.type === "presence" || message.type === "ready") return sendReady();
@@ -501,6 +509,10 @@
     let lastResponseFingerprint = "";
     let lastRequestStartedAt = null;
     let roster = [];
+    let waiting = [];
+    let queuePosition = 0;
+    let mode = "duel";
+    let capacity = 2;
 
     try {
       session = storage?.getItem?.(sessionKey) || "";
@@ -609,6 +621,10 @@
       role = data.role === "player" ? "player" : "spectator";
       slot = role === "player" && Number.isInteger(data.slot) ? data.slot : -1;
       roster = Array.isArray(data.players) ? data.players : [];
+      waiting = Array.isArray(data.waiting) ? data.waiting : [];
+      queuePosition = Number(data.queuePosition) || 0;
+      mode = data.mode === "arena" ? "arena" : "duel";
+      capacity = Number(data.capacity) || (mode === "arena" ? 4 : 2);
       if (role === "player" && typeof data.session === "string" && data.session) {
         session = data.session;
         try {
@@ -623,6 +639,10 @@
         role,
         slot,
         players: roster,
+        waiting,
+        queuePosition,
+        mode,
+        capacity,
       });
       ["countdown", "input", "state"].forEach((type) => {
         const revision = Number(data[`${type}Rev`]) || 0;
@@ -643,6 +663,10 @@
         role,
         slot,
         players: roster,
+        waiting,
+        queuePosition,
+        mode,
+        capacity,
       });
     }
 

@@ -482,6 +482,70 @@ const tests = [
       { connected: true, ready: true },
       { connected: true, ready: true },
     ]), "countdown");
+    assert.equal(rules.liveRoomPhase([
+      { connected: true, ready: true },
+      { connected: true, ready: true },
+      { connected: true, ready: true },
+    ]), "countdown");
+  }],
+  ["arena resolves four-player head-on and head-swap collisions", () => {
+    const base = (slot, x, y, direction) => ({
+      slot,
+      snake: [{ x, y }],
+      direction,
+      score: 0,
+      alive: true,
+    });
+    const headOn = rules.resolveArenaTick({
+      gridSize: 60,
+      players: [
+        base(0, 10, 10, { x: 1, y: 0 }),
+        base(1, 12, 10, { x: -1, y: 0 }),
+        base(2, 30, 30, { x: 1, y: 0 }),
+        base(3, 40, 40, { x: 1, y: 0 }),
+      ],
+    });
+    assert.equal(headOn.players[0].alive, false);
+    assert.equal(headOn.players[1].alive, false);
+    assert.equal(headOn.players[2].alive, true);
+    const headSwap = rules.resolveArenaTick({
+      gridSize: 60,
+      players: [
+        base(0, 10, 10, { x: 1, y: 0 }),
+        base(1, 11, 10, { x: -1, y: 0 }),
+        base(2, 30, 30, { x: 1, y: 0 }),
+        base(3, 40, 40, { x: 1, y: 0 }),
+      ],
+    });
+    assert.equal(headSwap.crashes[0], "head-swap");
+    assert.equal(headSwap.crashes[1], "head-swap");
+  }],
+  ["arena removes corpses, grows from food, and declares the last survivor", () => {
+    const result = rules.resolveArenaTick({
+      gridSize: 8,
+      food: [{ x: 2, y: 1 }],
+      players: [
+        { slot: 0, snake: [{ x: 0, y: 1 }], direction: { x: -1, y: 0 }, score: 0, alive: true },
+        { slot: 1, snake: [{ x: 1, y: 1 }], direction: { x: 1, y: 0 }, score: 0, alive: true },
+        { slot: 2, snake: [{ x: 7, y: 7 }], direction: { x: 0, y: 1 }, score: 0, alive: true },
+      ],
+    });
+    assert.equal(result.players[0].alive, false);
+    assert.deepEqual(result.players[0].snake, []);
+    assert.equal(result.players[1].alive, true);
+    assert.equal(result.players[2].alive, false);
+    assert.equal(result.winner, 1);
+    const growth = rules.resolveArenaTick({
+      gridSize: 8,
+      food: [{ x: 2, y: 1 }],
+      players: [
+        { slot: 0, snake: [{ x: 1, y: 1 }, { x: 0, y: 1 }], direction: { x: 1, y: 0 }, score: 0, alive: true },
+        { slot: 1, snake: [{ x: 6, y: 6 }], direction: { x: 0, y: -1 }, score: 0, alive: true },
+      ],
+    });
+    assert.equal(growth.players[0].score, 1);
+    assert.equal(growth.players[0].snake.length, 3);
+    assert.equal(growth.over, false);
   }],
   ["staggered duel spawns do not force an opening collision", () => {
     const spawns = rules.duelSpawns(30);

@@ -40,6 +40,12 @@ const aiTraceRisk = $("#aiTraceRisk");
 const aiTraceDepth = $("#aiTraceDepth");
 const roomSlotOne = $("#roomSlotOne");
 const roomSlotTwo = $("#roomSlotTwo");
+const roomSlotThree = $("#roomSlotThree");
+const roomSlotFour = $("#roomSlotFour");
+const roomRoster = $(".room-roster");
+const roomModeSelect = $("#roomModeSelect");
+const roomModeHelp = $("#roomModeHelp");
+const gridReadout = $("#gridReadout");
 const roomWaiting = $("#roomWaiting");
 const roomQueueState = $("#roomQueueState");
 const activityContext = $("#activityContext");
@@ -51,6 +57,7 @@ const DUEL_GRID = Rules.duelGridSize(20);
 const SIGNAL_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const TICK_DURATION = 138;
 const LIVE_ROOM_CAPACITY = 2;
+const ARENA_GRID = DUEL_GRID * 2;
 const PEER_TIMEOUT = 6000;
 const DIRECTIONS = {
   up: { x: 0, y: -1 },
@@ -117,6 +124,8 @@ let roomConnectionState = "disconnected";
 let roomPlayers = [];
 let roomWaitingPlayers = [];
 let roomQueuePosition = 0;
+let roomMode = "duel";
+let roomCapacity = LIVE_ROOM_CAPACITY;
 let roomPeers = new Map();
 let authoritativeDeparturePending = false;
 let liveCountdownTimer = null;
@@ -133,6 +142,10 @@ let authoritativePlayerSnake = [];
 let authoritativeOpponentSnake = [];
 let playerPredictionIndex = 0;
 let opponentPredictionIndex = 0;
+let liveSnakes = [];
+let previousLiveSnakes = [];
+let liveFoods = [];
+let liveGridSize = DUEL_GRID;
 
 const clientId = (() => {
   try {
@@ -277,7 +290,11 @@ function resizeCanvas() {
   canvas.height = backingSize;
   arenaBackdrop.width = backingSize;
   arenaBackdrop.height = backingSize;
-  tileSize = canvas.width / DUEL_GRID;
+  const grid = typeof duelType === "string" && duelType === "live"
+    && typeof liveGridSize === "number"
+    ? liveGridSize
+    : DUEL_GRID;
+  tileSize = canvas.width / grid;
   buildArenaBackdrop();
 }
 
@@ -324,15 +341,15 @@ function traceGroup(group) {
   }
 }
 
-function drawFluidSnake(current, previous, direction, color, now, style = "signal") {
+function drawFluidSnake(current, previous, direction, color, now, style = "signal", gridSize = liveGridSize) {
   if (!current.length) return;
   const path = Rules.fluidMotionPath(
     previous,
     current,
     currentMotion(now),
-    DUEL_GRID,
+    gridSize,
   );
-  const groups = Rules.splitFluidPath(path, DUEL_GRID);
+  const groups = Rules.splitFluidPath(path, gridSize);
   const head = pointToPixel(path[0] || current[0]);
   const angle = Math.atan2(direction.y, direction.x);
 
@@ -423,6 +440,23 @@ function drawFood(now) {
   context.restore();
 }
 
+function drawLiveFoods(now) {
+  liveFoods.forEach((pellet) => {
+    const point = pointToPixel(pellet);
+    const pulse = 1 + Math.sin(now / 150 + pellet.x) * .1;
+    context.save();
+    context.translate(point.x, point.y);
+    context.scale(pulse, pulse);
+    context.fillStyle = "#ffd166";
+    context.shadowColor = "#ffd166";
+    context.shadowBlur = Math.max(6, tileSize * .7);
+    context.beginPath();
+    context.arc(0, 0, Math.max(2, tileSize * .18), 0, Math.PI * 2);
+    context.fill();
+    context.restore();
+  });
+}
+
 function render(now) {
   frameHandle = null;
   if (document.hidden) return;
@@ -440,7 +474,26 @@ function render(now) {
   }
   advanceGame(now);
   drawArena(now);
-  drawFood(now);
+  if (duelType === "live" && roomMode === "arena") drawLiveFoods(now);
+  else drawFood(now);
+  if (duelType === "live" && roomMode === "arena" && liveSnakes.length) {
+    liveSnakes.forEach((snake) => {
+      if (!snake.alive || !snake.body?.length) return;
+      const previous = previousLiveSnakes.find((entry) => entry.slot === snake.slot);
+      const player = roomPlayers.find((entry) => entry.slot === snake.slot);
+      drawFluidSnake(
+        snake.body,
+        previous?.body || snake.body,
+        snake.direction,
+        DUEL_COLORS[player?.profile?.accent] || ["#adff66", "#a98bff", "#66e3ff", "#ff6ed1"][snake.slot % 4],
+        now,
+        player?.profile?.snakeStyle || "signal",
+        liveGridSize,
+      );
+    });
+    frameHandle = requestAnimationFrame(render);
+    return;
+  }
   const firstProfile = duelType === "live" ? roomPlayers[0]?.profile : null;
   const secondProfile = duelType === "live" ? roomPlayers[1]?.profile : null;
   const localIndex = duelType === "live"
@@ -738,6 +791,15 @@ function endDuel(winner, crashes = {}) {
 }
 
 function updateHud() {
+  if (duelType === "live" && roomMode === "arena" && liveSnakes.length) {
+    const local = liveSnakes.find((snake) => snake.slot === roomSlot);
+    leftLabel.textContent = local?.alive === false ? "ELIMINATED" : "YOU";
+    leftScore.textContent = String(local?.score || 0).padStart(2, "0");
+    const rival = liveSnakes.find((snake) => snake.slot !== roomSlot && snake.alive);
+    rightLabel.textContent = rival ? `P${rival.slot + 1}` : "LAST ALIVE";
+    rightScore.textContent = String(rival?.score || 0).padStart(2, "0");
+    return;
+  }
   const localIndex = duelType === "live"
     ? roomPlayers.findIndex((player) => player.id === clientId)
     : 0;
@@ -760,6 +822,18 @@ function requestDirection(next) {
   if (duelType === "live") {
     const localIndex = roomPlayers.findIndex((player) => player.id === clientId);
     if (localIndex < 0) return;
+    if (roomMode === "arena") {
+      const localSnake = liveSnakes.find((snake) => snake.slot === roomSlot);
+      const currentDirection = localSnake?.direction || DIRECTIONS.right;
+      const sent = postRoomMessage({
+        type: "input",
+        round: liveRoundId,
+        sequence: Math.max(localInputSequence + 1, Date.now()),
+        direction: next,
+      });
+      if (sent) localInputSequence = Math.max(localInputSequence + 1, Date.now());
+      return;
+    }
     if (roomTransport?.authoritative) {
       const currentDirection = localIndex === 0 ? playerDirection : opponentDirection;
       const currentBuffer = localIndex === 0 ? playerInputBuffer : opponentInputBuffer;
@@ -894,17 +968,34 @@ function reconcileLocalRoomReady(players) {
   roomReadyConfirmed = authoritativeReady;
 }
 
-function applyAuthoritativeRoomRoster(players, waiting = [], queuePosition = 0) {
+function applyAuthoritativeRoomRoster(players, waiting = [], queuePosition = 0, mode = "duel", capacity = 2) {
   if (!Array.isArray(players)) return;
-  const capacity = typeof LIVE_ROOM_CAPACITY === "number" ? LIVE_ROOM_CAPACITY : 2;
+  const previousMode = typeof roomMode === "string" ? roomMode : "duel";
+  roomMode = mode === "arena" ? "arena" : "duel";
+  roomCapacity = Number(capacity) || (roomMode === "arena" ? 4 : 2);
+  if (
+    previousMode !== roomMode
+    && typeof announcement !== "undefined"
+    && announcement
+  ) {
+    announcement.textContent = `Room mode changed to ${roomMode.toUpperCase()}.`;
+  }
+  const duelGrid = typeof DUEL_GRID === "number" ? DUEL_GRID : 30;
+  const arenaGrid = typeof ARENA_GRID === "number" ? ARENA_GRID : duelGrid * 2;
+  liveGridSize = roomMode === "arena" ? arenaGrid : duelGrid;
+  if (typeof scheduleResizeCanvas === "function") scheduleResizeCanvas();
+  if (typeof gridReadout !== "undefined" && gridReadout) {
+    gridReadout.textContent = `${liveGridSize} × ${liveGridSize}`;
+  }
+  if (typeof roomModeSelect !== "undefined" && roomModeSelect) roomModeSelect.value = roomMode;
   const previousPlayerCount = (roomRole === "player" ? 1 : 0)
     + [...roomPeers.values()].filter((player) => (
-      Number(player.slot) >= 0 && Number(player.slot) < capacity
+    Number(player.slot) >= 0 && Number(player.slot) < roomCapacity
     )).length;
   const nextPlayerCount = players.filter((player) => (
-    Number(player?.slot) >= 0 && Number(player?.slot) < capacity
+    Number(player?.slot) >= 0 && Number(player?.slot) < roomCapacity
   )).length;
-  authoritativeDeparturePending = previousPlayerCount >= capacity && nextPlayerCount < capacity;
+  authoritativeDeparturePending = previousPlayerCount >= roomCapacity && nextPlayerCount < roomCapacity;
   reconcileLocalRoomReady(players);
   roomWaitingPlayers = Array.isArray(waiting) ? waiting : [];
   roomQueuePosition = Number(queuePosition) || 0;
@@ -918,7 +1009,7 @@ function applyAuthoritativeRoomRoster(players, waiting = [], queuePosition = 0) 
       seenAt: Number.isFinite(Number(player.seenAt)) ? Number(player.seenAt) : Date.now(),
       profile: player.profile && typeof player.profile === "object" ? player.profile : null,
     }]));
-  roomPlayers = activeRoomRoster().slice(0, capacity);
+  roomPlayers = activeRoomRoster().slice(0, roomCapacity);
 }
 
 function setRoomReadyIntent(nextReady, pending = true) {
@@ -978,9 +1069,16 @@ function syncLiveRoom() {
   const authoritativeDeparture = authoritativeDeparturePending;
   authoritativeDeparturePending = false;
   const roomRoster = activeRoomRoster();
-  roomPlayers = roomRoster.slice(0, LIVE_ROOM_CAPACITY);
+  roomPlayers = roomRoster.slice(0, roomCapacity);
   updateRosterSlot(roomSlotOne, roomPlayers[0], 0);
   updateRosterSlot(roomSlotTwo, roomPlayers[1], 1);
+  updateRosterSlot(roomSlotThree, roomPlayers[2], 2);
+  updateRosterSlot(roomSlotFour, roomPlayers[3], 3);
+  roomRoster?.classList.toggle("room-arena", roomMode === "arena");
+  roomModeSelect.disabled = roomRole !== "player" || roomSlot !== 0 || runState === "running";
+  roomModeHelp.textContent = roomRole === "player" && roomSlot === 0
+    ? "Seat 1 chooses the mode before a round."
+    : "Only Seat 1 can change the room mode.";
   if (roomWaiting) {
     roomWaiting.replaceChildren(...roomWaitingPlayers.map((player) => {
       const entry = document.createElement("div");
@@ -1022,12 +1120,14 @@ function syncLiveRoom() {
         ? `WAITING LINE · POSITION ${roomQueuePosition}`
         : "WATCHING LIVE";
     readyRoomButton.disabled = true;
-    if (runState === "ready" || runState === "over") {
-      setRunState("ready", roomQueuePosition === 1 ? "NEXT UP" : "IN WAITING LINE");
+    if (runState === "ready" || runState === "over" || runState === "running") {
+      if (runState !== "running") {
+        setRunState("ready", roomQueuePosition === 1 ? "NEXT UP" : "IN WAITING LINE");
+      }
       showOverlay(
         roomQueuePosition === 1 ? "NEXT UP" : "WAITING LINE",
         roomQueuePosition === 1 ? "YOU'RE<br><em>UP NEXT</em>" : `POSITION ${roomQueuePosition}<br><em>IN LINE</em>`,
-        "Watch the live duel. You will be seated automatically when a seat opens.",
+        "Watching the live room. You will be seated automatically when a seat opens.",
       );
     }
   } else if (phase === "waiting") {
@@ -1106,7 +1206,7 @@ function handleRoomStatus(status) {
   if (!status || typeof status !== "object") return;
   if (status.state === "synchronized") {
     updateAuthoritativeRoomRole(status.role, status.slot);
-    applyAuthoritativeRoomRoster(status.players, status.waiting, status.queuePosition);
+    applyAuthoritativeRoomRoster(status.players, status.waiting, status.queuePosition, status.mode, status.capacity);
     if (roomTransport) syncLiveRoom();
     return;
   }
@@ -1149,7 +1249,7 @@ function handleRoomStatus(status) {
   roomConnected = true;
   roomLatency.textContent = "WEBSOCKET CONNECTED · MEASURING";
   updateAuthoritativeRoomRole(status.role, status.slot);
-  applyAuthoritativeRoomRoster(status.players, status.waiting, status.queuePosition);
+  applyAuthoritativeRoomRoster(status.players, status.waiting, status.queuePosition, status.mode, status.capacity);
   if (roomTransport) syncLiveRoom();
 }
 
@@ -1404,6 +1504,34 @@ function applyRemoteSnapshot(message) {
   ) return;
   const state = message.state;
   if (state?.round !== liveRoundId) return;
+  if (Array.isArray(state?.snakes) && Number.isInteger(state.gridSize)) {
+    previousLiveSnakes = liveSnakes.map((snake) => ({
+      ...snake,
+      body: cloneSnake(snake.body || []),
+    }));
+    liveGridSize = state.gridSize;
+    roomMode = state.mode === "arena" ? "arena" : roomMode;
+    liveSnakes = state.snakes.map((snake) => ({
+      slot: Number(snake.slot),
+      body: cloneSnake(snake.body || snake.snake || []),
+      direction: { ...snake.direction },
+      score: Number(snake.score) || 0,
+      alive: snake.alive !== false,
+    }));
+    liveFoods = Array.isArray(state.foods)
+      ? state.foods.map((pellet) => ({ ...pellet }))
+      : state.food ? [{ ...state.food }] : [];
+    const local = liveSnakes.find((snake) => snake.slot === roomSlot);
+    if (local) {
+      playerSnake = cloneSnake(local.body);
+      playerDirection = { ...local.direction };
+      playerScore = local.score;
+    }
+    lastRemoteSequence = message.sequence;
+    updateHud();
+    if (state.over && runState === "running") endDuel(state.winner, state.crashes);
+    return;
+  }
   if (!state?.playerSnake?.length || !state?.opponentSnake?.length) return;
   const localIndex = roomPlayers.findIndex((player) => player.id === clientId);
   const localSequences = localIndex === 0 ? playerInputSequences : opponentInputSequences;
@@ -1651,6 +1779,14 @@ pauseDesktop.addEventListener("click", togglePause);
 restartButton.addEventListener("click", prepareAiDuel);
 connectRoomButton.addEventListener("click", connectLiveRoom);
 readyRoomButton.addEventListener("click", toggleRoomReady);
+roomModeSelect.addEventListener("change", () => {
+  if (roomRole !== "player" || roomSlot !== 0 || runState === "running") {
+    roomModeSelect.value = roomMode;
+    return;
+  }
+  postRoomMessage({ type: "set-mode", mode: roomModeSelect.value });
+  announcement.textContent = `Room mode requested: ${roomModeSelect.value.toUpperCase()}.`;
+});
 copyRoomButton.addEventListener("click", copyRoomLink);
 roomCodeInput.addEventListener("input", () => {
   roomCodeInput.value = roomCodeInput.value.toUpperCase().replace(/[^23456789A-HJ-NP-Z]/g, "").slice(0, 6);

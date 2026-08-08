@@ -701,6 +701,27 @@ body[data-duel-state="running"] .duel-board { touch-action: none; }
   background: #07131db8;
 }
 
+.room-mode-row {
+  display: grid;
+  gap: .45rem;
+  margin-top: .8rem;
+}
+
+.room-mode-row label,
+.room-mode-row small {
+  color: var(--muted, #8b9b91);
+  font-size: .68rem;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.room-mode-row select {
+  background: #0b1410;
+  border: 1px solid rgba(173, 255, 102, .28);
+  color: #e7f5e9;
+  padding: .7rem;
+}
+
 .room-waiting header {
   display: flex;
   justify-content: space-between;

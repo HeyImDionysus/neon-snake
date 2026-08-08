@@ -284,8 +284,83 @@
     const connected = Array.isArray(participants)
       ? participants.filter((participant) => participant?.connected)
       : [];
-    if (connected.length !== 2) return "waiting";
+    if (connected.length < 2) return "waiting";
     return connected.every((participant) => participant.ready) ? "countdown" : "ready";
+  }
+
+  function resolveArenaTick({ players, food = [], gridSize = 60 }) {
+    const source = Array.isArray(players) ? players : [];
+    const alive = source.filter((player) => player?.alive !== false && player?.snake?.length);
+    const nextHeads = new Map();
+    const growing = new Map();
+    const crashes = {};
+    const foods = Array.isArray(food) ? food : [];
+    alive.forEach((player) => {
+      const head = nextHead(player.snake[0], player.direction, "classic", gridSize);
+      nextHeads.set(player.slot, head);
+      growing.set(player.slot, foods.some((pellet) => samePoint(pellet, head)));
+      const wall = head.x < 0 || head.x >= gridSize || head.y < 0 || head.y >= gridSize;
+      const body = growing.get(player.slot) ? player.snake : player.snake.slice(0, -1);
+      if (wall) crashes[player.slot] = "wall";
+      else if (body.some((segment) => samePoint(segment, head))) crashes[player.slot] = "self";
+    });
+
+    alive.forEach((first, firstIndex) => {
+      const firstHead = nextHeads.get(first.slot);
+      alive.slice(firstIndex + 1).forEach((second) => {
+        const secondHead = nextHeads.get(second.slot);
+        if (samePoint(firstHead, secondHead)) {
+          crashes[first.slot] ||= "head-on";
+          crashes[second.slot] ||= "head-on";
+        } else if (
+          samePoint(firstHead, second.snake[0])
+          && samePoint(secondHead, first.snake[0])
+        ) {
+          crashes[first.slot] ||= "head-swap";
+          crashes[second.slot] ||= "head-swap";
+        }
+      });
+    });
+    alive.forEach((player) => {
+      const head = nextHeads.get(player.slot);
+      alive.forEach((other) => {
+        if (other.slot === player.slot || crashes[other.slot]) return;
+        const body = growing.get(other.slot) ? other.snake : other.snake.slice(0, -1);
+        if (body.some((segment) => samePoint(segment, head))) {
+          crashes[player.slot] ||= "opponent";
+        }
+      });
+    });
+
+    const consumed = new Set();
+    const nextPlayers = source.map((player) => {
+      if (player.alive === false || crashes[player.slot]) {
+        return { ...player, alive: false, snake: [], direction: { ...player.direction } };
+      }
+      const head = nextHeads.get(player.slot);
+      const didGrow = growing.get(player.slot);
+      if (didGrow) foods.forEach((pellet, index) => {
+        if (samePoint(pellet, head)) consumed.add(index);
+      });
+      const nextSnake = [{ ...head }, ...player.snake.map((segment) => ({ ...segment }))];
+      if (!didGrow) nextSnake.pop();
+      return {
+        ...player,
+        alive: true,
+        snake: nextSnake,
+        direction: { ...player.direction },
+        score: Math.max(0, Number(player.score) || 0) + (didGrow ? 1 : 0),
+      };
+    });
+    const survivors = nextPlayers.filter((player) => player.alive);
+    return {
+      players: nextPlayers,
+      food: foods.filter((_, index) => !consumed.has(index)),
+      crashes,
+      eliminationOrder: Object.keys(crashes).map((slot) => Number(slot)),
+      over: survivors.length <= 1,
+      winner: survivors.length === 1 ? survivors[0].slot : null,
+    };
   }
 
   function duelCollisionType(
@@ -1821,6 +1896,7 @@
     survivalForecast,
     tickDelay,
     liveRoomPhase,
+    resolveArenaTick,
     resolveDuelTick,
     wrapCoordinate,
   };

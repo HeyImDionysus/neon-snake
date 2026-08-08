@@ -388,7 +388,7 @@ const tests = [
     assert.equal(context.roomReady, false);
     assert.equal(context.roomReadyConfirmed, false);
     assert.match(functionBody("roomIdentity"), /ready: roomReadyConfirmed/);
-    assert.match(functionBody("handleRoomStatus"), /applyAuthoritativeRoomRoster\(status\.players, status\.waiting, status\.queuePosition\)/);
+    assert.match(functionBody("handleRoomStatus"), /applyAuthoritativeRoomRoster\(status\.players, status\.waiting, status\.queuePosition, status\.mode, status\.capacity\)/);
   }],
   ["synchronized WebSocket rosters acknowledge the local Ready signal", () => {
     const context = {
@@ -425,7 +425,7 @@ const tests = [
     assert.equal(context.roomPlayers.length, 2);
     assert.match(
       functionBody("handleRoomStatus"),
-      /status\.state === "synchronized"[\s\S]*applyAuthoritativeRoomRoster\(status\.players, status\.waiting, status\.queuePosition\)/,
+      /status\.state === "synchronized"[\s\S]*applyAuthoritativeRoomRoster\(status\.players, status\.waiting, status\.queuePosition, status\.mode, status\.capacity\)/,
     );
   }],
   ["newer local Ready intent wins over stale authoritative responses", () => {
@@ -485,7 +485,7 @@ const tests = [
     assert.match(status, /ROOM UPDATE REJECTED/);
     assert.match(status, /roomConnectionState/);
     assert.match(functionBody("applyAuthoritativeRoomRoster"), /roomPeers = new Map\(players/);
-    assert.match(functionBody("applyAuthoritativeRoomRoster"), /roomPlayers = activeRoomRoster\(\)\.slice\(0, capacity\)/);
+    assert.match(functionBody("applyAuthoritativeRoomRoster"), /roomPlayers = activeRoomRoster\(\)\.slice\(0, roomCapacity\)/);
     assert.match(status, /status\.state === "synchronized"/);
     assert.match(status, /if \(roomTransport\) syncLiveRoom\(\)/);
     assert.match(functionBody("disconnectLiveRoom"), /roomConnectionState = "disconnected"/);
@@ -530,7 +530,7 @@ const tests = [
       "Only an authoritative departure may replace a completed-round result",
     );
     const roster = functionBody("applyAuthoritativeRoomRoster");
-    assert.match(roster, /previousPlayerCount >= capacity && nextPlayerCount < capacity/);
+    assert.match(roster, /previousPlayerCount >= roomCapacity && nextPlayerCount < roomCapacity/);
     const handler = functionBody("handleRoomMessage");
     assert.match(handler, /message\.type === "countdown-cancel"/);
     assert.match(handler, /cancelLiveRound\(message\)/);

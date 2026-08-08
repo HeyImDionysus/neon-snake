@@ -20,17 +20,22 @@ const MAX_MESSAGES_PER_SECOND = 40;
 const CONNECTION_TTL_MS = 30_000;
 const ROOM_TTL_SECONDS = 45;
 const DEFAULT_ROOM_CAPACITY = 2;
+const ARENA_ROOM_CAPACITY = 4;
+const ROOM_MODES = ["duel", "arena"];
+const ROOM_MODE_CAPACITY = { duel: DEFAULT_ROOM_CAPACITY, arena: ARENA_ROOM_CAPACITY };
 const DUEL_GRID = 30;
 const TICK_DURATION = 138;
 const Rules = globalThis.SnakeRules;
 
-if (!Rules?.resolveDuelTick) throw new Error("Shared duel rules are unavailable.");
+if (!Rules?.resolveDuelTick || !Rules?.resolveArenaTick) {
+  throw new Error("Shared live-room rules are unavailable.");
+}
 
 const PRESENCE_SCRIPT = String.raw`
 local presenceKey = KEYS[1]
 local metadataKey = KEYS[2]
-local generationKey = KEYS[3]
 local activePlayersKey = KEYS[4]
+local modeKey = KEYS[5]
 local now = tonumber(ARGV[1])
 local action = ARGV[2]
 local clientId = ARGV[3]
@@ -44,8 +49,11 @@ local callsign = ARGV[10]
 local accent = ARGV[11]
 local favoriteMode = ARGV[12]
 local snakeStyle = ARGV[13]
-local loserSlotA = tonumber(ARGV[14] or "-1")
-local loserSlotB = tonumber(ARGV[15] or "-1")
+local requestedMode = ARGV[14] or ""
+local loserSlots = cjson.decode(ARGV[15] or "[]")
+local mode = redis.call("GET", modeKey) or "duel"
+if mode ~= "duel" and mode ~= "arena" then mode = "duel" end
+local capacity = mode == "arena" and 4 or 2
 local cutoff = now - ${CONNECTION_TTL_MS}
 
 local stale = redis.call("ZRANGEBYSCORE", presenceKey, "-inf", cutoff)
@@ -76,7 +84,7 @@ local function fillEmptySeats()
     return firstEpoch < secondEpoch
   end)
   local waitingIndex = 1
-  for slot = 0, ${DEFAULT_ROOM_CAPACITY - 1} do
+  for slot = 0, capacity - 1 do
     if not used[slot] and waiting[waitingIndex] then
       local item = waiting[waitingIndex]
       item["slot"] = slot
@@ -91,6 +99,7 @@ end
 
 local current = read(clientId)
 if action == "join" then
+  if not redis.call("GET", modeKey) then redis.call("SET", modeKey, "duel") end
   local generation = redis.call("INCR", generationKey)
   if not current and redis.call("ZCARD", presenceKey) >= ${MAX_CONNECTIONS} then
     return cjson.encode({ error = "room_full" })
@@ -158,14 +167,38 @@ elseif current and current["connectionId"] == connectionId then
   end
 end
 
-if action == "rotate" then
+if action == "set-mode" and current and current["connectionId"] == connectionId
+  and (requestedMode == "duel" or requestedMode == "arena") then
+  mode = requestedMode
+  capacity = mode == "arena" and 4 or 2
+  redis.call("SET", modeKey, mode)
+  for _, id in ipairs(redis.call("ZRANGE", presenceKey, 0, -1)) do
+    local item = read(id)
+    if item and tonumber(item["slot"]) >= capacity then
+      item["slot"] = -1
+      item["ready"] = false
+      item["readyEpoch"] = 0
+      redis.call("HSET", metadataKey, id, cjson.encode(item))
+    end
+  end
+  for _, id in ipairs(redis.call("ZRANGE", presenceKey, 0, -1)) do
+    local item = read(id)
+    if item then
+      item["ready"] = false
+      item["readyEpoch"] = 0
+      redis.call("HSET", metadataKey, id, cjson.encode(item))
+    end
+  end
+  fillEmptySeats()
+elseif action == "rotate" then
   for _, id in ipairs(redis.call("ZRANGE", presenceKey, 0, -1)) do
     local item = read(id)
     local itemSlot = item and tonumber(item["slot"]) or -1
-    if item and (
-      (loserSlotA >= 0 and itemSlot == loserSlotA)
-      or (loserSlotB >= 0 and itemSlot == loserSlotB)
-    ) then
+    local shouldRotate = false
+    for _, loserSlot in ipairs(loserSlots) do
+      if tonumber(loserSlot) >= 0 and itemSlot == tonumber(loserSlot) then shouldRotate = true end
+    end
+    if item and shouldRotate then
       item["slot"] = -1
       item["joinEpoch"] = redis.call("INCR", generationKey)
       item["ready"] = false
@@ -196,6 +229,7 @@ end
 redis.call("EXPIRE", presenceKey, ${ROOM_TTL_SECONDS})
 redis.call("EXPIRE", metadataKey, ${ROOM_TTL_SECONDS})
 redis.call("EXPIRE", generationKey, ${ROOM_TTL_SECONDS})
+redis.call("EXPIRE", modeKey, ${ROOM_TTL_SECONDS})
 
 local players = {}
 local waiting = {}
@@ -226,7 +260,9 @@ return cjson.encode({
   joinEpoch = current and tonumber(current["joinEpoch"]) or 0,
   players = players,
   waiting = waiting,
-  queuePosition = queuePosition
+  queuePosition = queuePosition,
+  mode = mode,
+  capacity = capacity
 })
 `;
 
@@ -298,7 +334,12 @@ function safeInteger(value, minimum = 0, maximum = Number.MAX_SAFE_INTEGER) {
   return Number.isSafeInteger(number) && number >= minimum && number <= maximum;
 }
 
-function validateRealtimeMessage(value, { slot, allReady, capacity = DEFAULT_ROOM_CAPACITY } = {}) {
+function validateRealtimeMessage(value, {
+  slot,
+  allReady,
+  capacity = DEFAULT_ROOM_CAPACITY,
+  simulation = false,
+} = {}) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   if (value.type === "ping") {
     return safeInteger(value.at, 0) ? { type: "ping", at: Number(value.at) } : null;
@@ -321,6 +362,12 @@ function validateRealtimeMessage(value, { slot, allReady, capacity = DEFAULT_ROO
     if (!safeInteger(value.round, 1)) return null;
     return { type: "countdown", round: Number(value.round) };
   }
+  if (
+    value.type === "set-mode"
+    && slot === 0
+    && !simulation
+    && ROOM_MODES.includes(value.mode)
+  ) return { type: "set-mode", mode: value.mode };
   if (value.type === "state" && slot === 0) return { type: "state" };
   return null;
 }
@@ -360,7 +407,11 @@ function requestIsAllowedOrigin(request, environment = process.env) {
 
 function roomKeys(room) {
   const tag = `{neon-snake:realtime:${room}}`;
-  return [`${tag}:presence`, `${tag}:metadata`, `${tag}:generation`];
+  return [`${tag}:presence`, `${tag}:metadata`, `${tag}:generation`, "neon-snake:players:active"];
+}
+
+function roomModeKey(room) {
+  return `{neon-snake:realtime:${room}}:mode`;
 }
 
 function roomChannel(room) {
@@ -510,10 +561,12 @@ function createRedisRestBus({
 }
 
 class RoomSimulation {
-  constructor(hub, room, authorityConnectionId) {
+  constructor(hub, room, authorityConnectionId, mode = "duel", capacity = DEFAULT_ROOM_CAPACITY) {
     this.hub = hub;
     this.room = room;
     this.authorityConnectionId = authorityConnectionId;
+    this.mode = mode;
+    this.capacity = capacity;
     this.game = null;
     this.tickTimer = null;
     this.nextTickAt = 0;
@@ -538,25 +591,61 @@ class RoomSimulation {
   }
 
   placeFood() {
-    const occupied = new Set([
-      ...this.game.playerSnake,
-      ...this.game.opponentSnake,
-    ].map((point) => `${point.x},${point.y}`));
+    const existing = this.mode === "arena" ? (this.game.food || []) : [];
+    const occupied = new Set(this.mode === "arena"
+      ? this.game.players.flatMap((player) => player.snake).map((point) => `${point.x},${point.y}`)
+      : [...this.game.playerSnake, ...this.game.opponentSnake].map((point) => `${point.x},${point.y}`));
+    existing.forEach((point) => occupied.add(`${point.x},${point.y}`));
     const free = [];
-    for (let y = 0; y < DUEL_GRID; y += 1) {
-      for (let x = 0; x < DUEL_GRID; x += 1) {
+    const gridSize = this.mode === "arena" ? DUEL_GRID * 2 : DUEL_GRID;
+    for (let y = 0; y < gridSize; y += 1) {
+      for (let x = 0; x < gridSize; x += 1) {
         if (!occupied.has(`${x},${y}`)) free.push({ x, y });
       }
     }
-    this.game.food = free.length
-      ? free[Math.floor(this.nextRandom() * free.length)]
-      : null;
+    const count = this.mode === "arena" ? this.capacity - existing.length : 1;
+    const additions = Array.from({ length: Math.max(0, count) }, () => {
+      if (!free.length) return null;
+      return free.splice(Math.floor(this.nextRandom() * free.length), 1)[0];
+    }).filter(Boolean);
+    this.game.food = this.mode === "arena" ? [...existing, ...additions] : additions;
   }
 
   start(countdown) {
     this.stop();
     const seed = this.roomSeed() ^ Number(countdown.round);
-    this.game = {
+    if (this.mode === "arena") {
+      const size = DUEL_GRID * 2;
+      const spawn = [
+        { x: 10, y: 10, direction: { x: 1, y: 0 } },
+        { x: size - 11, y: size - 11, direction: { x: -1, y: 0 } },
+        { x: size - 11, y: 10, direction: { x: 0, y: 1 } },
+        { x: 10, y: size - 11, direction: { x: 0, y: -1 } },
+      ];
+      this.game = {
+        round: countdown.round,
+        startsAt: countdown.startsAt,
+        sequence: 0,
+        signalCursor: seed >>> 0,
+        players: Array.from({ length: this.capacity }, (_, slot) => {
+          const point = spawn[slot];
+          const tail = { x: point.x - point.direction.x, y: point.y - point.direction.y };
+          const tailTwo = { x: tail.x - point.direction.x, y: tail.y - point.direction.y };
+          return {
+            slot,
+            snake: [{ x: point.x, y: point.y }, tail, tailTwo],
+            direction: point.direction,
+            score: 0,
+            alive: true,
+          };
+        }),
+        inputQueues: Array.from({ length: this.capacity }, () => []),
+        inputAcks: Array.from({ length: this.capacity }, () => 0),
+        food: [],
+        over: false,
+      };
+      this.placeFood();
+    } else this.game = {
       round: countdown.round,
       startsAt: countdown.startsAt,
       sequence: 0,
@@ -571,10 +660,10 @@ class RoomSimulation {
       playerScore: 0,
       opponentScore: 0,
       guestInputAck: 0,
-      food: null,
+      food: [],
       over: false,
     };
-    this.placeFood();
+    if (this.mode === "duel") this.placeFood();
     this.nextTickAt = countdown.startsAt;
     this.tickTimer = setTimeout(
       () => void this.tick(),
@@ -595,7 +684,10 @@ class RoomSimulation {
 
   enqueue(slot, message) {
     if (!this.game || message.round !== this.game.round) return;
-    const queue = slot === 0 ? this.game.playerInputs : this.game.opponentInputs;
+    const queue = this.mode === "arena"
+      ? this.game.inputQueues[slot]
+      : slot === 0 ? this.game.playerInputs : this.game.opponentInputs;
+    if (!queue) return;
     if (queue.some((input) => input.sequence === message.sequence) || queue.length >= 4) return;
     queue.push(message);
     queue.sort((first, second) => first.sequence - second.sequence);
@@ -611,6 +703,30 @@ class RoomSimulation {
 
   resolveTick() {
     const game = this.game;
+    if (this.mode === "arena") {
+      game.players.forEach((player) => {
+        if (!player.alive) return;
+        const input = this.consumeInput(game.inputQueues[player.slot], player.direction);
+        if (input) {
+          player.direction = { ...input.direction };
+          game.inputAcks[player.slot] = Math.max(game.inputAcks[player.slot], input.sequence);
+        }
+      });
+      const resolved = Rules.resolveArenaTick({
+        players: game.players,
+        food: game.food,
+        gridSize: DUEL_GRID * 2,
+      });
+      game.players = resolved.players;
+      game.food = resolved.food;
+      game.over = resolved.over;
+      if (!game.over && game.food.length < this.capacity) this.placeFood();
+      return {
+        crashes: resolved.crashes,
+        winner: resolved.winner,
+        eliminationOrder: resolved.eliminationOrder,
+      };
+    }
     const playerInput = this.consumeInput(game.playerInputs, game.playerDirection);
     const opponentInput = this.consumeInput(game.opponentInputs, game.opponentDirection);
     if (playerInput) {
@@ -634,7 +750,7 @@ class RoomSimulation {
           score: game.opponentScore,
         },
       },
-      food: game.food,
+      food: game.food[0] || null,
       mode: "classic",
       gridSize: DUEL_GRID,
     });
@@ -644,7 +760,7 @@ class RoomSimulation {
     game.opponentScore = resolved.players.opponent.score;
     game.over = resolved.over;
     if (resolved.foodEatenBy && !resolved.over) this.placeFood();
-    if (!game.food) game.over = true;
+    if (!game.food.length) game.over = true;
     return { crashes: resolved.crashes, winner: resolved.winner };
   }
 
@@ -669,13 +785,34 @@ class RoomSimulation {
         from: "server",
         sequence: game.sequence,
         state: {
+          gridSize: this.mode === "arena" ? DUEL_GRID * 2 : DUEL_GRID,
+          mode: this.mode,
+          snakes: this.mode === "arena"
+            ? game.players
+            : [
+              {
+                slot: 0,
+                body: game.playerSnake,
+                direction: game.playerDirection,
+                score: game.playerScore,
+                alive: true,
+              },
+              {
+                slot: 1,
+                body: game.opponentSnake,
+                direction: game.opponentDirection,
+                score: game.opponentScore,
+                alive: true,
+              },
+            ],
+          foods: game.food,
           playerSnake: game.playerSnake,
           opponentSnake: game.opponentSnake,
           playerDirection: game.playerDirection,
           opponentDirection: game.opponentDirection,
           playerScore: game.playerScore,
           opponentScore: game.opponentScore,
-          food: game.food,
+          food: game.food[0] || null,
           signalCursor: game.signalCursor,
           round: game.round,
           playerInputAck: game.playerInputAck,
@@ -751,9 +888,11 @@ function createRealtimeHub({
   function stateFor(room) {
     let state = rooms.get(room);
     if (!state) {
-      state = {
+    state = {
         players: [],
         waiting: [],
+        mode: "duel",
+        capacity: DEFAULT_ROOM_CAPACITY,
         simulation: null,
         unsubscribe: null,
         subscription: null,
@@ -787,10 +926,12 @@ function createRealtimeHub({
     localConnections(room).forEach((connection) => send(connection, payload));
   }
 
-  function setRoster(room, players, waiting = []) {
+  function setRoster(room, players, waiting = [], mode = "duel", capacity = ROOM_MODE_CAPACITY[mode] || DEFAULT_ROOM_CAPACITY) {
     const state = stateFor(room);
     state.players = Array.isArray(players) ? players : [];
     state.waiting = Array.isArray(waiting) ? waiting : [];
+    state.mode = ROOM_MODES.includes(mode) ? mode : "duel";
+    state.capacity = Number(capacity) || ROOM_MODE_CAPACITY[state.mode];
     localConnections(room).forEach((connection) => {
       const local = [...state.players, ...state.waiting]
         .find((player) => player.id === connection.clientId);
@@ -806,6 +947,8 @@ function createRealtimeHub({
         ...publicPlayer(player),
         position: Number(player.position) || index + 1,
       })),
+      mode: state.mode,
+      capacity: state.capacity,
       sentAt: now(),
     });
     if (state.simulation && !roomAllReady(room)) {
@@ -837,7 +980,7 @@ function createRealtimeHub({
 
   function roomAllReady(room, minimumReadyEpoch = 0) {
     const players = stateFor(room).players;
-    return players.length === DEFAULT_ROOM_CAPACITY && players.every((player) => (
+    return players.length >= DEFAULT_ROOM_CAPACITY && players.every((player) => (
       player.ready && Number(player.readyEpoch) >= minimumReadyEpoch
     ));
   }
@@ -853,13 +996,21 @@ function createRealtimeHub({
     const observer = localConnections(room)[0];
     if (!observer) return;
     const fresh = await presence(observer, "touch");
-    setRoster(room, fresh.players || [], fresh.waiting || []);
+    setRoster(
+      room,
+      fresh.players || [],
+      fresh.waiting || [],
+      fresh.mode,
+      fresh.capacity,
+    );
     if (!state.waiting.length) {
       await resetReady(room);
       return;
     }
     const losers = [];
-    if (result?.winner === null && state.waiting.length === 1) {
+    if (state.mode === "arena") {
+      losers.push(...(Array.isArray(result?.eliminationOrder) ? result.eliminationOrder : []));
+    } else if (result?.winner === null && state.waiting.length === 1) {
       const seated = state.players
         .filter((player) => Number(player.slot) >= 0)
         .sort((first, second) => Number(first.joinEpoch) - Number(second.joinEpoch));
@@ -877,7 +1028,13 @@ function createRealtimeHub({
       profile: observer.profile,
       loserSlots: selected,
     });
-    await publishRoster(room, resultPayload.players || [], resultPayload.waiting || []);
+      await publishRoster(
+        room,
+        resultPayload.players || [],
+        resultPayload.waiting || [],
+        resultPayload.mode,
+        resultPayload.capacity,
+      );
   }
 
   function dispatch(room, envelope) {
@@ -885,7 +1042,7 @@ function createRealtimeHub({
     if (envelope.origin === instanceId) return;
     const state = stateFor(room);
     if (envelope.kind === "roster") {
-      setRoster(room, envelope.players, envelope.waiting);
+      setRoster(room, envelope.players, envelope.waiting, envelope.mode, envelope.capacity);
       return;
     }
     if (envelope.kind === "input" && state.simulation) {
@@ -928,14 +1085,15 @@ function createRealtimeHub({
     ready = false,
     profile = connection.profile,
     loserSlots = [],
+    mode = "",
   } = {}) {
     const clean = cleanProfile(profile);
     const result = await runRedis([
       "EVAL",
       PRESENCE_SCRIPT,
-      "4",
+      "5",
       ...roomKeys(connection.room),
-      "neon-snake:players:active",
+      roomModeKey(connection.room),
       String(now()),
       action,
       connection.clientId,
@@ -949,8 +1107,8 @@ function createRealtimeHub({
       clean?.accent || "acid",
       clean?.favoriteMode || "classic",
       clean?.snakeStyle || "signal",
-      String(loserSlots[0] ?? -1),
-      String(loserSlots[1] ?? -1),
+      mode,
+      JSON.stringify(loserSlots),
     ]);
     const payload = typeof result === "string" ? JSON.parse(result) : result;
     if (!payload || typeof payload !== "object") throw new Error("Invalid realtime presence response.");
@@ -979,7 +1137,9 @@ function createRealtimeHub({
       origin: instanceId,
       sentAt: now(),
     };
-    if (event.kind === "roster") setRoster(room, event.players, event.waiting);
+    if (event.kind === "roster") {
+      setRoster(room, event.players, event.waiting, event.mode, event.capacity);
+    }
     else if (event.kind === "input") {
       const simulation = stateFor(room).simulation;
       if (
@@ -1001,8 +1161,14 @@ function createRealtimeHub({
     await eventBus.publish(room, envelope);
   }
 
-  async function publishRoster(room, players, waiting = []) {
-    await publish(room, { kind: "roster", players, waiting });
+  async function publishRoster(
+    room,
+    players,
+    waiting = [],
+    mode = stateFor(room).mode,
+    capacity = stateFor(room).capacity,
+  ) {
+    await publish(room, { kind: "roster", players, waiting, mode, capacity });
   }
 
   async function refresh(connection, action = "touch", options = {}) {
@@ -1011,7 +1177,13 @@ function createRealtimeHub({
       connection.socket.close(4001, "Realtime session replaced");
       return result;
     }
-    await publishRoster(connection.room, result.players || [], result.waiting || []);
+    await publishRoster(
+      connection.room,
+      result.players || [],
+      result.waiting || [],
+      result.mode,
+      result.capacity,
+    );
     return result;
   }
 
@@ -1028,11 +1200,13 @@ function createRealtimeHub({
     const observer = localConnections(room)[0];
     if (!observer) return;
     const result = await presence(observer, "touch");
-    await publishRoster(room, result.players || [], result.waiting || []);
+    await publishRoster(room, result.players || [], result.waiting || [], result.mode, result.capacity);
   }
 
   async function recordCompletedMatch(room, round, result) {
-    const players = stateFor(room).players
+    const state = stateFor(room);
+    if (state.mode !== "duel") return;
+    const players = state.players
       .filter((player) => Number(player.slot) >= 0 && Number(player.slot) < DEFAULT_ROOM_CAPACITY && player.userId)
       .sort((first, second) => Number(first.slot) - Number(second.slot));
     if (players.length !== DEFAULT_ROOM_CAPACITY || players[0].userId === players[1].userId) return;
@@ -1068,7 +1242,7 @@ function createRealtimeHub({
         name: typeof error?.name === "string" ? error.name : "Error",
       });
     };
-    const cancelTask = connection.slot >= 0 && connection.slot < DEFAULT_ROOM_CAPACITY
+    const cancelTask = connection.slot >= 0 && connection.slot < stateFor(connection.room).capacity
       ? publish(connection.room, {
         kind: "cancel",
         slot: connection.slot,
@@ -1155,6 +1329,8 @@ function createRealtimeHub({
     const message = validateRealtimeMessage(parsed, {
       slot: connection.slot,
       allReady: roomAllReady(connection.room),
+      capacity: stateFor(connection.room).capacity,
+      simulation: Boolean(stateFor(connection.room).simulation),
       now: timestamp,
     });
     if (!message) {
@@ -1172,6 +1348,14 @@ function createRealtimeHub({
       const result = await refresh(connection, "ready", { ready: message.ready });
       if (!message.ready && wasReady && result.active) {
         await publish(connection.room, { kind: "cancel" });
+      }
+      return;
+    }
+    if (message.type === "set-mode") {
+      const result = await refresh(connection, "set-mode", { mode: message.mode });
+      if (result.error) {
+        send(connection, { type: "rejected", code: result.error });
+        return;
       }
       return;
     }
@@ -1204,6 +1388,8 @@ function createRealtimeHub({
         },
         connection.room,
         connection.connectionId,
+        state.mode,
+        state.capacity,
       );
       state.simulation.start(authoritativeCountdown);
       await publish(connection.room, {
@@ -1242,6 +1428,8 @@ function createRealtimeHub({
             byRoom.set(connection.room, {
               players: result.players || [],
               waiting: result.waiting || [],
+              mode: result.mode,
+              capacity: result.capacity,
             });
           }
         } catch {
@@ -1250,7 +1438,7 @@ function createRealtimeHub({
       }
       for (const [room, roster] of byRoom) {
         try {
-          await publishRoster(room, roster.players, roster.waiting);
+          await publishRoster(room, roster.players, roster.waiting, roster.mode, roster.capacity);
         } catch {
           localConnections(room).forEach((connection) => {
             connection.socket.close(1012, "Realtime relay unavailable");
@@ -1300,6 +1488,8 @@ function createRealtimeHub({
       connection.joinEpoch = Number(result.joinEpoch) || 0;
       stateFor(room).players = result.players || [];
       stateFor(room).waiting = result.waiting || [];
+      stateFor(room).mode = result.mode || "duel";
+      stateFor(room).capacity = result.capacity || DEFAULT_ROOM_CAPACITY;
       send(connection, {
         type: "welcome",
         role: result.role === "player" ? "player" : "spectator",
@@ -1310,6 +1500,8 @@ function createRealtimeHub({
           position: Number(player.position) || index + 1,
         })),
         queuePosition: Number(result.queuePosition) || 0,
+        mode: result.mode || "duel",
+        capacity: result.capacity || DEFAULT_ROOM_CAPACITY,
         sentAt: now(),
       });
       if (connection.profile) {
@@ -1323,7 +1515,13 @@ function createRealtimeHub({
           }).profile,
         });
       }
-      await publishRoster(room, result.players || [], result.waiting || []);
+      await publishRoster(
+        room,
+        result.players || [],
+        result.waiting || [],
+        result.mode,
+        result.capacity,
+      );
       scheduleHeartbeat();
     } catch (error) {
       logger.error("Realtime connection failed.", {
@@ -1363,6 +1561,7 @@ function createRealtimeHub({
 
 module.exports = {
   CONNECTION_TTL_MS,
+  ARENA_ROOM_CAPACITY,
   DEFAULT_ROOM_CAPACITY,
   DUEL_GRID,
   MAX_CONNECTIONS,
