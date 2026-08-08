@@ -119,6 +119,30 @@ const tests = [
     const body = functionBody("render");
     assert.ok(body.indexOf("advanceGame(now)") < body.indexOf("drawArena(now)"));
   }],
+  ["the first arena draw builds a matching cached backdrop even without a resize", () => {
+    const context = {
+      DUEL_GRID: 30,
+      activityEmbedded: false,
+      ACTIVITY_PIXEL_RATIO_CAP: 1.25,
+      canvas: { width: 300, height: 150 },
+      arenaBackdrop: { width: 300, height: 150 },
+      arenaBackdropBuilt: false,
+      board: { getBoundingClientRect: () => ({ width: 300 }) },
+      window: { devicePixelRatio: 1 },
+      tileSize: 0,
+      buildCount: 0,
+      buildArenaBackdrop() {
+        context.buildCount += 1;
+        context.arenaBackdropBuilt = true;
+      },
+    };
+    const { resizeCanvas } = installFunctions(["resizeCanvas"], context);
+    resizeCanvas();
+    assert.equal(context.buildCount, 1);
+    assert.equal(context.arenaBackdropBuilt, true);
+    assert.equal(context.arenaBackdrop.width, context.canvas.width);
+    assert.equal(context.arenaBackdrop.height, context.canvas.height);
+  }],
   ["Autopilot and live duels preserve two rapid turns in order", () => {
     const request = functionBody("requestDirection");
     assert.match(request, /Rules\.bufferDirection\(playerInputBuffer, playerDirection, next\)/);
@@ -148,6 +172,31 @@ const tests = [
     assert.equal(networkInterpolationOffset(1_000, 2_000, 180), 122);
     assert.match(functionBody("handleRoomStatus"), /PREDICTION ON/);
   }],
+  ["authoritative rosters do not expire from a server clock timestamp", () => {
+    const context = {
+      PEER_TIMEOUT: 6_000,
+      roomTransport: { authoritative: true },
+      roomConnected: true,
+      roomRole: "player",
+      roomPeers: new Map([[
+        "remote-player",
+        { id: "remote-player", connected: true, slot: 1, seenAt: 1 },
+      ]]),
+      roomIdentity() {
+        return { id: "local-player", connected: true, slot: 0 };
+      },
+    };
+    const { activeRoomRoster } = installFunctions(["activeRoomRoster"], context);
+    assert.equal(
+      Array.from(activeRoomRoster(), (player) => player.id).join(","),
+      "local-player,remote-player",
+    );
+    context.roomTransport = { kind: "broadcast-channel" };
+    assert.equal(
+      Array.from(activeRoomRoster(), (player) => player.id).join(","),
+      "local-player",
+    );
+  }],
   ["live rooms remain waiting until two connected players are ready", () => {
     const body = functionBody("syncLiveRoom");
     assert.match(body, /Rules\.liveRoomPhase\(participants\)/);
@@ -159,6 +208,10 @@ const tests = [
     assert.match(countdown, /round < liveRoundId/);
     assert.match(countdown, /round === liveRoundId && runState !== "ready"/);
     assert.match(countdown, /clearInterval\(liveCountdownTimer\)/);
+    const sync = functionBody("syncLiveRoom");
+    assert.match(sync, /pendingCountdownRound/);
+    assert.match(sync, /pendingCountdownExpiresAt/);
+    assert.match(sync, /pendingCountdownAttempts >= 2/);
   }],
   ["an interrupted client can resume the authoritative countdown round", () => {
     const context = {

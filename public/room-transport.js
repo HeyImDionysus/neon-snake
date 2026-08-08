@@ -55,6 +55,8 @@
     let stateTimer = null;
     let lastPongAt = 0;
     let lastPingAt = 0;
+    let clockOffset = null;
+    const clockSamples = [];
     let readySent = false;
     let lastReadySentAt = 0;
     let activeRound = null;
@@ -155,7 +157,7 @@
             return;
           }
           lastPingAt = now();
-          socket.send("ping");
+          socket.send(JSON.stringify({ type: "ping", at: lastPingAt }));
         }
         scheduleHeartbeat();
       }, delay);
@@ -205,6 +207,7 @@
             slot,
             players: roster,
             latency: Math.max(0, lastPongAt - lastPingAt),
+            clockOffset,
           });
           return;
         }
@@ -235,13 +238,32 @@
           return;
         }
         if (message.type === "pong") {
-          lastPongAt = now();
+          const receivedAt = now();
+          lastPongAt = receivedAt;
+          const sentAt = Number(message.at);
+          const serverAt = Number(message.serverAt);
+          const latency = Number.isFinite(sentAt) && Number.isFinite(serverAt)
+            ? Math.max(0, receivedAt - sentAt)
+            : Math.max(0, receivedAt - lastPingAt);
+          if (Number.isFinite(sentAt) && Number.isFinite(serverAt)) {
+            clockSamples.push({
+              latency,
+              offset: serverAt - (sentAt + latency / 2),
+            });
+            clockSamples.sort((first, second) => first.latency - second.latency);
+            if (clockSamples.length > 5) clockSamples.length = 5;
+            clockOffset = clockSamples.reduce(
+              (total, sample) => total + sample.offset,
+              0,
+            ) / clockSamples.length;
+          }
           onStatus({
             state: "latency",
             role,
             slot,
             players: roster,
-            latency: Math.max(0, lastPongAt - Number(message.at || lastPongAt)),
+            latency,
+            clockOffset,
           });
           return;
         }

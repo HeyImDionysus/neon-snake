@@ -329,12 +329,8 @@ function sanitizeMessages(messages, { room, clientId, now }) {
       const sequence = inputSequence(message.sequence, "Input sequence");
       payload = { type: "input", round, sequence, direction: next };
     } else if (message.type === "countdown") {
-      const startsAt = Number(message.startsAt);
-      if (!Number.isFinite(startsAt) || startsAt < now - 1_000 || startsAt > now + 10_000) {
-        throw new TypeError("Countdown time is invalid.");
-      }
       const round = inputSequence(message.round, "Countdown round");
-      payload = { type: "countdown", round, startsAt: Math.round(startsAt) };
+      payload = { type: "countdown", round, startsAt: Math.round(now + 3_200) };
     } else if (message.type === "state") {
       const sequence = Number(message.sequence);
       if (!Number.isSafeInteger(sequence) || sequence < 0 || sequence > 1_000_000_000) {

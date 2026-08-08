@@ -48,7 +48,7 @@ const activityContextRetry = $("#activityContextRetry");
 const DUEL_GRID = Rules.duelGridSize(20);
 const SIGNAL_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const TICK_DURATION = 138;
-const PEER_TIMEOUT = 3400;
+const PEER_TIMEOUT = 6000;
 const DIRECTIONS = {
   up: { x: 0, y: -1 },
   right: { x: 1, y: 0 },
@@ -68,6 +68,9 @@ const DUEL_COLORS = {
 };
 
 let tileSize = canvas.width / DUEL_GRID;
+const arenaBackdrop = document.createElement("canvas");
+const arenaBackdropContext = arenaBackdrop.getContext("2d");
+let arenaBackdropBuilt = false;
 let duelType = "ai";
 let runState = "ready";
 let playerSnake = [];
@@ -113,10 +116,14 @@ let roomPeers = new Map();
 let authoritativeDeparturePending = false;
 let liveCountdownTimer = null;
 let liveCountdownActive = false;
+let pendingCountdownRound = 0;
+let pendingCountdownExpiresAt = 0;
+let pendingCountdownAttempts = 0;
 let liveRoundId = 0;
 let liveSequence = 0;
 let lastRemoteSequence = -1;
 let liveLatencyMs = 0;
+let liveClockOffsetMs = null;
 let authoritativePlayerSnake = [];
 let authoritativeOpponentSnake = [];
 let playerPredictionIndex = 0;
@@ -138,8 +145,8 @@ function cloneSnake(source) {
   return source.map((segment) => ({ ...segment }));
 }
 
-function networkInterpolationOffset(sentAt, receivedAt, roundTrip) {
-  const age = Number(receivedAt) - Number(sentAt);
+function networkInterpolationOffset(sentAt, receivedAt, roundTrip, clockOffset = 0) {
+  const age = Number(receivedAt) + (Number(clockOffset) || 0) - Number(sentAt);
   const fallback = Math.max(0, Number(roundTrip) || 0) / 2;
   const estimate = Number.isFinite(age) && age >= 0 && age < 5_000
     ? age
@@ -254,10 +261,39 @@ function resizeCanvas() {
   const pixelRatioCap = activityEmbedded ? ACTIVITY_PIXEL_RATIO_CAP : 2;
   const pixelRatio = Math.min(pixelRatioCap, Math.max(1, window.devicePixelRatio || 1));
   const backingSize = Math.max(1, Math.round(cssSize * pixelRatio));
-  if (canvas.width === backingSize && canvas.height === backingSize) return;
+  if (
+    canvas.width === backingSize
+    && canvas.height === backingSize
+    && arenaBackdropBuilt
+    && arenaBackdrop.width === backingSize
+    && arenaBackdrop.height === backingSize
+  ) return;
   canvas.width = backingSize;
   canvas.height = backingSize;
+  arenaBackdrop.width = backingSize;
+  arenaBackdrop.height = backingSize;
   tileSize = canvas.width / DUEL_GRID;
+  buildArenaBackdrop();
+}
+
+function buildArenaBackdrop() {
+  const width = canvas.width;
+  const gradient = arenaBackdropContext.createRadialGradient(
+    width * .5, width * .5, 0, width * .5, width * .5, width * .72,
+  );
+  gradient.addColorStop(0, "#0a110d");
+  gradient.addColorStop(.62, "#070b09");
+  gradient.addColorStop(1, "#030504");
+  arenaBackdropContext.fillStyle = gradient;
+  arenaBackdropContext.fillRect(0, 0, width, width);
+  arenaBackdropContext.save();
+  arenaBackdropContext.strokeStyle = "rgba(173, 255, 102, .16)";
+  arenaBackdropContext.lineWidth = Math.max(2, width / 360);
+  arenaBackdropContext.strokeRect(5, 5, width - 10, width - 10);
+  arenaBackdropContext.strokeStyle = "rgba(169, 139, 255, .09)";
+  arenaBackdropContext.strokeRect(10, 10, width - 20, width - 20);
+  arenaBackdropContext.restore();
+  arenaBackdropBuilt = true;
 }
 
 function currentMotion(now) {
@@ -306,7 +342,10 @@ function drawFluidSnake(current, previous, direction, color, now, style = "signa
           : .67
   ));
   context.shadowColor = color;
-  context.shadowBlur = Math.max(8, tileSize * (style === "spectral" ? .7 : .48));
+  context.shadowBlur = Math.max(
+    activityEmbedded ? 4 : 8,
+    tileSize * (style === "spectral" ? .45 : activityEmbedded ? .24 : .48),
+  );
   context.globalAlpha = style === "spectral" ? .72 : style === "glass" ? .38 : .92;
   if (style === "spectral") context.setLineDash([tileSize * 1.25, tileSize * .3]);
   groups.forEach((group) => {
@@ -314,7 +353,7 @@ function drawFluidSnake(current, previous, direction, color, now, style = "signa
     traceGroup(group);
     context.stroke();
   });
-  if (style === "glass") {
+  if (style === "glass" && !activityEmbedded) {
     context.setLineDash([]);
     context.globalAlpha = .9;
     context.lineWidth = Math.max(2, tileSize * .15);
@@ -345,19 +384,7 @@ function drawFluidSnake(current, previous, direction, color, now, style = "signa
 
 function drawArena(now) {
   const width = canvas.width;
-  const gradient = context.createRadialGradient(
-    width * .5,
-    width * .5,
-    0,
-    width * .5,
-    width * .5,
-    width * .72,
-  );
-  gradient.addColorStop(0, "#0a110d");
-  gradient.addColorStop(.62, "#070b09");
-  gradient.addColorStop(1, "#030504");
-  context.fillStyle = gradient;
-  context.fillRect(0, 0, width, width);
+  context.drawImage(arenaBackdrop, 0, 0);
 
   context.save();
   context.globalCompositeOperation = "lighter";
@@ -372,14 +399,6 @@ function drawArena(now) {
     context.arc(x, y, Math.max(1, width / 720), 0, Math.PI * 2);
     context.fill();
   }
-  context.restore();
-
-  context.save();
-  context.strokeStyle = "rgba(173, 255, 102, .16)";
-  context.lineWidth = Math.max(2, width / 360);
-  context.strokeRect(5, 5, width - 10, width - 10);
-  context.strokeStyle = "rgba(169, 139, 255, .09)";
-  context.strokeRect(10, 10, width - 20, width - 20);
   context.restore();
 }
 
@@ -925,8 +944,9 @@ function updateRosterSlot(element, player, index) {
 }
 
 function activeRoomRoster() {
-  const now = Date.now();
-  const peers = [...roomPeers.values()].filter((peer) => now - peer.seenAt < PEER_TIMEOUT);
+  const peers = [...roomPeers.values()].filter((peer) => (
+    roomTransport?.authoritative || Date.now() - peer.seenAt < PEER_TIMEOUT
+  ));
   if (roomTransport?.kind === "broadcast-channel") {
     const localPlayers = roomConnected ? [roomIdentity(), ...peers] : peers;
     return localPlayers
@@ -1024,10 +1044,24 @@ function syncLiveRoom() {
       && !liveCountdownActive
       && roomPlayers[0]?.id === clientId
     ) {
-      const startsAt = Date.now() + 3200;
-      const round = Date.now();
-      postRoomMessage({ type: "countdown", round, startsAt });
-      beginLiveCountdown(startsAt, round);
+      const now = Date.now();
+      const round = now;
+      if (pendingCountdownAttempts >= 2) {
+        roomState.textContent = "COUNTDOWN REQUEST FAILED · RETRY READY";
+        return;
+      }
+      if (pendingCountdownRound && now < pendingCountdownExpiresAt) return;
+      postRoomMessage({
+        type: "countdown",
+        round,
+        startsAt: now + 3_200,
+      });
+      pendingCountdownRound = round;
+      pendingCountdownExpiresAt = now + 1_500;
+      pendingCountdownAttempts += 1;
+      if (!roomTransport?.authoritative) {
+        beginLiveCountdown(Date.now() + 3_200, round);
+      }
     }
   }
   if (roomConnectionState === "reconnecting") {
@@ -1055,9 +1089,14 @@ function handleRoomStatus(status) {
     return;
   }
   if (status.state === "rejected") {
+    pendingCountdownRound = 0;
+    pendingCountdownExpiresAt = 0;
     roomConnectionState = "degraded";
     if (liveCountdownActive) abortLiveCountdown();
     roomState.textContent = "ROOM UPDATE REJECTED · RETRYING";
+    if (pendingCountdownAttempts >= 2) {
+      roomState.textContent = "COUNTDOWN REQUEST FAILED · RETRY READY";
+    }
     announcement.textContent = "The room service rejected one update. It was discarded instead of retrying forever.";
     return;
   }
@@ -1066,6 +1105,9 @@ function handleRoomStatus(status) {
     liveLatencyMs = liveLatencyMs
       ? liveLatencyMs * .7 + latency * .3
       : latency;
+    if (Number.isFinite(Number(status.clockOffset))) {
+      liveClockOffsetMs = Number(status.clockOffset);
+    }
     roomLatency.textContent = `REALTIME PING · ${latency} MS · PREDICTION ON`;
     return;
   }
@@ -1173,6 +1215,10 @@ function disconnectLiveRoom() {
   roomSlot = -1;
   roomConnectionState = "disconnected";
   liveLatencyMs = 0;
+  liveClockOffsetMs = null;
+  pendingCountdownRound = 0;
+  pendingCountdownExpiresAt = 0;
+  pendingCountdownAttempts = 0;
   roomLatency.textContent = "REALTIME PING · NOT MEASURED";
   abortLiveCountdown();
   if (duelType === "live") {
@@ -1207,23 +1253,32 @@ function beginLiveCountdown(startsAt, round) {
     liveCountdownActive = false;
   }
   liveCountdownActive = true;
+  pendingCountdownRound = 0;
+  pendingCountdownExpiresAt = 0;
+  pendingCountdownAttempts = 0;
   resetDuel();
   liveRoundId = round;
   setRunState("countdown", "LIVE DUEL COUNTDOWN");
   aiStartButton.hidden = true;
 
+  let displayedNumber = null;
   const update = () => {
     if (!liveRoomGateOpen()) {
       abortLiveCountdown();
       return;
     }
-    const remaining = Math.max(0, startsAt - Date.now());
+    const offset = typeof liveClockOffsetMs === "number" ? liveClockOffsetMs : 0;
+    const localStartsAt = startsAt - offset;
+    const remaining = Math.max(0, localStartsAt - Date.now());
     const number = Math.max(1, Math.ceil(remaining / 1000));
-    overlay.hidden = false;
-    overlayKicker.textContent = "TWO PLAYERS LOCKED";
-    overlayTitle.textContent = String(number);
-    overlayTitle.classList.add("countdown");
-    overlayMessage.textContent = "The room starts only while both remain connected.";
+    if (number !== displayedNumber) {
+      displayedNumber = number;
+      overlay.hidden = false;
+      overlayKicker.textContent = "TWO PLAYERS LOCKED";
+      overlayTitle.textContent = String(number);
+      overlayTitle.classList.add("countdown");
+      overlayMessage.textContent = "The room starts only while both remain connected.";
+    }
     if (remaining <= 0) {
       clearInterval(liveCountdownTimer);
       liveCountdownTimer = null;
@@ -1232,13 +1287,15 @@ function beginLiveCountdown(startsAt, round) {
     }
   };
   update();
-  liveCountdownTimer = setInterval(update, 50);
+  liveCountdownTimer = setInterval(update, 100);
 }
 
 function abortLiveCountdown() {
   clearInterval(liveCountdownTimer);
   liveCountdownTimer = null;
   liveCountdownActive = false;
+  pendingCountdownRound = 0;
+  pendingCountdownExpiresAt = 0;
   if (runState === "countdown" && duelType === "live") {
     setRunState("ready", "LIVE ROOM WAITING");
     showOverlay(
@@ -1331,10 +1388,13 @@ function applyRemoteSnapshot(message) {
     message.sentAt,
     Date.now(),
     liveLatencyMs,
+    liveClockOffsetMs,
   );
   const frameNow = performance.now();
-  lastMoveAt = frameNow - interpolationOffset;
-  nextMoveAt = frameNow + Math.max(16, TICK_DURATION - interpolationOffset);
+  const targetLastMoveAt = frameNow - interpolationOffset;
+  const correction = Math.max(-24, Math.min(24, targetLastMoveAt - lastMoveAt));
+  lastMoveAt = Math.min(frameNow, lastMoveAt + correction);
+  nextMoveAt = Math.max(frameNow + 8, lastMoveAt + TICK_DURATION);
   updateHud();
   if (state.over && runState === "running") endDuel(state.winner, state.crashes);
 }
@@ -1376,6 +1436,9 @@ function handleRoomMessage(message) {
   if (!message || message.room !== roomCode) return;
   if (message.from === clientId && message.type !== "countdown") return;
   if (message.type === "countdown-cancel") {
+    pendingCountdownRound = 0;
+    pendingCountdownExpiresAt = 0;
+    pendingCountdownAttempts = 0;
     cancelLiveRound(message);
     return;
   }
@@ -1399,7 +1462,12 @@ function handleRoomMessage(message) {
   if (message.type === "countdown") {
     const startsAt = Number(message.startsAt);
     const round = Number(message.round);
-    if (Number.isFinite(startsAt) && Number.isSafeInteger(round)) beginLiveCountdown(startsAt, round);
+    if (Number.isFinite(startsAt) && Number.isSafeInteger(round)) {
+      pendingCountdownRound = 0;
+      pendingCountdownExpiresAt = 0;
+      pendingCountdownAttempts = 0;
+      beginLiveCountdown(startsAt, round);
+    }
     return;
   }
   if (

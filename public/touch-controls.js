@@ -1,7 +1,7 @@
 (function exposeTouchControls(root) {
   "use strict";
 
-  const DEFAULT_THRESHOLD = 5;
+  const DEFAULT_THRESHOLD = 20;
 
   function directionFromDelta(dx, dy, threshold = DEFAULT_THRESHOLD) {
     const horizontal = Math.abs(Number(dx) || 0);
@@ -45,8 +45,8 @@
       if (!direction) return;
       event.preventDefault();
       onDirection(direction);
-      anchor = current;
       committed = true;
+      anchor = current;
     }
 
     function end(event) {

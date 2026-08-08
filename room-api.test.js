@@ -100,7 +100,7 @@ async function main() {
       {
         type: "countdown",
         round: 1_725_000_000_050,
-        startsAt: 1_725_000_003_000,
+        startsAt: 1_725_086_400_000,
       },
     ], {
       room: "ABC234",
@@ -121,7 +121,7 @@ async function main() {
       {
         type: "countdown",
         round: 1_725_000_000_050,
-        startsAt: 1_725_000_003_000,
+        startsAt: 1_725_000_003_200,
         from: "client-two",
         room: "ABC234",
         sentAt: 1_725_000_000_000,
