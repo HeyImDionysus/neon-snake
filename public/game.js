@@ -35,6 +35,7 @@ const overlayHint = $(".overlay-hint");
 const pauseButton = $("#pauseButton");
 const pauseButtonLabel = $("#pauseButtonLabel");
 const restartButton = $("#restartButton");
+const endRunButton = $("#endRunButton");
 const shareButton = $("#shareButton");
 const exportButton = $("#exportButton");
 const canvasInstruction = $("#canvasInstruction");
@@ -1542,6 +1543,32 @@ function stopDemo() {
   focusWithoutScroll(startButton);
 }
 
+// Leaving a run had no control of its own: the only ways out were dying,
+// restarting into another run, or reloading the page. Ending a run returns to
+// the mode chooser without recording an attempt, for a player run and for
+// Autopilot alike.
+function endRun() {
+  if (runState === "ready") return;
+  if (demoMode) {
+    stopDemo();
+    return;
+  }
+  nextMoveAt = 0;
+  runState = "ready";
+  activeMode = selectedMode();
+  document.body.dataset.mode = activeMode;
+  resetRun();
+  ghostPath = activeMode === "canvas" ? [] : Rules.normalizeReplay(profile.replays?.[activeMode], GRID);
+  setSetupDisabled(false);
+  pauseButton.disabled = true;
+  setState("ready", activeMode === "canvas" ? "CANVAS READY" : "SYSTEM READY");
+  updateHud();
+  updateActionLabels();
+  updateReadyOverlay();
+  announcement.textContent = `Run ended. Choose Play ${modeLabel()} or Watch Autopilot play ${modeLabel()}.`;
+  focusWithoutScroll(startButton);
+}
+
 function prepareRun(initialDirection = DIRECTIONS.right) {
   if (runState === "countdown") return;
   demoMode = false;
@@ -1750,6 +1777,8 @@ function updateActionLabels() {
   mobilePause.setAttribute("aria-label", aiPlaying ? "Stop Autopilot" : paused ? "Resume game" : "Pause game");
   restartButton.firstChild.textContent = demoMode ? "Restart Autopilot run " : "Restart current run ";
   restartButton.hidden = runState === "ready" || runState === "countdown";
+  endRunButton.firstChild.textContent = demoMode ? "Stop Autopilot " : "End run ";
+  endRunButton.hidden = runState === "ready";
 }
 
 function requestDirection(next) {
@@ -2053,6 +2082,12 @@ function handleKeyboard(event) {
     return;
   }
   if (event.repeat) return;
+  if (key === "escape") {
+    if (runState === "ready") return;
+    event.preventDefault();
+    endRun();
+    return;
+  }
   if (event.code === "Space") {
     if (runState !== "running" && runState !== "paused") return;
     event.preventDefault();
@@ -2152,6 +2187,7 @@ function generateNewSignal() {
 
 startButton.addEventListener("click", () => runState === "paused" ? togglePause() : prepareRun());
 demoButton.addEventListener("click", prepareDemo);
+endRunButton.addEventListener("click", endRun);
 pauseButton.addEventListener("click", togglePause);
 mobilePause.addEventListener("click", togglePause);
 restartButton.addEventListener("click", () => demoMode ? restartDemo() : prepareRun());

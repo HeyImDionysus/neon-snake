@@ -10,14 +10,6 @@ const COMMAND_TIMEOUT = 15_000;
 const TOKEN_TIMEOUT = 16_000;
 const EXTERNAL_LINK_TIMEOUT = 2_500;
 const ORIENTATION_TIMEOUT = 2_500;
-const query = new URLSearchParams(location.search);
-const embedded = query.has("frame_id");
-let sdk = null;
-let readyPromise = null;
-let connected = false;
-let sdkReady = false;
-let initializing = false;
-
 function instanceSignal(value) {
   let hash = 2166136261;
   for (const character of String(value || "")) {
@@ -32,6 +24,23 @@ function instanceSignal(value) {
   }
   return result;
 }
+
+const query = new URLSearchParams(location.search);
+const embedded = query.has("frame_id");
+// Everyone launched into the same Activity instance receives the same
+// instance_id in their URL, and the SDK derives sdk.instanceId from exactly
+// that parameter. The shared room therefore does not depend on the RPC
+// handshake completing: it is known the moment the page loads. Discord's
+// handshake is still needed for a verified identity and the invite dialog, but
+// it must never stand between two people in a channel and a shared board.
+const launchInstanceId = query.get("instance_id") || "";
+const launchRoomCode = embedded && launchInstanceId ? instanceSignal(launchInstanceId) : "";
+let sdk = null;
+let readyPromise = null;
+let connected = false;
+let sdkReady = false;
+let initializing = false;
+
 
 function dispatch(name, detail) {
   globalThis.dispatchEvent(new CustomEvent(name, { detail }));
@@ -207,6 +216,7 @@ globalThis.NeonSnakeActivity = {
   CLIENT_ID,
   embedded,
   instanceSignal,
+  launchRoomCode,
   invite,
   openExternal,
   retry,
