@@ -136,6 +136,19 @@ async function main() {
     assert.equal(promoted.players.find((player) => player.id === "ttl-wait")?.slot, 0);
     assert.equal(promoted.players.find((player) => player.id === "ttl-wait")?.ready, false);
     console.log("PASS real Lua expiry promotes a waiting participant on heartbeat without another join");
+
+    // A presence record claimed by a newer connection is terminal for the old
+    // socket; a record that simply expired must stay recoverable so the client
+    // reconnects instead of giving up.
+    const resumedSeat = await lua("join", "ttl-peer", "ttl-peer-second", 130_002);
+    assert.equal(resumedSeat.error, undefined, "the same credential must resume its own session");
+    const superseded = await lua("touch", "ttl-peer", "ttl-peer-connection", 130_003);
+    assert.equal(superseded.active, false);
+    assert.equal(superseded.replaced, true, "a superseded connection must be told its session was replaced");
+    const vanished = await lua("touch", "ttl-absent", "ttl-absent-connection", 130_004);
+    assert.equal(vanished.active, false);
+    assert.equal(vanished.replaced, false, "an expired record must not be reported as a replacement");
+    console.log("PASS real Lua separates a replaced session from an expired one");
   } finally {
     promotedTransport?.close();
     clients.forEach((client) => client.socket.close());

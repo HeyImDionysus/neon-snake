@@ -156,6 +156,7 @@ function createFakeRedis() {
     return JSON.stringify({
       left: action === "leave" && !current,
       active: Boolean(current && current.connectionId === connectionId),
+      replaced: Boolean(current && current.connectionId !== connectionId),
       role: current?.slot >= 0 ? "player" : "spectator",
       slot: current?.slot ?? -1,
       joinEpoch: current?.joinEpoch ?? 0,

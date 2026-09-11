@@ -232,6 +232,7 @@ end
 return cjson.encode({
   left = left,
   active = current ~= nil and current["connectionId"] == connectionId,
+  replaced = current ~= nil and current["connectionId"] ~= connectionId,
   role = current and tonumber(current["slot"]) >= 0 and "player" or "spectator",
   slot = current and tonumber(current["slot"]) or -1,
   joinEpoch = current and tonumber(current["joinEpoch"]) or 0,
@@ -1037,7 +1038,10 @@ function createRealtimeHub({
   async function refresh(connection, action = "touch", options = {}) {
     const result = await presence(connection, action, options);
     if (!result.active && action !== "leave") {
-      connection.socket.close(4001, "Realtime session replaced");
+      // A record claimed by another connection is terminal; a record that simply
+      // expired is recoverable, so the client must be allowed to reconnect.
+      if (result.replaced) connection.socket.close(4001, "Realtime session replaced");
+      else connection.socket.close(1012, "Realtime session expired");
       return result;
     }
     await publishRoster(connection.room, result.players || [], result.waiting || []);
@@ -1269,7 +1273,8 @@ function createRealtimeHub({
         try {
           const result = await presence(connection, "touch");
           if (!result.active) {
-            connection.socket.close(4001, "Realtime session replaced");
+            if (result.replaced) connection.socket.close(4001, "Realtime session replaced");
+            else connection.socket.close(1012, "Realtime session expired");
           } else {
             byRoom.set(connection.room, {
               players: result.players || [],
