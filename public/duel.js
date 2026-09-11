@@ -918,6 +918,9 @@ function reconcileLocalRoomReady(players) {
 
 function applyAuthoritativeRoomRoster(players, waiting = [], queuePosition = 0) {
   if (!Array.isArray(players)) return;
+  // Receiving server-owned state is proof the link works, so a previously
+  // degraded room recovers instead of staying gated forever.
+  if (roomConnected && roomConnectionState === "degraded") roomConnectionState = "connected";
   const capacity = typeof LIVE_ROOM_CAPACITY === "number" ? LIVE_ROOM_CAPACITY : 2;
   const previousPlayerCount = (roomRole === "player" ? 1 : 0)
     + [...roomPeers.values()].filter((player) => (
@@ -1156,18 +1159,26 @@ function handleRoomStatus(status) {
       showOverlay("ROOM SESSION", "RECONNECT<br><em>WHEN READY</em>", message);
       return;
     }
+    const rejectedCountdown = pendingCountdownRound !== 0;
     pendingCountdownRound = 0;
     pendingCountdownExpiresAt = 0;
-    roomConnectionState = "degraded";
-    if (liveCountdownActive) abortLiveCountdown();
-    roomState.textContent = "ROOM UPDATE REJECTED · RETRYING";
-    if (pendingCountdownAttempts >= 2) {
-      roomState.textContent = "COUNTDOWN REQUEST FAILED · RETRY READY";
+    if (rejectedCountdown) {
+      // Only a countdown request tells us anything about the room's state. Any
+      // other rejected frame - most often a Ready sent by a player the server
+      // has already rotated out of their seat - says nothing about link health,
+      // and treating it as degradation used to close the countdown gate for the
+      // rest of the session.
+      roomConnectionState = "degraded";
+      if (liveCountdownActive) abortLiveCountdown();
+      roomState.textContent = pendingCountdownAttempts >= 2
+        ? "COUNTDOWN REQUEST FAILED · RETRY READY"
+        : "COUNTDOWN REQUEST REJECTED";
+      announcement.textContent = "The room service rejected the countdown request. Press Ready again when both players are connected.";
     }
-    announcement.textContent = "The room service rejected one update. It was discarded instead of retrying forever.";
     return;
   }
   if (status.state === "latency") {
+    if (roomConnected && roomConnectionState === "degraded") roomConnectionState = "connected";
     const latency = Math.max(0, Math.round(Number(status.latency) || 0));
     liveLatencyMs = liveLatencyMs
       ? liveLatencyMs * .7 + latency * .3

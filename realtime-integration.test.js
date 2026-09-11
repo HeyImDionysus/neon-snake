@@ -149,6 +149,27 @@ async function main() {
     assert.equal(vanished.active, false);
     assert.equal(vanished.replaced, false, "an expired record must not be reported as a replacement");
     console.log("PASS real Lua separates a replaced session from an expired one");
+
+    // A player rotated out of their seat still has an in-flight Ready frame.
+    // Answering it with `rejected` is what used to convince the client its link
+    // was degraded, which closed the countdown gate for the rest of the session
+    // and deadlocked the room once that player was re-seated.
+    const unseated = await connect("qa-unseated-watcher");
+    assert.equal(unseated.welcome?.role, "spectator");
+    assert.ok(unseated.welcome.slot < 0, "the third participant must hold no seat");
+    const before = unseated.messages.length;
+    send(unseated, { type: "ready", ready: false });
+    send(unseated, { type: "ping", at: Date.now() });
+    await waitFor(
+      () => unseated.messages.slice(before).some((message) => message.type === "pong"),
+      "unseated participant is still served",
+    );
+    assert.equal(
+      unseated.messages.slice(before).some((message) => message.type === "rejected"),
+      false,
+      "Ready from an unseated participant must be ignored, never rejected",
+    );
+    console.log("PASS an unseated participant's Ready is ignored instead of rejected");
   } finally {
     promotedTransport?.close();
     clients.forEach((client) => client.socket.close());

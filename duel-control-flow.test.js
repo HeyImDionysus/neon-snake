@@ -114,6 +114,48 @@ const tests = [
       assert.equal(context.liveCountdownTimer, null);
     }
   }],
+  ["a rejected frame that is not a countdown request never closes the room gate", () => {
+    const base = () => ({
+      roomConnected: true,
+      roomConnectionState: "connected",
+      pendingCountdownRound: 0,
+      pendingCountdownExpiresAt: 0,
+      pendingCountdownAttempts: 0,
+      liveCountdownActive: false,
+      roomState: { textContent: "" },
+      roomLatency: { textContent: "" },
+      announcement: { textContent: "" },
+      roomPlayers: [],
+      liveLatencyMs: 0,
+      liveClockOffsetMs: 0,
+      Number, Math, Boolean, Array,
+      abortLiveCountdown() { this.liveCountdownActive = false; },
+      disconnectLiveRoom() { this.disconnected = true; },
+      showOverlay() {},
+      updateHud() {},
+    });
+
+    // The server rotates the losing player out of their seat, so the Ready that
+    // endDuel already sent arrives from a connection that no longer holds one.
+    const rotated = base();
+    const { handleRoomStatus } = installFunctions(["handleRoomStatus"], rotated);
+    handleRoomStatus({ state: "rejected", code: "invalid_message" });
+    assert.equal(rotated.roomConnectionState, "connected",
+      "a stray rejected frame must not degrade the room link");
+    assert.equal(rotated.disconnected, undefined);
+
+    // A rejected countdown request is real information and does gate the room,
+    // but it must heal as soon as the server proves the link works.
+    const countdown = base();
+    countdown.pendingCountdownRound = 7;
+    const gate = installFunctions(["handleRoomStatus"], countdown);
+    gate.handleRoomStatus({ state: "rejected", code: "invalid_message" });
+    assert.equal(countdown.roomConnectionState, "degraded");
+    assert.equal(countdown.pendingCountdownRound, 0);
+    gate.handleRoomStatus({ state: "latency", latency: 42 });
+    assert.equal(countdown.roomConnectionState, "connected",
+      "a healthy pong must clear a degraded room");
+  }],
   ["duel shortcuts preserve room typing, native controls, and browser commands", () => {
     const calls = [];
     const context = {
@@ -533,6 +575,9 @@ const tests = [
   ["synchronized WebSocket rosters acknowledge the local Ready signal", () => {
     const context = {
       clientId: "local-player",
+      // A roster arriving over a degraded link is proof the link recovered.
+      roomConnected: true,
+      roomConnectionState: "degraded",
       roomReady: true,
       roomReadyConfirmed: false,
       roomReadyDesired: true,
@@ -559,6 +604,8 @@ const tests = [
       { id: "local-player", ready: true, slot: 0, seenAt: 1 },
       { id: "remote-player", ready: true, slot: 1, seenAt: 1 },
     ]);
+    assert.equal(context.roomConnectionState, "connected",
+      "an authoritative roster must clear a degraded room link");
     assert.equal(context.roomReadyConfirmed, true);
     assert.equal(context.roomReadyUpdatePending, false);
     assert.equal(context.roomPeers.get("remote-player").ready, true);
@@ -622,7 +669,7 @@ const tests = [
     const status = functionBody("handleRoomStatus");
     assert.match(status, /reconnecting/);
     assert.match(status, /ROOM LINK RECONNECTING/);
-    assert.match(status, /ROOM UPDATE REJECTED/);
+    assert.match(status, /COUNTDOWN REQUEST REJECTED/);
     assert.match(status, /roomConnectionState/);
     assert.match(functionBody("applyAuthoritativeRoomRoster"), /roomPeers = new Map\(players/);
     assert.match(functionBody("applyAuthoritativeRoomRoster"), /roomPlayers = activeRoomRoster\(\)\.slice\(0, capacity\)/);

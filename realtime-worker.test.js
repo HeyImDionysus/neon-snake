@@ -238,6 +238,14 @@ async function flush() {
     sequence: 10,
     direction: { x: 2, y: 0 },
   }, { slot: 1, allReady: true, now: timestamp }), null);
+  // A player rotated out of their seat between sending Ready and its delivery
+  // still sends a well-formed frame. Rejecting it told the client its link was
+  // unhealthy and closed its countdown gate for the rest of the session.
+  assert.deepEqual(
+    validateRealtimeMessage({ type: "ready", ready: false }, { slot: -1, allReady: false, now: timestamp }),
+    { type: "ready", ready: false },
+    "Ready from an unseated participant must be accepted and ignored, not rejected",
+  );
   assert.ok(validateRealtimeMessage({
     type: "countdown",
     round: timestamp,

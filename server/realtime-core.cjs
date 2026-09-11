@@ -315,7 +315,10 @@ function validateRealtimeMessage(value, { slot, allReady, capacity = DEFAULT_ROO
   if (value.type === "ping") {
     return safeInteger(value.at, 0) ? { type: "ping", at: Number(value.at) } : null;
   }
-  if (value.type === "ready" && Number.isInteger(slot) && slot >= 0 && slot < capacity) {
+  if (value.type === "ready") {
+    // Accepted from any participant. A player rotated out of their seat between
+    // sending and delivery still has a well-formed frame, and rejecting it tells
+    // the client its link is unhealthy when only its seat changed.
     return { type: "ready", ready: Boolean(value.ready) };
   }
   if (value.type === "input" && Number.isInteger(slot) && slot >= 0 && slot < capacity) {
@@ -1202,6 +1205,7 @@ function createRealtimeHub({
       return;
     }
     if (message.type === "ready") {
+      if (connection.slot < 0) return;
       const wasReady = stateFor(connection.room).players.some((player) => (
         player.connectionId === connection.connectionId && player.ready
       ));
