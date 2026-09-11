@@ -232,6 +232,8 @@ Before attaching a custom domain, update the metadata in `index.html` and regist
 
 The production live-room adapter opens one secure same-origin WebSocket to Vercel. Direction inputs are sent immediately instead of waiting for a browser → HTTP polling → browser cycle. Local delivery is immediate; the existing Redis resource relays events only when the two players land on different Vercel Function instances. One server-side simulation broadcasts a single authoritative snapshot after every 138 ms tick. The adapter sends active heartbeats every five seconds, closes stale links, times out a silent connection after eight seconds, and reconnects with exponential backoff capped at four seconds. A legacy HTTP transport remains only as a local recovery path; it is not the production latency path.
 
+Vercel closes a WebSocket when the Function invocation reaches its maximum duration, so every `welcome` declares when that link expires. The client opens a replacement 45 seconds ahead of the deadline, hands the seat over using the same private credential, and only then retires the old link, so a seat never becomes vacant and a round is never cut short by the platform. If a link is cut anyway - a dropped network, a crashed tab - the seat is held for a short reclaim window instead of being handed straight to the waiting line, while a link the player closes deliberately frees its seat at once.
+
 The server boundary enforces:
 
 - an exact same-host HTTPS browser Origin (plus same-host HTTP loopback for local development), exact six-character room codes, and bounded client identifiers;

@@ -154,6 +154,71 @@ const tests = [
     assert.equal(timers.size(), 0);
     transport.close();
   }],
+  ["the link is replaced before Vercel's maximum duration cuts it", async () => {
+    const timers = createTimerHarness();
+    const statuses = [];
+    const token = "aaaaaaaa-bbbb-4ccc-8ddd-ffffffffffff";
+    const transport = await transports.createWebSocketRoomTransport({
+      code: "ABC234", clientId: "rotating-client", endpoint: "https://neon.example.test/api/realtime",
+      WebSocketImpl: FakeWebSocket, onMessage() {}, onStatus: (status) => statuses.push(status),
+      setTimeoutImpl: timers.setTimeout, clearTimeoutImpl: timers.clearTimeout, now: timers.now,
+    });
+    const first = FakeWebSocket.instances.at(-1);
+    first.emit("open");
+    first.message({
+      type: "welcome", role: "player", slot: 0, players: [{ id: "rotating-client", slot: 0 }],
+      resumeToken: token, sentAt: 0, expiresAt: 240_000,
+    });
+    const created = FakeWebSocket.instances.length;
+
+    // The replacement opens well before the declared expiry.
+    await timers.runNext();
+    assert.equal(FakeWebSocket.instances.length, created + 1, "A replacement link must be opened");
+    const second = FakeWebSocket.instances.at(-1);
+    assert.deepEqual(second.protocols, ["neon-snake-v1", `resume.${token}`],
+      "The replacement must present the same credential so it resumes the seat");
+    assert.deepEqual(first.closeCalls, [], "The live link must stay open until the replacement is welcomed");
+    assert.equal(transport.send({ type: "ready", ready: true }), true);
+    assert.deepEqual(first.messages.at(-1), { type: "ready", ready: true },
+      "Play continues on the old link during the handover");
+
+    second.emit("open");
+    second.message({
+      type: "welcome", role: "player", slot: 0, players: [{ id: "rotating-client", slot: 0 }],
+      resumeToken: token, sentAt: 240_000, expiresAt: 480_000,
+    });
+    assert.deepEqual(first.closeCalls, [{ code: 1000, reason: "Realtime link rotated" }],
+      "The retired link must close deliberately so the server frees nothing");
+    assert.equal(transport.send({ type: "ready", ready: false }), true);
+    assert.deepEqual(second.messages.at(-1), { type: "ready", ready: false },
+      "Play moves to the replacement once it holds the seat");
+    assert.equal(statuses.some((status) => status.state === "reconnecting"), false,
+      "A planned handover must never look like a dropped connection");
+    transport.close();
+  }],
+  ["a replacement link that never arrives leaves the live link untouched", async () => {
+    const timers = createTimerHarness();
+    const statuses = [];
+    const transport = await transports.createWebSocketRoomTransport({
+      code: "ABC234", clientId: "resilient-client", endpoint: "https://neon.example.test/api/realtime",
+      WebSocketImpl: FakeWebSocket, onMessage() {}, onStatus: (status) => statuses.push(status),
+      setTimeoutImpl: timers.setTimeout, clearTimeoutImpl: timers.clearTimeout, now: timers.now,
+    });
+    const live = FakeWebSocket.instances.at(-1);
+    live.emit("open");
+    live.message({
+      type: "welcome", role: "player", slot: 0, players: [{ id: "resilient-client", slot: 0 }],
+      resumeToken: "aaaaaaaa-bbbb-4ccc-8ddd-aaaaaaaaaaaa", sentAt: 0, expiresAt: 240_000,
+    });
+    await timers.runNext();
+    const replacement = FakeWebSocket.instances.at(-1);
+    replacement.emit("close", { code: 1006 });
+    assert.deepEqual(live.closeCalls, [], "A failed handover must not disturb the live link");
+    assert.equal(statuses.some((status) => status.state === "reconnecting"), false);
+    assert.equal(transport.send({ type: "ready", ready: true }), true);
+    assert.deepEqual(live.messages.at(-1), { type: "ready", ready: true });
+    transport.close();
+  }],
   ["support detection is explicit", () => {
     assert.equal(transports.broadcastRoomSupported({ BroadcastChannel: FakeBroadcastChannel }), true);
     assert.equal(transports.broadcastRoomSupported({}), false);

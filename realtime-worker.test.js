@@ -99,7 +99,13 @@ function createFakeRedis() {
       };
       players.set(clientId, current);
     } else if (current?.connectionId === connectionId) {
-      if (action === "leave") {
+      if (action === "relinquish") {
+        // The seat is held briefly rather than freed, so the fake marks the
+        // record stale instead of deleting it.
+        current.ready = false;
+        current.readyEpoch = 0;
+        current.seenAt = timestamp - 22_000;
+      } else if (action === "leave") {
         const wasSeated = current.slot >= 0;
         players.delete(clientId);
         current = null;
@@ -154,7 +160,7 @@ function createFakeRedis() {
       .filter((item) => item.slot >= 0)
       .sort((first, second) => first.slot - second.slot);
     return JSON.stringify({
-      left: action === "leave" && !current,
+      left: (action === "leave" && !current) || action === "relinquish",
       active: Boolean(current && current.connectionId === connectionId),
       replaced: Boolean(current && current.connectionId !== connectionId),
       role: current?.slot >= 0 ? "player" : "spectator",
@@ -429,7 +435,7 @@ async function flush() {
   assert.equal(queueWelcome.role, "spectator");
   assert.equal(queueWelcome.queuePosition, 1);
   assert.equal(queueWelcome.waiting[0].id, "queue-third");
-  queueSecond.emit("close");
+  queueSecond.emit("close", 1000);
   await flush();
   assert.ok(queueThird.messages.some((message) => (
     message.type === "roster"
@@ -542,7 +548,7 @@ async function flush() {
   const cleanupErrors = [];
   const cleanupHub = createRealtimeHub({
     redisCommand: async (command) => {
-      if (command[8] === "leave") {
+      if (command[8] === "leave" || command[8] === "relinquish") {
         const error = new Error("Redis cleanup timed out.");
         error.name = "TimeoutError";
         throw error;
@@ -577,12 +583,60 @@ async function flush() {
   }]);
   cleanupHub.close();
 
+  // Vercel closes a WebSocket when the Function invocation reaches maxDuration.
+  // Treating that like a departure handed the seat to whoever was waiting, so a
+  // link that was cut keeps its seat for a short reclaim window while a link the
+  // client closed deliberately frees it at once.
+  const lifetimeRedis = createFakeRedis();
+  const lifetimeHub = createRealtimeHub({
+    redisCommand: lifetimeRedis,
+    bus: createFakeBus(),
+    sessionReader: async () => null,
+    recordMatch: async () => true,
+    uuid: () => `lifetime-${++hubNumber}`,
+  });
+  const lifetimeActions = [];
+  const lifetimeRecording = createRealtimeHub({
+    redisCommand: async (command) => {
+      lifetimeActions.push(command[8]);
+      return lifetimeRedis(command);
+    },
+    bus: createFakeBus(),
+    sessionReader: async () => null,
+    recordMatch: async () => true,
+    uuid: () => `lifetime-${++hubNumber}`,
+  });
+  const cutSocket = new FakeSocket();
+  await lifetimeRecording.connect(cutSocket, request("456789", "lifetime-cut"));
+  await flush();
+  const lifetimeWelcome = cutSocket.messages.find((message) => message.type === "welcome");
+  assert.ok(
+    Number(lifetimeWelcome.expiresAt) > Number(lifetimeWelcome.sentAt),
+    "A client must be told when its link expires so it can replace it in time",
+  );
+  lifetimeActions.length = 0;
+  cutSocket.emit("close", 1006);
+  await flush();
+  assert.equal(lifetimeActions.at(-1), "relinquish",
+    "A link that was cut must hold its seat instead of leaving the room");
+
+  const quitSocket = new FakeSocket();
+  await lifetimeRecording.connect(quitSocket, request("456789", "lifetime-quit"));
+  await flush();
+  lifetimeActions.length = 0;
+  quitSocket.emit("close", 1000);
+  await flush();
+  assert.equal(lifetimeActions.at(-1), "leave",
+    "A client that closes its own link must free the seat immediately");
+  lifetimeHub.close();
+  lifetimeRecording.close();
+
   let reconnectNow = 10_000;
   const reconnectRedis = createFakeRedis();
   let failReconnectLeave = false;
   const reconnectHub = createRealtimeHub({
     redisCommand: async (command) => {
-      if (failReconnectLeave && command[8] === "leave") {
+      if (failReconnectLeave && (command[8] === "leave" || command[8] === "relinquish")) {
         throw Object.assign(new Error("Redis leave timed out."), {
           name: "TimeoutError",
         });

@@ -18,6 +18,13 @@ const MAX_CONNECTIONS = 12;
 const MAX_MESSAGE_BYTES = 32 * 1024;
 const MAX_MESSAGES_PER_SECOND = 40;
 const CONNECTION_TTL_MS = 30_000;
+// Vercel closes a WebSocket when the Function invocation reaches maxDuration
+// (300 s in vercel.json). Clients are told a shorter lifetime so they can open a
+// replacement link and hand the seat over before the platform cuts it.
+const CONNECTION_LIFETIME_MS = 240_000;
+// How long a seat is held after a link is cut rather than closed, so a
+// reconnecting player reclaims it instead of losing it to the waiting line.
+const RECLAIM_WINDOW_MS = 8_000;
 const ROOM_TTL_SECONDS = 45;
 const DEFAULT_ROOM_CAPACITY = 2;
 const DUEL_GRID = 30;
@@ -122,7 +129,16 @@ if action == "join" then
   redis.call("ZADD", presenceKey, now, clientId)
   redis.call("HSET", metadataKey, clientId, cjson.encode(current))
 elseif current and current["connectionId"] == connectionId then
-  if action == "leave" then
+  if action == "relinquish" then
+    -- The link was cut rather than closed. Hold the seat briefly so the player
+    -- can return with their credential, then let the ordinary stale sweep hand
+    -- it to whoever is waiting.
+    left = true
+    redis.call("ZADD", presenceKey, cutoff + ${RECLAIM_WINDOW_MS}, clientId)
+    current["ready"] = false
+    current["readyEpoch"] = 0
+    redis.call("HSET", metadataKey, clientId, cjson.encode(current))
+  elseif action == "leave" then
     left = true
     local wasSeated = tonumber(current["slot"]) >= 0
     redis.call("ZREM", presenceKey, clientId)
@@ -987,7 +1003,8 @@ function createRealtimeHub({
         }
       }
     }
-    if (clean?.userId && action !== "leave" && payload.role === "player") {
+    const departing = action === "leave" || action === "relinquish";
+    if (clean?.userId && !departing && payload.role === "player") {
       try {
         await runRedis([
           "SET",
@@ -1095,7 +1112,7 @@ function createRealtimeHub({
     }
   }
 
-  async function closeConnection(connection) {
+  async function closeConnection(connection, { deliberate = true } = {}) {
     if (!connections.has(connection.socket)) return;
     connections.delete(connection.socket);
     const reportFailure = (stage, error) => {
@@ -1105,9 +1122,10 @@ function createRealtimeHub({
       });
     };
     const ownedSlot = connectionOwnsSlot(connection.room, connection.connectionId, connection.slot);
+    const retainSeat = !deliberate && ownedSlot;
     let presenceResult = null;
     try {
-      presenceResult = await presence(connection, "leave");
+      presenceResult = await presence(connection, retainSeat ? "relinquish" : "leave");
     } catch (error) {
       reportFailure("presence", error);
     }
@@ -1324,6 +1342,7 @@ function createRealtimeHub({
       slot: -1,
       profile: null,
       resumeToken: resumeProtocol ? resumeProtocol.slice(7) : randomUUID(),
+      openedAt: now(),
       initialized: false,
       rateWindow: 0,
       rateCount: 0,
@@ -1348,9 +1367,17 @@ function createRealtimeHub({
         pendingMessages -= 1;
       });
     });
-    const close = () => void closeConnection(connection);
-    socket.on("close", close);
-    socket.on("error", close);
+    // A clean close - 1000 normal, 1001 going away, 1005 no status supplied - is
+    // the client saying it is done, so the seat is freed at once. An abnormal
+    // close is a link that was cut: the platform's maxDuration limit, a dropped
+    // network, a crashed tab. Those players may be seconds from returning with
+    // their credential, so the seat is held briefly rather than handed to
+    // whoever is waiting.
+    const DELIBERATE_CLOSE_CODES = new Set([1000, 1001, 1005]);
+    socket.on("close", (code) => void closeConnection(connection, {
+      deliberate: code === undefined || DELIBERATE_CLOSE_CODES.has(Number(code)),
+    }));
+    socket.on("error", () => void closeConnection(connection, { deliberate: false }));
     try {
       await ensureSubscription(room);
       const current = await readSession(request);
@@ -1391,6 +1418,7 @@ function createRealtimeHub({
         })),
         queuePosition: Number(result.queuePosition) || 0,
         resumeToken: connection.resumeToken,
+        expiresAt: connection.openedAt + CONNECTION_LIFETIME_MS,
         sentAt: now(),
       });
       if (connection.profile) {

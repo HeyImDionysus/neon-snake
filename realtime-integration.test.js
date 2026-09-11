@@ -170,6 +170,49 @@ async function main() {
       "Ready from an unseated participant must be ignored, never rejected",
     );
     console.log("PASS an unseated participant's Ready is ignored instead of rejected");
+
+    // Vercel cuts a WebSocket when the Function invocation reaches maxDuration.
+    // Against real Redis, a cut link keeps its seat long enough to return with
+    // its credential, while a link the client closes frees the seat at once.
+    const cutRoom = roomCode();
+    const cutKeys = keys(cutRoom);
+    async function connectTo(code, id, token = "") {
+      const client = { id, messages: [], closed: null };
+      const protocols = ["neon-snake-v1"];
+      if (token) protocols.push(`resume.${token}`);
+      client.socket = new WebSocket(`${endpoint}?room=${code}&clientId=${id}`, protocols, { origin });
+      clients.push(client);
+      client.socket.on("message", (data) => client.messages.push(JSON.parse(data)));
+      client.socket.on("close", (closeCode) => { client.closed = closeCode; });
+      await waitFor(() => client.messages.find((message) => message.type === "welcome") || client.closed, `connect ${id}`);
+      client.welcome = client.messages.find((message) => message.type === "welcome");
+      return client;
+    }
+    const seated = await connectTo(cutRoom, "qa-cut-player");
+    assert.equal(seated.welcome.slot, 0);
+    assert.ok(
+      Number(seated.welcome.expiresAt) > Number(seated.welcome.sentAt),
+      "The welcome must declare when this link expires",
+    );
+    const waitingBehind = await connectTo(cutRoom, "qa-cut-waiting");
+    await connectTo(cutRoom, "qa-cut-filler");
+    assert.equal(waitingBehind.welcome.slot, 1);
+    seated.socket.terminate();
+    await delay(600);
+    const afterCut = JSON.parse(await redis.command(["HGET", cutKeys[1], "qa-cut-player"]));
+    assert.ok(afterCut, "A cut link must keep its presence record so the seat can be reclaimed");
+    assert.equal(Number(afterCut.slot), 0, "A cut link must keep its seat");
+    const reclaimed = await connectTo(cutRoom, "qa-cut-player", seated.welcome.resumeToken);
+    assert.equal(reclaimed.welcome?.slot, 0, "The returning player must reclaim the seat they held");
+    reclaimed.socket.close(1000);
+    await delay(600);
+    assert.equal(
+      await redis.command(["HGET", cutKeys[1], "qa-cut-player"]),
+      null,
+      "A link the client closes must free its seat immediately",
+    );
+    await redis.command(["DEL", ...cutKeys]);
+    console.log("PASS a cut link keeps its seat while a closed one frees it");
   } finally {
     promotedTransport?.close();
     clients.forEach((client) => client.socket.close());
