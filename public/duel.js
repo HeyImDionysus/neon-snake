@@ -918,8 +918,27 @@ function reconcileLocalRoomReady(players) {
   roomReadyConfirmed = authoritativeReady;
 }
 
+// The Activity banner used to describe the Discord RPC handshake, which is not
+// what decides whether a result counts. The server reads the session itself when
+// the room socket opens, so if it hands back a verified username for this player
+// then results will be recorded, whatever the handshake did. Saying otherwise
+// while the roster reads "YOU · @name · CONNECTED" is simply wrong.
+function reconcileActivityIdentity(players) {
+  if (!activityEmbedded || !Array.isArray(players)) return;
+  const local = players.find((player) => player?.id === clientId);
+  const username = String(local?.profile?.username || "").trim();
+  if (!username) return;
+  activityContext.hidden = false;
+  activityContext.classList.remove("is-error");
+  activityContextTitle.textContent = "CHANNEL INSTANCE CONNECTED";
+  activityContextDetail.textContent = `Shared room ${roomCode} · verified as @${username} · results are recorded`;
+  activityContextRetry.hidden = true;
+  activityContextRetry.disabled = false;
+}
+
 function applyAuthoritativeRoomRoster(players, waiting = [], queuePosition = 0) {
   if (!Array.isArray(players)) return;
+  reconcileActivityIdentity(players);
   // Receiving server-owned state is proof the link works, so a previously
   // degraded room recovers instead of staying gated forever.
   if (roomConnected && roomConnectionState === "degraded") roomConnectionState = "connected";

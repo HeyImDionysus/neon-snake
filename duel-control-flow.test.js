@@ -114,6 +114,32 @@ const tests = [
       assert.equal(context.liveCountdownTimer, null);
     }
   }],
+  ["a verified roster identity corrects the Activity banner", () => {
+    const context = {
+      activityEmbedded: true,
+      clientId: "local-player",
+      roomCode: "RD3TQS",
+      activityContext: { hidden: true, classList: { removed: [], remove(name) { this.removed.push(name); } } },
+      activityContextTitle: { textContent: "PLAYING UNVERIFIED · SHARED ROOM READY" },
+      activityContextDetail: { textContent: "results will not be recorded" },
+      activityContextRetry: { hidden: false, disabled: true },
+      String, Array, Boolean,
+    };
+    const { reconcileActivityIdentity } = installFunctions(["reconcileActivityIdentity"], context);
+
+    // No verified identity yet: the warning must stand.
+    reconcileActivityIdentity([{ id: "local-player", profile: {} }]);
+    assert.match(context.activityContextTitle.textContent, /UNVERIFIED/);
+
+    // The server handed back a username, so this player's results do count and
+    // the banner must stop saying they do not.
+    reconcileActivityIdentity([{ id: "local-player", profile: { username: "helloimoni" } }]);
+    assert.equal(context.activityContextTitle.textContent, "CHANNEL INSTANCE CONNECTED");
+    assert.match(context.activityContextDetail.textContent, /verified as @helloimoni/);
+    assert.match(context.activityContextDetail.textContent, /results are recorded/);
+    assert.equal(context.activityContextRetry.hidden, true);
+    assert.ok(context.activityContext.classList.removed.includes("is-error"));
+  }],
   ["a rejected frame that is not a countdown request never closes the room gate", () => {
     const base = () => ({
       roomConnected: true,
@@ -577,6 +603,8 @@ const tests = [
   ["synchronized WebSocket rosters acknowledge the local Ready signal", () => {
     const context = {
       clientId: "local-player",
+      // Outside the Activity the identity banner does not exist.
+      activityEmbedded: false,
       // A roster arriving over a degraded link is proof the link recovered.
       roomConnected: true,
       roomConnectionState: "degraded",
@@ -599,7 +627,7 @@ const tests = [
       },
     };
     const { applyAuthoritativeRoomRoster } = installFunctions(
-      ["reconcileLocalRoomReady", "applyAuthoritativeRoomRoster"],
+      ["reconcileActivityIdentity", "reconcileLocalRoomReady", "applyAuthoritativeRoomRoster"],
       context,
     );
     applyAuthoritativeRoomRoster([
