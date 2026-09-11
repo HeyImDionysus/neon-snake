@@ -192,11 +192,13 @@ function createSignalCode() {
   return [...values].map((value) => SIGNAL_ALPHABET[value % SIGNAL_ALPHABET.length]).join("");
 }
 
-function hydrateRoomCode() {
+function hydrateRoomCode(sharedRoom = "") {
   const params = new URLSearchParams(window.location.search);
+  const shared = Rules.normalizeSignalCode(sharedRoom);
   const requested = Rules.normalizeSignalCode(params.get("room"));
-  roomCode = requested || createSignalCode();
+  roomCode = shared || requested || createSignalCode();
   roomCodeInput.value = roomCode;
+  if (shared) return true;
   return Boolean(requested && params.get("type") === "live");
 }
 
@@ -1759,10 +1761,14 @@ else window.addEventListener("resize", scheduleResizeCanvas);
 resizeCanvas();
 startRendering();
 
-function renderActivityFailure(error) {
+function renderActivityFailure(error, liveRoomAvailable = false) {
   activityContext.classList.add("is-error");
-  activityContextTitle.textContent = "DISCORD LINK OFFLINE · LOCAL DUEL READY";
-  activityContextDetail.textContent = `${error?.message || "Discord authentication failed."} Return to Solo or retry the Activity connection.`;
+  activityContextTitle.textContent = liveRoomAvailable
+    ? "PLAYING UNVERIFIED · SHARED ROOM READY"
+    : "DISCORD LINK OFFLINE · LOCAL DUEL READY";
+  activityContextDetail.textContent = liveRoomAvailable
+    ? `${error?.message || "Discord did not answer."} Multiplayer in this channel still works; results will not be recorded until Discord reconnects.`
+    : `${error?.message || "Discord authentication failed."} Return to Solo or retry the Activity connection.`;
   activityContextRetry.hidden = false;
   activityContextRetry.disabled = false;
   roomState.textContent = "ACTIVITY AUTHENTICATION FAILED";
@@ -1771,42 +1777,63 @@ function renderActivityFailure(error) {
   switchDuelType(invited || liveRoomRequested() ? "live" : "ai");
 }
 
+function applyActivityRoomCopy() {
+  connectRoomButton.disabled = false;
+  copyRoomButton.textContent = "INVITE";
+  roomCodeInput.readOnly = true;
+  document.querySelector(".duel-intro .section-kicker").textContent = "DISCORD ACTIVITY";
+  document.querySelector("#duelTitle").innerHTML = "Your channel.<br><em>One live board.</em>";
+  document.querySelector(".duel-intro > p").textContent = "Everyone in this Activity instance joins the same server-authoritative room. Press Ready when both players appear.";
+}
+
 async function initializeDuelSurface() {
-  if (globalThis.NeonSnakeActivity?.embedded) {
+  const activity = globalThis.NeonSnakeActivity;
+  let sharedRoom = "";
+  if (activity?.embedded) {
     activityContext.hidden = false;
     document.body.classList.add("activity-mode");
-    try {
-      const activity = await globalThis.NeonSnakeActivity.ready;
+    // The room comes from the instance id already in the URL, so multiplayer is
+    // available immediately. Discord's handshake only adds a verified identity
+    // and the invite dialog; waiting for it here used to abandon the live room
+    // entirely whenever the handshake was slow or refused, which left everyone
+    // in the channel staring at a local Autopilot duel.
+    sharedRoom = activity.launchRoomCode || "";
+    if (sharedRoom) {
+      applyActivityRoomCopy();
+      activityContextTitle.textContent = "CHANNEL INSTANCE READY";
+      activityContextDetail.textContent = `Shared room ${sharedRoom} · connecting Discord for your profile`;
+    }
+    activity.ready?.then((context) => {
       activityContext.classList.remove("is-error");
       activityContextTitle.textContent = "CHANNEL INSTANCE CONNECTED";
-      activityContextDetail.textContent = `Shared room ${activity.roomCode} · authenticated as @${activity.user.username}`;
+      activityContextDetail.textContent = `Shared room ${context?.roomCode || sharedRoom} · authenticated as @${context?.user?.username}`;
       activityContextRetry.hidden = true;
       activityContextRetry.disabled = false;
-      connectRoomButton.disabled = false;
-      copyRoomButton.textContent = "INVITE";
-      roomCodeInput.readOnly = true;
-      document.querySelector(".duel-intro .section-kicker").textContent = "DISCORD ACTIVITY";
-      document.querySelector("#duelTitle").innerHTML = "Your channel.<br><em>One live board.</em>";
-      document.querySelector(".duel-intro > p").textContent = "Everyone in this Activity instance joins the same server-authoritative room. Press Ready when both players appear.";
-    } catch (error) {
-      renderActivityFailure(error);
-      return;
-    }
+      applyActivityRoomCopy();
+    }).catch((error) => {
+      renderActivityFailure(error, Boolean(sharedRoom));
+    });
   }
-  const invitedToLiveRoom = hydrateRoomCode();
-  switchDuelType(invitedToLiveRoom || liveRoomRequested() ? "live" : "ai");
-  if (invitedToLiveRoom) await connectLiveRoom();
+  const invitedToLiveRoom = hydrateRoomCode(sharedRoom);
+  switchDuelType(invitedToLiveRoom || liveRoomRequested() || Boolean(sharedRoom) ? "live" : "ai");
+  if (invitedToLiveRoom || sharedRoom) await connectLiveRoom();
 }
 
 activityContextRetry.addEventListener("click", async () => {
   activityContextRetry.disabled = true;
   activityContextTitle.textContent = "RECONNECTING TO DISCORD…";
-  activityContextDetail.textContent = "Local Autopilot remains available while the shared instance reconnects.";
+  activityContextDetail.textContent = "The shared room keeps playing while Discord reconnects.";
+  const sharedRoom = globalThis.NeonSnakeActivity?.launchRoomCode || "";
   try {
-    await globalThis.NeonSnakeActivity?.retry();
-    await initializeDuelSurface();
+    const context = await globalThis.NeonSnakeActivity?.retry();
+    activityContext.classList.remove("is-error");
+    activityContextTitle.textContent = "CHANNEL INSTANCE CONNECTED";
+    activityContextDetail.textContent = `Shared room ${context?.roomCode || sharedRoom} · authenticated as @${context?.user?.username}`;
+    activityContextRetry.hidden = true;
+    activityContextRetry.disabled = false;
   } catch (error) {
-    renderActivityFailure(error);
+    // Retrying identity must never tear down a room that is already playing.
+    renderActivityFailure(error, Boolean(sharedRoom));
   }
 });
 

@@ -193,9 +193,21 @@ function request(url, {
   assert.match(duelHtml, /href="\/terms\.html" target="_blank"/);
   assert.match(duelHtml, /href="\/privacy\.html" target="_blank"/);
   assert.match(duelHtml, /src="activity-sdk\.js\?v=[0-9a-z]+"/);
-  assert.match(duel, /NeonSnakeActivity\.ready/);
+  assert.match(duel, /NeonSnakeActivity/);
+  // The shared room is derived from the instance id already present in the URL,
+  // so two people in one channel reach the same board even when Discord's RPC
+  // handshake is slow or refused. Waiting on the handshake here used to abandon
+  // multiplayer entirely and drop everyone into a local Autopilot duel.
+  assert.match(entry, /const launchRoomCode = embedded && launchInstanceId \? instanceSignal\(launchInstanceId\) : ""/);
+  assert.match(duel, /sharedRoom = activity\.launchRoomCode/);
+  assert.match(duel, /switchDuelType\(invitedToLiveRoom \|\| liveRoomRequested\(\) \|\| Boolean\(sharedRoom\)/);
+  assert.doesNotMatch(
+    duel,
+    /const activity = await globalThis\.NeonSnakeActivity\.ready/,
+    "The live room must not be gated behind the Discord handshake",
+  );
   assert.match(duel, /NeonSnakeActivity\?\.retry\(\)/);
-  assert.match(duel, /catch \(error\) \{\s*renderActivityFailure\(error\)/);
+  assert.match(duel, /renderActivityFailure\(error, Boolean\(sharedRoom\)\)/);
   assert.match(duel, /invited \|\| liveRoomRequested\(\) \? "live" : "ai"/);
   assert.match(duel, /url\.search = activityEmbedded \? activityQuery\.toString\(\) : ""/);
   assert.match(duel, /await globalThis\.NeonSnakeActivity\.invite\(\)/);

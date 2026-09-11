@@ -236,7 +236,9 @@ const tests = [
     assert.equal(context.activityContextRetry.disabled, false);
     assert.equal(context.connectRoomButton.disabled, true);
     assert.equal(context.duelType, "ai");
-    assert.match(script, /catch \(error\) \{\s*renderActivityFailure\(error\);\s*\}\s*\}\);/);
+    // A failed identity retry must report the failure without abandoning a room
+    // that is already playing.
+    assert.match(script, /renderActivityFailure\(error, Boolean\(sharedRoom\)\)/);
     assert.doesNotMatch(functionBody("initializeDuelSurface"), /addEventListener/);
   }],
   ["Activity authentication failure preserves an explicit Live Room request", () => {
