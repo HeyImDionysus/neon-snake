@@ -260,6 +260,17 @@ button, a, label, select { -webkit-tap-highlight-color: transparent; }
 
 .discord-login,
 .account-logout,
+.account-notice {
+  color: var(--paper);
+  display: block;
+  font: 600 10px/1.4 var(--mono);
+  letter-spacing: .06em;
+  max-width: 22ch;
+  opacity: .82;
+  padding-top: 6px;
+  text-align: right;
+}
+
 .account-unavailable {
   border: 1px solid rgba(169, 139, 255, .34);
   border-radius: 999px;

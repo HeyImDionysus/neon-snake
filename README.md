@@ -11,6 +11,7 @@ Open `public/index.html` in a modern browser. The browser shell remains dependen
 To run the deterministic rules and control-flow suites:
 
 ```powershell
+node asset-stamp.test.js
 node game-logic.test.js
 node ai-quality.test.js
 node canvas-performance.test.js
@@ -18,6 +19,7 @@ node canvas-browser-performance.test.js
 node control-flow.test.js
 node duel-control-flow.test.js
 node duel-quality.test.js
+node duel-authority-consistency.test.js
 node room-transport.test.js
 node room-api.test.js
 node identity-system.test.js
@@ -26,7 +28,12 @@ node service-worker.test.js
 node deployment-contract.test.js
 node realtime-worker.test.js
 node platform-security.test.js
+node account-persistence.test.js
 node activity-system.test.js
+node activity-lifecycle.test.js
+node activity-navigation-browser.test.js
+node terminal-room-ui.test.js
+node realtime-integration.test.js
 node profile-system.test.js
 node profile-interaction.test.js
 node profile-browser.test.js
@@ -136,6 +143,8 @@ Discord sign-in is optional for play and required only for a verified profile or
 - `wallpaper/windows` — Lively metadata and user-configurable properties.
 - `wallpaper/android` — native, offline Android live-wallpaper project with no network permission.
 - `scripts/build-wallpapers.mjs` — reproducible Windows Lively archive builder.
+- `scripts/stamp-assets.mjs` — derives the cache-busting asset stamp from the content it protects and writes it into the pages and offline shell.
+- `asset-stamp.test.js` — executable proof that the committed stamp matches current asset content, that the stamp moves when content or names move, and that every stamped reference agrees with the offline shell.
 - `game-logic.test.js` — executable rule regressions using Node's built-in assertions.
 - `ai-quality.test.js` — three-seed full-board completion plus eight-seed, all-pace timing, routing-efficiency, safety-cycle, adversarial multiplayer, route-diversity, and loop-recovery checks.
 - `canvas-performance.test.js` — executable late-run gate for accumulated raster strokes, 2× compositing, effect retirement, and worst-shaped Autopilot planning.
@@ -143,6 +152,7 @@ Discord sign-in is optional for play and required only for a verified profile or
 - `control-flow.test.js` — executable ownership and explicit-start regressions.
 - `duel-control-flow.test.js` — executable expanded-arena and room-gate regressions.
 - `duel-quality.test.js` — executable 1,200-state simultaneous-resolution symmetry gate plus a 36-run, both-spawn adversarial planner matrix.
+- `duel-authority-consistency.test.js` — tick-for-tick equivalence between the browser duel rules and the authoritative live-room simulation, including terminal rounds, plus input acknowledgement monotonicity.
 - `room-transport.test.js` — executable transport lifecycle and envelope regressions.
 - `room-api.test.js` — executable origin, validation, role, rate, expiry, and configuration regressions.
 - `identity-system.test.js` — executable identity, deterministic field, protocol-glyph, cache, and motion-budget regressions.
@@ -151,6 +161,11 @@ Discord sign-in is optional for play and required only for a verified profile or
 - `deployment-contract.test.js` — executable public-boundary, manifest, cache-shell, and hosted-verification regressions.
 - `realtime-worker.test.js` — executable Vercel connection, Redis relay, input authority, and verified-result regressions.
 - `platform-security.test.js` — executable Discord data-minimization, state, cookie, HMAC, and leaderboard-write regressions.
+- `account-persistence.test.js` — executable proof that an unreadable profile record is never overwritten by a failed sign-in.
+- `realtime-integration.test.js`, `realtime-fixture-server.cjs` — two real Vercel-shaped hubs, real WebSockets and a real Redis 7 exercising seat ownership, spectator departure, queue promotion and stale-seat expiry.
+- `activity-lifecycle.test.js` — executable Activity handshake lifecycle: orientation hangs, token timeouts, duplicate retries, and a retry that must never close the Activity.
+- `activity-navigation-browser.test.js` — real Chromium proof that the Embedded App SDK still reaches its cross-origin parent after Solo → Multiplayer → Solo navigation.
+- `terminal-room-ui.test.js` — executable proof that a replaced or conflicting room session stops reconnecting and explains the recovery.
 - `profile-system.test.js` — executable profile customization, public identity, live activity, and origin-bound write regressions.
 - `activity-system.test.js` — executable Discord iframe, SDK, instance-room, origin, token, and partitioned-cookie regressions.
 - `product-experience.test.js` — executable navigation, download routing, copy, responsive-header, profile, and leaderboard regressions.
@@ -196,6 +211,17 @@ Discord currently limits unverified Activities to servers with fewer than 25 mem
 
 Verification also requires team ownership, a complete app identity, a Terms of Service URL, a Privacy Policy URL, verified email, and 2FA. Moving an existing personally owned app to a developer Team is irreversible in the portal and should be confirmed by the owner immediately before transfer.
 
+### Cache busting
+
+Discord's Activity proxy serves JavaScript and CSS with a four-hour cache regardless of the headers the origin sends, so a client can otherwise pair fresh HTML with stale scripts. The `?v=` stamp on every script and stylesheet, and the offline shell's cache name, are therefore derived from a SHA-256 over the content of `public/**/*.{js,css,webmanifest}` rather than maintained by hand:
+
+```powershell
+npm run stamp        # rewrite the stamp after changing any asset
+npm run check:stamp  # fail when the committed stamp is stale
+```
+
+`asset-stamp.test.js` runs the same check in CI, so an asset change that forgets the stamp fails the build instead of reaching players as a mismatched bundle. HTML is deliberately excluded from the hash: both surfaces serve it uncached, so editing copy must not invalidate every cached script.
+
 `vercel.json` supplies security headers, service-worker cache behavior, and conservative asset caching. `manifest.webmanifest` and `sw.js` provide an installable, offline-capable shell after the first successful visit.
 
 Keeping the static app in `public` ensures tests, documentation, configuration, server code, and unrelated workspace files cannot become downloadable static artifacts. Database credentials are read only inside the server function and are never included in browser JavaScript.
@@ -208,9 +234,12 @@ Before attaching a custom domain, update the metadata in `index.html` and regist
 
 The production live-room adapter opens one secure same-origin WebSocket to Vercel. Direction inputs are sent immediately instead of waiting for a browser → HTTP polling → browser cycle. Local delivery is immediate; the existing Redis resource relays events only when the two players land on different Vercel Function instances. One server-side simulation broadcasts a single authoritative snapshot after every 138 ms tick. The adapter sends active heartbeats every five seconds, closes stale links, times out a silent connection after eight seconds, and reconnects with exponential backoff capped at four seconds. A legacy HTTP transport remains only as a local recovery path; it is not the production latency path.
 
+Vercel closes a WebSocket when the Function invocation reaches its maximum duration, so every `welcome` declares when that link expires. The client opens a replacement 45 seconds ahead of the deadline, hands the seat over using the same private credential, and only then retires the old link, so a seat never becomes vacant and a round is never cut short by the platform. If a link is cut anyway - a dropped network, a crashed tab - the seat is held for a short reclaim window instead of being handed straight to the waiting line, while a link the player closes deliberately frees its seat at once.
+
 The server boundary enforces:
 
-- an exact same-host HTTPS browser Origin, exact six-character room codes, and bounded client identifiers;
+- an exact same-host HTTPS browser Origin (plus same-host HTTP loopback for local development), exact six-character room codes, and bounded client identifiers;
+- a private per-connection resume credential, issued by the server and stored only as a SHA-256 digest, so a seat cannot be claimed by copying the client identifier that every roster broadcasts;
 - a 32 KiB message ceiling and per-connection rate limit;
 - exactly two live player slots, with later visitors restricted to spectator reads;
 - Player 1-only countdowns, player-only direction inputs, and rejection of every browser state snapshot;

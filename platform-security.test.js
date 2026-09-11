@@ -100,6 +100,77 @@ function request(url, {
   assert.equal(invalidCallback.statusCode, 302);
   assert.equal(invalidCallback.headers.location, "/?auth=invalid");
 
+  // Sign-in is a top-level browser navigation. A failure used to render
+  // {"error":"account_service_unavailable"} as the entire page, with the state
+  // record already consumed so reloading could not recover.
+  const brokenExchange = createAccountHandler({
+    environment,
+    random: () => "state_token_with_32_safe_characters_1234",
+    redisCommand: async (command) => (command[0] === "GETDEL" ? "1" : "OK"),
+    fetchImpl: async () => { throw new Error("Discord token endpoint timed out."); },
+  });
+  const failedCallback = responseHarness();
+  await brokenExchange(request("/api/auth/discord/callback?code=real&state=expected", {
+    headers: { cookie: "__Host-neon_oauth=expected" },
+  }), failedCallback);
+  assert.equal(failedCallback.statusCode, 302,
+    "A failed code exchange must return the player to the site, not to a JSON document");
+  assert.equal(failedCallback.headers.location, "/?auth=failed");
+  assert.match(String(failedCallback.headers["set-cookie"]), /__Host-neon_oauth=;/);
+
+  const misconfigured = createAccountHandler({
+    environment: {},
+    random: () => "state_token_with_32_safe_characters_1234",
+    redisCommand: async () => "OK",
+  });
+  const unavailableStart = responseHarness();
+  await misconfigured(request("/api/auth/discord/start"), unavailableStart);
+  assert.equal(unavailableStart.statusCode, 302);
+  assert.equal(unavailableStart.headers.location, "/?auth=unavailable");
+
+  // One malformed cookie value used to make every account route answer 503.
+  const malformedCookie = responseHarness();
+  await handler(request("/api/me", {
+    headers: { cookie: "tracking=%E0%A4%A; __Host-neon_session=absent" },
+  }), malformedCookie);
+  assert.equal(malformedCookie.statusCode, 200,
+    "An unrelated cookie with a malformed escape must not break the account API");
+
+  // Asking for somebody else's profile must never hand back the viewer's own,
+  // which is editable and carries their private session identity.
+  const viewerToken = "session_token_with_32_safe_characters_1";
+  const signedIn = createAccountHandler({
+    environment,
+    random: () => "state_token_with_32_safe_characters_1234",
+    redisCommand: async (command) => {
+      const [verb, key] = command;
+      if (verb !== "GET") return verb === "HGETALL" ? [] : null;
+      if (String(key).startsWith("neon-snake:session:")) {
+        return JSON.stringify({ userId: "123456789012345678" });
+      }
+      if (key === "neon-snake:profile:123456789012345678") {
+        return JSON.stringify({
+          id: "123456789012345678",
+          username: "signal_player",
+          displayName: "Signal Player",
+        });
+      }
+      return null;
+    },
+  });
+  const ownProfile = responseHarness();
+  await signedIn(request("/api/profile", {
+    headers: { cookie: `__Host-neon_session=${viewerToken}` },
+  }), ownProfile);
+  assert.equal(ownProfile.statusCode, 200, "A signed-in viewer still reads their own profile");
+
+  const invalidUser = responseHarness();
+  await signedIn(request("/api/profile?user=not%20a%20username", {
+    headers: { cookie: `__Host-neon_session=${viewerToken}` },
+  }), invalidUser);
+  assert.equal(invalidUser.statusCode, 404,
+    "An unusable user parameter must not silently return the viewer's own profile");
+
   const matchBody = {
     eventId: "ABC234:1785124800000",
     firstUserId: "123456789012345678",

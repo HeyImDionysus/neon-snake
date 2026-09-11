@@ -13,7 +13,7 @@ const styles = fs.readFileSync(path.join(root, "public", "duel.css"), "utf8");
 function functionBody(name) {
   const start = script.indexOf(`function ${name}(`);
   assert.ok(start >= 0, `Expected function ${name}`);
-  const brace = script.indexOf("{", start);
+  const brace = script.indexOf(") {", start) + 2;
   let depth = 0;
   for (let index = brace; index < script.length; index += 1) {
     if (script[index] === "{") depth += 1;
@@ -26,7 +26,7 @@ function functionBody(name) {
 function functionSource(name) {
   const start = script.indexOf(`function ${name}(`);
   assert.ok(start >= 0, `Expected function ${name}`);
-  const brace = script.indexOf("{", start);
+  const brace = script.indexOf(") {", start) + 2;
   let depth = 0;
   for (let index = brace; index < script.length; index += 1) {
     if (script[index] === "{") depth += 1;
@@ -34,6 +34,12 @@ function functionSource(name) {
     if (depth === 0) return script.slice(start, index + 1);
   }
   throw new Error(`Unclosed function ${name}`);
+}
+
+function constantSource(name) {
+  const match = script.match(new RegExp(`^const ${name} = .*;$`, "m"));
+  assert.ok(match, `Expected constant ${name}`);
+  return match[0];
 }
 
 function installFunctions(names, context) {
@@ -46,6 +52,169 @@ this.exports = { ${names.join(", ")} };`,
 }
 
 const tests = [
+  ["AI duels pause when hidden while live rounds keep server ownership", () => {
+    for (const duelType of ["ai", "live"]) {
+      const context = {
+        document: { hidden: true }, duelType, runState: "running", frameHandle: 5,
+        cancelAnimationFrame() {}, togglePause() { context.runState = "paused"; },
+      };
+      const { handleVisibilityChange } = installFunctions(["handleVisibilityChange"], context);
+      handleVisibilityChange();
+      assert.equal(context.runState, duelType === "ai" ? "paused" : "running");
+      assert.equal(context.frameHandle, null);
+    }
+  }],
+  ["AI duel countdown resumes from its suspended step after the page returns", () => {
+    const timers = [];
+    const context = {
+      document: { hidden: false }, duelType: "ai", runState: "ready", frameHandle: null,
+      countdownTimer: null, countdownStep: 0, countdownSuspended: false,
+      overlay: {}, aiStartButton: {}, overlayKicker: {}, overlayTitle: { classList: { add() {} } },
+      overlayMessage: {}, announcement: {},
+      setRunState(state) { context.runState = state; },
+      setTimeout(callback) { timers.push(callback); return timers.length; },
+      clearTimeout(id) { if (id) timers[id - 1] = null; },
+      startAiDuel() { context.runState = "running"; },
+      startRendering() {}, cancelAnimationFrame() {},
+    };
+    const { beginCountdown, handleVisibilityChange } = installFunctions(["beginCountdown", "handleVisibilityChange"], context);
+    beginCountdown(2);
+    context.document.hidden = true;
+    handleVisibilityChange();
+    assert.equal(timers[0], null);
+    assert.equal(context.countdownSuspended, true);
+    assert.equal(context.runState, "countdown");
+    context.document.hidden = false;
+    handleVisibilityChange();
+    assert.equal(context.countdownStep, 2);
+    assert.equal(context.countdownSuspended, false);
+    timers[1]();
+    assert.equal(context.countdownStep, 1);
+    timers[2]();
+    assert.equal(context.runState, "running");
+  }],
+  ["live duel results use the local seat and identify spectator winners", () => {
+    for (const [clientId, winner, expectedLabel, expectedAnnouncement] of [
+      ["seat-one", "player", "YOU WIN", "You won the duel."],
+      ["seat-two", "opponent", "YOU WIN", "You won the duel."],
+      ["seat-two", "player", "RIVAL WINS", "Your rival won the duel."],
+      ["viewer", "opponent", "PLAYER 2 WINS", "Player 2 won the duel."],
+    ]) {
+      const context = {
+        duelType: "live", clientId, roomPlayers: [{ id: "seat-one" }, { id: "seat-two" }],
+        liveCountdownTimer: 9, liveCountdownActive: true, clearInterval() {},
+        announcement: {}, setRunState(state, label) { context.runState = state; context.label = label; },
+        showOverlay() {}, setRoomReadyIntent() {}, postRoomMessage() {}, syncLiveRoom() {},
+      };
+      const { endDuel } = installFunctions(["endDuel"], context);
+      endDuel(winner);
+      assert.equal(context.label, expectedLabel);
+      assert.equal(context.announcement.textContent, expectedAnnouncement);
+      assert.equal(context.liveCountdownActive, false);
+      assert.equal(context.liveCountdownTimer, null);
+    }
+  }],
+  ["a rejected frame that is not a countdown request never closes the room gate", () => {
+    const base = () => ({
+      roomConnected: true,
+      roomConnectionState: "connected",
+      pendingCountdownRound: 0,
+      pendingCountdownExpiresAt: 0,
+      pendingCountdownAttempts: 0,
+      liveCountdownActive: false,
+      roomState: { textContent: "" },
+      roomLatency: { textContent: "" },
+      announcement: { textContent: "" },
+      roomPlayers: [],
+      liveLatencyMs: 0,
+      liveClockOffsetMs: 0,
+      Number, Math, Boolean, Array,
+      abortLiveCountdown() { this.liveCountdownActive = false; },
+      disconnectLiveRoom() { this.disconnected = true; },
+      showOverlay() {},
+      updateHud() {},
+    });
+
+    // The server rotates the losing player out of their seat, so the Ready that
+    // endDuel already sent arrives from a connection that no longer holds one.
+    const rotated = base();
+    const { handleRoomStatus } = installFunctions(["handleRoomStatus"], rotated);
+    handleRoomStatus({ state: "rejected", code: "invalid_message" });
+    assert.equal(rotated.roomConnectionState, "connected",
+      "a stray rejected frame must not degrade the room link");
+    assert.equal(rotated.disconnected, undefined);
+
+    // A rejected countdown request is real information and does gate the room,
+    // but it must heal as soon as the server proves the link works.
+    const countdown = base();
+    countdown.pendingCountdownRound = 7;
+    const gate = installFunctions(["handleRoomStatus"], countdown);
+    gate.handleRoomStatus({ state: "rejected", code: "invalid_message" });
+    assert.equal(countdown.roomConnectionState, "degraded");
+    assert.equal(countdown.pendingCountdownRound, 0);
+    gate.handleRoomStatus({ state: "latency", latency: 42 });
+    assert.equal(countdown.roomConnectionState, "connected",
+      "a healthy pong must clear a degraded room");
+  }],
+  ["duel shortcuts preserve room typing, native controls, and browser commands", () => {
+    const calls = [];
+    const context = {
+      DIRECTIONS: { up: "up", down: "down", left: "left", right: "right" },
+      duelType: "ai",
+      requestDirection(direction) { calls.push(direction); },
+      togglePause() { calls.push("pause"); },
+      prepareAiDuel() { calls.push("restart"); },
+    };
+    vm.runInNewContext(
+      [constantSource("TEXT_ENTRY_SELECTOR"), constantSource("NATIVE_ACTIVATION_SELECTOR")]
+        .map((declaration) => declaration.replace(/^const /, "this."))
+        .join(" "),
+      context,
+    );
+    const { handleKeyboard } = installFunctions(["handleKeyboard"], context);
+    // Mirrors Element.closest: a selector list matches when any of its parts
+    // names this element's tag.
+    const element = (tag) => ({
+      closest(selector) {
+        return selector.split(",").some((part) => part.trim().split(/[[:.]/)[0] === tag) ? {} : null;
+      },
+    });
+    const event = (key, extra = {}) => ({
+      key, target: element("body"),
+      preventDefault() { calls.push("prevented"); }, ...extra,
+    });
+
+    // Typing a room code must reach the input: the Signal alphabet contains
+    // A, D, R, S and W.
+    for (const key of ["w", "a", "s", "d", "r", " "]) {
+      handleKeyboard(event(key, { target: element("input") }));
+    }
+    for (const extra of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }, { defaultPrevented: true }, { isComposing: true }]) {
+      handleKeyboard(event("r", extra));
+    }
+    handleKeyboard(event("w", { target: { isContentEditable: true, closest() { return null; } } }));
+    handleKeyboard(event(" ", { repeat: true }));
+    handleKeyboard(event("r", { repeat: true }));
+    assert.deepEqual(calls, [], "typing and native shortcuts must not mutate the duel");
+
+    handleKeyboard(event("w"));
+    handleKeyboard(event(" "));
+    handleKeyboard(event("r"));
+    assert.deepEqual(calls, ["prevented", "up", "prevented", "pause", "prevented", "restart"]);
+
+    // Clicking Ready with the mouse leaves that button focused; steering and
+    // restart must still work, while Space keeps its native activation.
+    calls.length = 0;
+    handleKeyboard(event("arrowup", { target: element("button") }));
+    handleKeyboard(event("d", { target: element("button") }));
+    handleKeyboard(event("r", { target: element("button") }));
+    handleKeyboard(event(" ", { target: element("button") }));
+    assert.deepEqual(
+      calls,
+      ["prevented", "up", "prevented", "right", "prevented", "restart"],
+      "a focused control must never swallow duel steering",
+    );
+  }],
   ["repeated Activity authentication failure restores an actionable retry state", () => {
     const context = {
       activityContext: { classList: { add(value) { context.errorClass = value; } } },
@@ -161,7 +330,7 @@ const tests = [
     assert.match(functionBody("advanceGame"), /roomTransport\?\.authoritative/);
     assert.match(functionBody("handleRoomMessage"), /round !== liveRoundId/);
   }],
-  ["queued viewers apply authoritative snapshots while holding no seat", () => {
+  ["queued viewers apply snapshots and receive results even during a delayed countdown", () => {
     const context = {
       authoritativeOpponentSnake: [],
       authoritativePlayerSnake: [],
@@ -203,7 +372,7 @@ const tests = [
       state: {},
     };
     const { applyRemoteSnapshot } = installFunctions(["applyRemoteSnapshot"], context);
-    applyRemoteSnapshot({
+    const snapshot = {
       sequence: 1,
       sentAt: 1_950,
       state: {
@@ -220,11 +389,24 @@ const tests = [
         signalCursor: 11,
         over: false,
       },
-    });
+    };
+    applyRemoteSnapshot(snapshot);
     assert.equal(context.lastRemoteSequence, 1);
     assert.equal(context.playerSnake[0].x, 1);
     assert.equal(context.opponentSnake[0].x, 4);
     assert.equal(context.updated, true);
+    context.runState = "countdown";
+    const endings = [];
+    context.endDuel = (winner) => { endings.push(winner); context.runState = "over"; };
+    snapshot.sequence = 2;
+    snapshot.state.over = true;
+    snapshot.state.winner = "opponent";
+    applyRemoteSnapshot(snapshot);
+    assert.deepEqual(endings, ["opponent"], "an authoritative result must survive throttled countdown timers");
+    assert.equal(context.nextMoveAt, 0);
+    snapshot.sequence = 3;
+    applyRemoteSnapshot(snapshot);
+    assert.deepEqual(endings, ["opponent"], "a repeated terminal snapshot must not end the round twice");
   }],
   ["live interpolation subtracts transit time instead of replaying a full delayed tick", () => {
     const context = { TICK_DURATION: 138 };
@@ -393,6 +575,9 @@ const tests = [
   ["synchronized WebSocket rosters acknowledge the local Ready signal", () => {
     const context = {
       clientId: "local-player",
+      // A roster arriving over a degraded link is proof the link recovered.
+      roomConnected: true,
+      roomConnectionState: "degraded",
       roomReady: true,
       roomReadyConfirmed: false,
       roomReadyDesired: true,
@@ -419,6 +604,8 @@ const tests = [
       { id: "local-player", ready: true, slot: 0, seenAt: 1 },
       { id: "remote-player", ready: true, slot: 1, seenAt: 1 },
     ]);
+    assert.equal(context.roomConnectionState, "connected",
+      "an authoritative roster must clear a degraded room link");
     assert.equal(context.roomReadyConfirmed, true);
     assert.equal(context.roomReadyUpdatePending, false);
     assert.equal(context.roomPeers.get("remote-player").ready, true);
@@ -482,7 +669,7 @@ const tests = [
     const status = functionBody("handleRoomStatus");
     assert.match(status, /reconnecting/);
     assert.match(status, /ROOM LINK RECONNECTING/);
-    assert.match(status, /ROOM UPDATE REJECTED/);
+    assert.match(status, /COUNTDOWN REQUEST REJECTED/);
     assert.match(status, /roomConnectionState/);
     assert.match(functionBody("applyAuthoritativeRoomRoster"), /roomPeers = new Map\(players/);
     assert.match(functionBody("applyAuthoritativeRoomRoster"), /roomPlayers = activeRoomRoster\(\)\.slice\(0, capacity\)/);

@@ -37,7 +37,7 @@ class FakeSocket extends EventEmitter {
   }
 }
 
-function request(room, clientId) {
+function request(room, clientId, resumeToken = "") {
   return {
     url: `/api/realtime?room=${room}&clientId=${clientId}`,
     headers: {
@@ -45,6 +45,7 @@ function request(room, clientId) {
       origin: "https://neon-snake-green-tau.vercel.app",
       "x-forwarded-host": "neon-snake-green-tau.vercel.app",
       "x-forwarded-proto": "https",
+      "sec-websocket-protocol": resumeToken ? `neon-snake-v1, resume.${resumeToken}` : "neon-snake-v1",
     },
   };
 }
@@ -77,7 +78,11 @@ function createFakeRedis() {
       snakeStyle: command[19],
     };
     let current = players.get(clientId);
+    const resumeHash = command[22];
     if (action === "join") {
+      if (current && (!current.resumeHash || current.resumeHash !== resumeHash)) {
+        return JSON.stringify({ error: "session_conflict" });
+      }
       const generation = (roomGeneration.get(room) || 0) + 1;
       roomGeneration.set(room, generation);
       let slot = current?.slot ?? -1;
@@ -89,17 +94,27 @@ function createFakeRedis() {
         readyEpoch: 0,
         joinEpoch: generation,
         seenAt: timestamp,
+        resumeHash,
         ...profile,
       };
       players.set(clientId, current);
     } else if (current?.connectionId === connectionId) {
-      if (action === "leave") {
+      if (action === "relinquish") {
+        // The seat is held briefly rather than freed, so the fake marks the
+        // record stale instead of deleting it.
+        current.ready = false;
+        current.readyEpoch = 0;
+        current.seenAt = timestamp - 22_000;
+      } else if (action === "leave") {
+        const wasSeated = current.slot >= 0;
         players.delete(clientId);
         current = null;
-        players.forEach((player) => {
-          player.ready = false;
-          player.readyEpoch = 0;
-        });
+        if (wasSeated) {
+          players.forEach((player) => {
+            player.ready = false;
+            player.readyEpoch = 0;
+          });
+        }
       } else {
         current.seenAt = timestamp;
         if (action === "ready" && current.slot >= 0) {
@@ -145,7 +160,9 @@ function createFakeRedis() {
       .filter((item) => item.slot >= 0)
       .sort((first, second) => first.slot - second.slot);
     return JSON.stringify({
+      left: (action === "leave" && !current) || action === "relinquish",
       active: Boolean(current && current.connectionId === connectionId),
+      replaced: Boolean(current && current.connectionId !== connectionId),
       role: current?.slot >= 0 ? "player" : "spectator",
       slot: current?.slot ?? -1,
       joinEpoch: current?.joinEpoch ?? 0,
@@ -227,6 +244,14 @@ async function flush() {
     sequence: 10,
     direction: { x: 2, y: 0 },
   }, { slot: 1, allReady: true, now: timestamp }), null);
+  // A player rotated out of their seat between sending Ready and its delivery
+  // still sends a well-formed frame. Rejecting it told the client its link was
+  // unhealthy and closed its countdown gate for the rest of the session.
+  assert.deepEqual(
+    validateRealtimeMessage({ type: "ready", ready: false }, { slot: -1, allReady: false, now: timestamp }),
+    { type: "ready", ready: false },
+    "Ready from an unseated participant must be accepted and ignored, not rejected",
+  );
   assert.ok(validateRealtimeMessage({
     type: "countdown",
     round: timestamp,
@@ -239,6 +264,12 @@ async function flush() {
   }, { slot: 1, allReady: true, now: timestamp }), null);
 
   assert.equal(requestIsSameOrigin(request("ABC234", "client-one")), true);
+  assert.equal(requestIsSameOrigin({ url: "/api/realtime", headers: {
+    host: "127.0.0.1:4179", origin: "http://127.0.0.1:4179",
+  } }), true);
+  assert.equal(requestIsSameOrigin({ url: "/api/realtime", headers: {
+    host: "neon.example.test", origin: "http://neon.example.test",
+  } }), false);
   assert.equal(requestIsSameOrigin({
     ...request("ABC234", "client-one"),
     headers: {
@@ -404,7 +435,7 @@ async function flush() {
   assert.equal(queueWelcome.role, "spectator");
   assert.equal(queueWelcome.queuePosition, 1);
   assert.equal(queueWelcome.waiting[0].id, "queue-third");
-  queueSecond.emit("close");
+  queueSecond.emit("close", 1000);
   await flush();
   assert.ok(queueThird.messages.some((message) => (
     message.type === "roster"
@@ -517,7 +548,7 @@ async function flush() {
   const cleanupErrors = [];
   const cleanupHub = createRealtimeHub({
     redisCommand: async (command) => {
-      if (command[8] === "leave") {
+      if (command[8] === "leave" || command[8] === "relinquish") {
         const error = new Error("Redis cleanup timed out.");
         error.name = "TimeoutError";
         throw error;
@@ -552,12 +583,60 @@ async function flush() {
   }]);
   cleanupHub.close();
 
+  // Vercel closes a WebSocket when the Function invocation reaches maxDuration.
+  // Treating that like a departure handed the seat to whoever was waiting, so a
+  // link that was cut keeps its seat for a short reclaim window while a link the
+  // client closed deliberately frees it at once.
+  const lifetimeRedis = createFakeRedis();
+  const lifetimeHub = createRealtimeHub({
+    redisCommand: lifetimeRedis,
+    bus: createFakeBus(),
+    sessionReader: async () => null,
+    recordMatch: async () => true,
+    uuid: () => `lifetime-${++hubNumber}`,
+  });
+  const lifetimeActions = [];
+  const lifetimeRecording = createRealtimeHub({
+    redisCommand: async (command) => {
+      lifetimeActions.push(command[8]);
+      return lifetimeRedis(command);
+    },
+    bus: createFakeBus(),
+    sessionReader: async () => null,
+    recordMatch: async () => true,
+    uuid: () => `lifetime-${++hubNumber}`,
+  });
+  const cutSocket = new FakeSocket();
+  await lifetimeRecording.connect(cutSocket, request("456789", "lifetime-cut"));
+  await flush();
+  const lifetimeWelcome = cutSocket.messages.find((message) => message.type === "welcome");
+  assert.ok(
+    Number(lifetimeWelcome.expiresAt) > Number(lifetimeWelcome.sentAt),
+    "A client must be told when its link expires so it can replace it in time",
+  );
+  lifetimeActions.length = 0;
+  cutSocket.emit("close", 1006);
+  await flush();
+  assert.equal(lifetimeActions.at(-1), "relinquish",
+    "A link that was cut must hold its seat instead of leaving the room");
+
+  const quitSocket = new FakeSocket();
+  await lifetimeRecording.connect(quitSocket, request("456789", "lifetime-quit"));
+  await flush();
+  lifetimeActions.length = 0;
+  quitSocket.emit("close", 1000);
+  await flush();
+  assert.equal(lifetimeActions.at(-1), "leave",
+    "A client that closes its own link must free the seat immediately");
+  lifetimeHub.close();
+  lifetimeRecording.close();
+
   let reconnectNow = 10_000;
   const reconnectRedis = createFakeRedis();
   let failReconnectLeave = false;
   const reconnectHub = createRealtimeHub({
     redisCommand: async (command) => {
-      if (failReconnectLeave && command[8] === "leave") {
+      if (failReconnectLeave && (command[8] === "leave" || command[8] === "relinquish")) {
         throw Object.assign(new Error("Redis leave timed out."), {
           name: "TimeoutError",
         });
@@ -586,7 +665,8 @@ async function flush() {
   await flush();
   failReconnectLeave = false;
   const replacementHost = new FakeSocket();
-  await reconnectHub.connect(replacementHost, request("GHJ678", "reconnect-host"));
+  await reconnectHub.connect(replacementHost, request("GHJ678", "reconnect-host",
+    originalHost.messages.find((message) => message.type === "welcome").resumeToken));
   replacementHost.message({ type: "ready", ready: true });
   await flush();
   replacementHost.message({
@@ -681,6 +761,82 @@ async function flush() {
   unitSimulation.resolveTick();
   assert.equal(unitSimulation.game.playerInputAck, 41);
   assert.equal(unitSimulation.game.guestInputAck, 52);
+
+  const completionFailures = [];
+  const completingSimulation = new RoomSimulation({
+    publish: async () => {}, roomAllReady: () => true, connectionOwnsSlot: () => true,
+    recordMatch: async () => {},
+    rotateRound: async () => { throw new Error("Redis rotation unavailable"); },
+    abortRound: (room, simulation, error) => {
+      completionFailures.push(error.message);
+      simulation.stop();
+    },
+  }, "ABC234", "authority");
+  completingSimulation.game = {
+    ...unitSimulation.game,
+    round: 1, sequence: 0,
+    playerSnake: [{ x: 29, y: 5 }], opponentSnake: [{ x: 10, y: 10 }],
+    playerDirection: { x: 1, y: 0 }, opponentDirection: { x: -1, y: 0 },
+  };
+  await assert.doesNotReject(() => completingSimulation.tick(),
+    "A failed post-match rotation must not escape the authoritative timer");
+  assert.deepEqual(completionFailures, ["Redis rotation unavailable"]);
+
+  const securityBus = createFakeBus();
+  const securityErrors = [];
+  const securityHub = createRealtimeHub({
+    redisCommand: createFakeRedis(), bus: securityBus, sessionReader: async () => null,
+    logger: { error: (...args) => securityErrors.push(args) },
+  });
+  try {
+    const owner = new FakeSocket();
+    const peer = new FakeSocket();
+    await securityHub.connect(owner, request("ABC789", "secure-owner"));
+    await securityHub.connect(peer, request("ABC789", "secure-peer"));
+    const welcome = owner.messages.find((message) => message.type === "welcome");
+    assert.match(welcome.resumeToken, /^[a-f0-9-]{36}$/);
+    assert.equal(JSON.stringify(welcome.players).includes(welcome.resumeToken), false);
+    assert.equal(JSON.stringify(peer.messages).includes(welcome.resumeToken), false);
+    const attacker = new FakeSocket();
+    await securityHub.connect(attacker, request("ABC789", "secure-owner"));
+    assert.equal(attacker.closeCalls.at(-1)?.code, 4003,
+      "Copying a roster client id must not take over its occupied seat");
+    const resumed = new FakeSocket();
+    await securityHub.connect(resumed, request("ABC789", "secure-owner", welcome.resumeToken));
+    assert.equal(resumed.messages.find((message) => message.type === "welcome")?.slot, 0);
+    resumed.message({ type: "ready", ready: true });
+    peer.message({ type: "ready", ready: true });
+    await flush();
+    resumed.message({ type: "countdown", round: Date.now(), startsAt: Date.now() + 3_200 });
+    await flush();
+    const resumedSimulation = securityHub._state.rooms.get("ABC789").simulation;
+    assert.ok(resumedSimulation);
+    const watcher = new FakeSocket();
+    await securityHub.connect(watcher, request("ABC789", "secure-watcher"));
+    watcher.emit("close");
+    await flush();
+    assert.equal(securityHub._state.rooms.get("ABC789").simulation, resumedSimulation,
+      "A waiting spectator leaving must not cancel the seated players' match");
+    owner.emit("close");
+    await flush();
+    assert.equal(securityHub._state.rooms.get("ABC789").simulation, resumedSimulation,
+      "Closing a replaced socket must preserve its replacement's round");
+    resumedSimulation.enqueue(0, { round: resumedSimulation.game.round, sequence: 10, direction: { x: 0, y: -1 } });
+    resumedSimulation.resolveTick();
+    resumedSimulation.enqueue(0, { round: resumedSimulation.game.round, sequence: 11, direction: { x: 1, y: 0 } });
+    resumedSimulation.resolveTick();
+    resumedSimulation.enqueue(0, { round: resumedSimulation.game.round, sequence: 10, direction: { x: 0, y: -1 } });
+    resumedSimulation.resolveTick();
+    assert.deepEqual(resumedSimulation.game.playerDirection, { x: 1, y: 0 },
+      "Already acknowledged input cannot steer a later tick again");
+    securityBus.failPublishing(new Error("Redis relay temporarily unavailable"));
+    peer.message({ type: "ready", ready: true });
+    await flush();
+    assert.equal(peer.closeCalls.at(-1)?.code, 1012);
+    assert.ok(securityErrors.some(([message]) => message === "Realtime message failed."));
+  } finally {
+    securityHub.close();
+  }
 
   firstHub.close();
   secondHub.close();

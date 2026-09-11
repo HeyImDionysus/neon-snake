@@ -12,3 +12,8 @@ wallpaper/android/app/build/
 *.log
 .DS_Store
 Thumbs.db
+
+# Agent scratch notes: never part of a release
+.omo/
+.repair-evidence/
+.debug-journal.md

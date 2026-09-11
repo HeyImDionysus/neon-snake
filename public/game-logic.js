@@ -489,6 +489,7 @@
     { x: -1, y: 0 },
   ];
   const PLANNER_HORIZON = 6;
+  const TAIL_COMMIT_STEPS = 8;
   const HAMILTONIAN_CACHE = new Map();
 
   function gridDistance(from, to, mode, gridSize) {
@@ -736,10 +737,16 @@
     gridSize,
     { beamWidth = 16, maxDepth = Math.min(48, gridSize * 3) } = {},
   ) {
+    // Segments are only ever read here, so states share them instead of deep
+    // cloning the whole body on every expansion. At a realistic late-run length
+    // that is the difference between allocating a few hundred thousand objects
+    // per decision and copying an array of references.
+    const bodyKey = (body) => body.map((segment) => `${segment.x},${segment.y}`).join(";");
     let frontier = [{
       snake: snake.map((segment) => ({ ...segment })),
       direction: { ...direction },
       path: [],
+      bodyKey: bodyKey(snake),
       rank: gridDistance(snake[0], food, mode, gridSize) * 100,
     }];
     const seen = new Set();
@@ -753,7 +760,7 @@
           const growing = samePoint(head, food);
           if (collisionType(head, state.snake, growing, mode, gridSize)) continue;
 
-          const nextSnake = [head, ...state.snake.map((segment) => ({ ...segment }))];
+          const nextSnake = [head, ...state.snake];
           if (!growing) nextSnake.pop();
           const path = [...state.path, { ...head, direction: { ...move } }];
           if (growing) {
@@ -762,9 +769,11 @@
             continue;
           }
 
-          const stateKey = `${move.x},${move.y}|${nextSnake
-            .map((segment) => `${segment.x},${segment.y}`)
-            .join(";")}`;
+          // The parent's body key already describes every segment behind the
+          // head, so the child's key is derived from it rather than rebuilt.
+          const tailCut = state.bodyKey.lastIndexOf(";");
+          const nextBodyKey = `${head.x},${head.y};${tailCut < 0 ? "" : state.bodyKey.slice(0, tailCut)}`;
+          const stateKey = `${move.x},${move.y}|${nextBodyKey}`;
           if (seen.has(stateKey)) continue;
           seen.add(stateKey);
           const exits = CARDINAL_DIRECTIONS.filter((nextMove) => {
@@ -777,6 +786,7 @@
             snake: nextSnake,
             direction: { ...move },
             path,
+            bodyKey: nextBodyKey,
             rank: gridDistance(head, food, mode, gridSize) * 100
               + path.length * 3
               + turnCost
@@ -1572,9 +1582,18 @@
         routeDistance: followsFoodRoute
           ? foodRoute.length
           : followsTailRoute ? tailRoute.length : null,
+        // A committable route is what stops the caller re-planning from scratch
+        // every tick. Only food routes used to qualify, so a snake following its
+        // tail - the common late-run state in Portal - re-ran the beam search on
+        // every step and blew past the movement budget. Tail routes commit too,
+        // capped so the plan is refreshed while the tail keeps moving. The
+        // caller re-validates each committed step and drops the plan the moment
+        // it stops being safe.
         route: followsFoodRoute
           ? foodRoute.map((step) => ({ ...step.direction }))
-          : [],
+          : followsTailRoute
+            ? tailRoute.slice(0, TAIL_COMMIT_STEPS).map((step) => ({ ...step.direction }))
+            : [],
         stagnating,
         repeatedSteps,
         strategy,

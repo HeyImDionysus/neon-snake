@@ -100,6 +100,8 @@ let lastMoveAt = performance.now();
 let nextMoveAt = 0;
 let pausedMotion = 1;
 let countdownTimer = null;
+let countdownStep = 0;
+let countdownSuspended = false;
 let frameHandle = null;
 let lastActivityIdleFrame = -ACTIVITY_IDLE_FRAME_INTERVAL;
 let resizeFrame = 0;
@@ -205,6 +207,8 @@ function liveRoomRequested() {
 function resetDuel() {
   clearTimeout(countdownTimer);
   countdownTimer = null;
+  countdownStep = 0;
+  countdownSuspended = false;
   const spawns = Rules.duelSpawns(DUEL_GRID);
   playerSnake = cloneSnake(spawns.player.snake);
   previousPlayerSnake = cloneSnake(playerSnake);
@@ -676,7 +680,12 @@ function showOverlay(kicker, title, message, action = "") {
 }
 
 function beginCountdown(number = 3) {
+  clearTimeout(countdownTimer);
+  countdownTimer = null;
+  countdownStep = number;
+  countdownSuspended = document.hidden;
   setRunState("countdown", "DUEL COUNTDOWN");
+  if (countdownSuspended) return;
   overlay.hidden = false;
   aiStartButton.hidden = true;
   overlayKicker.textContent = "BOTH SIGNALS LOCKED";
@@ -699,6 +708,9 @@ function prepareAiDuel() {
 }
 
 function startAiDuel() {
+  countdownTimer = null;
+  countdownStep = 0;
+  countdownSuspended = false;
   overlay.hidden = true;
   overlayTitle.classList.remove("countdown");
   lastMoveAt = performance.now();
@@ -710,12 +722,21 @@ function startAiDuel() {
 
 function endDuel(winner, crashes = {}) {
   nextMoveAt = 0;
-  setRunState("over", winner === "player" ? "YOU WIN" : winner === "opponent" ? "RIVAL WINS" : "DRAW");
-  const playerWon = winner === "player";
-  const opponentWon = winner === "opponent";
+  if (duelType === "live") {
+    clearInterval(liveCountdownTimer);
+    liveCountdownTimer = null;
+    liveCountdownActive = false;
+  }
+  const localIndex = duelType === "live" ? roomPlayers.findIndex((player) => player.id === clientId) : 0;
+  const winnerIndex = winner === "player" ? 0 : winner === "opponent" ? 1 : -1;
+  const playerWon = winnerIndex >= 0 && winnerIndex === localIndex;
+  const opponentWon = winnerIndex >= 0 && localIndex >= 0 && winnerIndex !== localIndex;
+  const spectatorWinner = winnerIndex >= 0 && localIndex < 0;
+  setRunState("over", playerWon ? "YOU WIN" : opponentWon ? "RIVAL WINS" : spectatorWinner ? `PLAYER ${winnerIndex + 1} WINS` : "DRAW");
   const title = playerWon ? "SIGNAL<br><em>VICTORIOUS</em>"
     : opponentWon ? "RIVAL<br><em>SURVIVED</em>"
-      : "DUAL<br><em>COLLISION</em>";
+      : spectatorWinner ? `PLAYER ${winnerIndex + 1}<br><em>VICTORIOUS</em>`
+        : "DUAL<br><em>COLLISION</em>";
   const reason = crashes.player || crashes.opponent || "collision";
   showOverlay(
     duelType === "ai" ? "AUTOPILOT DUEL COMPLETE" : "LIVE DUEL COMPLETE",
@@ -723,11 +744,12 @@ function endDuel(winner, crashes = {}) {
     winner ? `First crash: ${reason.replace("-", " ")}.` : "Both signals broke on the same tick.",
     duelType === "ai" ? "Run it back" : "",
   );
-  announcement.textContent = winner === "player"
+  announcement.textContent = playerWon
     ? "You won the duel."
-    : winner === "opponent"
+    : opponentWon
       ? "Your rival won the duel."
-      : "The duel ended in a draw.";
+      : spectatorWinner ? `Player ${winnerIndex + 1} won the duel.`
+        : "The duel ended in a draw.";
   if (duelType === "ai") focusWithoutScroll(aiStartButton);
 
   if (duelType === "live") {
@@ -896,6 +918,9 @@ function reconcileLocalRoomReady(players) {
 
 function applyAuthoritativeRoomRoster(players, waiting = [], queuePosition = 0) {
   if (!Array.isArray(players)) return;
+  // Receiving server-owned state is proof the link works, so a previously
+  // degraded room recovers instead of staying gated forever.
+  if (roomConnected && roomConnectionState === "degraded") roomConnectionState = "connected";
   const capacity = typeof LIVE_ROOM_CAPACITY === "number" ? LIVE_ROOM_CAPACITY : 2;
   const previousPlayerCount = (roomRole === "player" ? 1 : 0)
     + [...roomPeers.values()].filter((player) => (
@@ -1122,18 +1147,38 @@ function handleRoomStatus(status) {
     return;
   }
   if (status.state === "rejected") {
+    if (status.retryable === false) {
+      disconnectLiveRoom();
+      const replaced = status.code === "session_replaced";
+      const message = replaced
+        ? "This session moved to another tab. Close the duplicate tab, then connect here to play."
+        : "This room session is already active. Close other game tabs, then reconnect. If you just updated the game, open it in a new tab.";
+      roomState.textContent = replaced ? "SESSION MOVED TO ANOTHER TAB" : "ROOM SESSION ALREADY ACTIVE";
+      roomLatency.textContent = "REALTIME LINK CLOSED";
+      announcement.textContent = message;
+      showOverlay("ROOM SESSION", "RECONNECT<br><em>WHEN READY</em>", message);
+      return;
+    }
+    const rejectedCountdown = pendingCountdownRound !== 0;
     pendingCountdownRound = 0;
     pendingCountdownExpiresAt = 0;
-    roomConnectionState = "degraded";
-    if (liveCountdownActive) abortLiveCountdown();
-    roomState.textContent = "ROOM UPDATE REJECTED · RETRYING";
-    if (pendingCountdownAttempts >= 2) {
-      roomState.textContent = "COUNTDOWN REQUEST FAILED · RETRY READY";
+    if (rejectedCountdown) {
+      // Only a countdown request tells us anything about the room's state. Any
+      // other rejected frame - most often a Ready sent by a player the server
+      // has already rotated out of their seat - says nothing about link health,
+      // and treating it as degradation used to close the countdown gate for the
+      // rest of the session.
+      roomConnectionState = "degraded";
+      if (liveCountdownActive) abortLiveCountdown();
+      roomState.textContent = pendingCountdownAttempts >= 2
+        ? "COUNTDOWN REQUEST FAILED · RETRY READY"
+        : "COUNTDOWN REQUEST REJECTED";
+      announcement.textContent = "The room service rejected the countdown request. Press Ready again when both players are connected.";
     }
-    announcement.textContent = "The room service rejected one update. It was discarded instead of retrying forever.";
     return;
   }
   if (status.state === "latency") {
+    if (roomConnected && roomConnectionState === "degraded") roomConnectionState = "connected";
     const latency = Math.max(0, Math.round(Number(status.latency) || 0));
     liveLatencyMs = liveLatencyMs
       ? liveLatencyMs * .7 + latency * .3
@@ -1367,6 +1412,7 @@ function startLiveDuel() {
     : roomPlayers[0]?.id === clientId ? lastMoveAt + TICK_DURATION : 0;
   setRunState("running", "LIVE DUEL ACTIVE");
   roomState.textContent = "LIVE DUEL ACTIVE";
+  focusWithoutScroll(canvas);
   if (!roomTransport?.authoritative && roomPlayers[0]?.id === clientId) {
     broadcastSnapshot({ crashes: { player: null, opponent: null }, over: false, winner: null });
   }
@@ -1444,7 +1490,10 @@ function applyRemoteSnapshot(message) {
   lastMoveAt = Math.min(frameNow, lastMoveAt + correction);
   nextMoveAt = Math.max(frameNow + 8, lastMoveAt + TICK_DURATION);
   updateHud();
-  if (state.over && runState === "running") endDuel(state.winner, state.crashes);
+  if (state.over) {
+    nextMoveAt = 0;
+    if (runState !== "over") endDuel(state.winner, state.crashes);
+  }
 }
 
 function cancelLiveRound(message) {
@@ -1581,7 +1630,13 @@ async function copyRoomLink() {
   }
 }
 
+const TEXT_ENTRY_SELECTOR = "input, textarea, select, [contenteditable=''], [contenteditable='true']";
+const NATIVE_ACTIVATION_SELECTOR = "button, a[href], [role='button'], [role='tab']";
+
 function handleKeyboard(event) {
+  if (event.defaultPrevented || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
+  const target = event.target;
+  if (target?.isContentEditable || target?.closest?.(TEXT_ENTRY_SELECTOR)) return;
   const key = event.key.toLowerCase();
   const keyMap = {
     arrowup: DIRECTIONS.up,
@@ -1598,7 +1653,9 @@ function handleKeyboard(event) {
     requestDirection(keyMap[key]);
     return;
   }
+  if (event.repeat) return;
   if (key === " ") {
+    if (target?.closest?.(NATIVE_ACTIVATION_SELECTOR)) return;
     event.preventDefault();
     togglePause();
     return;
@@ -1665,14 +1722,24 @@ globalThis.NeonSnakeTouchControls.bindDirectionButtons(
   (name) => requestDirection(DIRECTIONS[name]),
 );
 window.addEventListener("keydown", handleKeyboard);
-document.addEventListener("visibilitychange", () => {
+function handleVisibilityChange() {
   if (document.hidden) {
     if (frameHandle !== null) cancelAnimationFrame(frameHandle);
     frameHandle = null;
+    if (duelType === "ai" && runState === "running") togglePause();
+    else if (duelType === "ai" && runState === "countdown") {
+      clearTimeout(countdownTimer);
+      countdownTimer = null;
+      countdownSuspended = true;
+      announcement.textContent = "Duel countdown waiting until the game is visible.";
+    }
   } else {
     startRendering();
+    if (duelType === "ai" && runState === "countdown" && countdownSuspended) beginCountdown(countdownStep);
   }
-});
+}
+
+document.addEventListener("visibilitychange", handleVisibilityChange);
 window.addEventListener("beforeunload", () => {
   if (roomTransport) postRoomMessage({ type: "leave" });
   roomTransport?.close();

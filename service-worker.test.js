@@ -7,6 +7,14 @@ const vm = require("node:vm");
 
 const origin = "https://neon-snake.invalid";
 const source = fs.readFileSync(path.join(__dirname, "public", "sw.js"), "utf8");
+// The cache-busting stamp is derived from asset content by
+// scripts/stamp-assets.mjs; tests read it rather than pinning a literal.
+const ASSET_STAMP = (() => {
+  const match = source.match(/const CACHE_NAME = "neon-snake-shell-([0-9a-z]+)";/);
+  assert.ok(match, "public/sw.js must declare a stamped CACHE_NAME");
+  return match[1];
+})();
+
 const listeners = new Map();
 const stores = new Map();
 let skipWaitingCalls = 0;
@@ -110,16 +118,16 @@ async function dispatchFetch(request) {
 
 async function main() {
   await dispatchWaitUntil("install");
-  const activeName = [...stores.keys()].find((name) => name.startsWith("neon-snake-shell-v"));
+  const activeName = [...stores.keys()].find((name) => name === `neon-snake-shell-${ASSET_STAMP}`);
+  assert.ok(activeName, "Expected the shell cache to be named for the current asset stamp");
   const shell = stores.get(activeName);
-  assert.ok(activeName, "Expected a versioned shell cache");
   assert.equal(skipWaitingCalls, 1);
-  ["/index.html", "/duel.html", "/activity-boot.css", "/activity-boot.js", "/styles.css?v=82", "/activity-boot.js?v=82", "/activity-redirect.js?v=82", "/game.js?v=82", "/duel.js?v=82", "/downloads.html", "/downloads.js", "/profile.html", "/privacy.html", "/terms.html", "/legal.css", "/wallpaper.html", "/assets/icon-192.png", "/assets/icon-512.png"].forEach((url) => {
+  ["/index.html", "/duel.html", "/activity-boot.css", "/activity-boot.js", `/styles.css?v=${ASSET_STAMP}`, `/activity-boot.js?v=${ASSET_STAMP}`, `/activity-redirect.js?v=${ASSET_STAMP}`, `/game.js?v=${ASSET_STAMP}`, `/duel.js?v=${ASSET_STAMP}`, "/downloads.html", "/downloads.js", "/profile.html", "/privacy.html", "/terms.html", "/legal.css", "/wallpaper.html", "/assets/icon-192.png", "/assets/icon-512.png"].forEach((url) => {
     assert.ok(shell.has(requestKey(url)), `Install omitted ${url}`);
   });
   process.stdout.write("PASS install primes the complete versioned app shell\n");
 
-  assert.match(source, /neon-snake-shell-v82/);
+  assert.match(source, new RegExp(`neon-snake-shell-${ASSET_STAMP}`));
   process.stdout.write("PASS product redesign ships behind a fresh shell cache version\n");
 
   stores.set("neon-snake-shell-stale", new Map());
@@ -155,9 +163,9 @@ async function main() {
   const versionedAssetFallback = await dispatchFetch({
     method: "GET",
     mode: "no-cors",
-    url: `${origin}/game.js?v=82`,
+    url: `${origin}/game.js?v=${ASSET_STAMP}`,
   });
-  assert.equal(versionedAssetFallback.body, "shell:/game.js?v=82");
+  assert.equal(versionedAssetFallback.body, `shell:/game.js?v=${ASSET_STAMP}`);
   process.stdout.write("PASS offline public entry resolves exact versioned assets\n");
 
   const soloFallback = await dispatchFetch({

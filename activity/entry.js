@@ -9,12 +9,14 @@ const READY_TIMEOUT = 8_000;
 const COMMAND_TIMEOUT = 15_000;
 const TOKEN_TIMEOUT = 16_000;
 const EXTERNAL_LINK_TIMEOUT = 2_500;
+const ORIENTATION_TIMEOUT = 2_500;
 const query = new URLSearchParams(location.search);
 const embedded = query.has("frame_id");
 let sdk = null;
 let readyPromise = null;
 let connected = false;
 let sdkReady = false;
+let initializing = false;
 
 function instanceSignal(value) {
   let hash = 2166136261;
@@ -60,7 +62,11 @@ async function initialize() {
     "SOLO READY · CONNECTING DISCORD",
     "Single-player is available while the shared channel session connects.",
   );
-  sdk = new DiscordSDK(CLIENT_ID);
+  // A retry needs a fresh instance: the SDK only posts HANDSHAKE from its
+  // constructor, so reusing an instance whose handshake was never answered can
+  // never recover. The obsolete instance is abandoned rather than closed -
+  // close() posts an RPC CLOSE opcode, which ends the Activity.
+  sdk = new DiscordSDK(CLIENT_ID, { disableConsoleLogOverride: true });
   await withTimeout(
     sdk.ready(),
     READY_TIMEOUT,
@@ -89,22 +95,27 @@ async function initialize() {
     "SOLO READY · OPENING INSTANCE",
     "The server is creating a private Activity session.",
   );
-  const tokenResponse = await withTimeout(
-    fetch("/api/activity/token", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code: authorization.code }),
-    }),
-    TOKEN_TIMEOUT,
-    "The Activity server did not answer in time.",
-  );
-  if (!tokenResponse.ok) {
-    const payload = await tokenResponse.json().catch(() => null);
-    const reason = payload?.error ? ` (${payload.error})` : "";
-    throw new Error(`Activity sign-in failed${reason}.`);
+  const tokenController = new AbortController();
+  let token;
+  try {
+    token = await withTimeout((async () => {
+      const tokenResponse = await fetch("/api/activity/token", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: authorization.code }),
+        signal: tokenController.signal,
+      });
+      if (!tokenResponse.ok) {
+        const payload = await tokenResponse.json().catch(() => null);
+        const reason = payload?.error ? ` (${payload.error})` : "";
+        throw new Error(`Activity sign-in failed${reason}.`);
+      }
+      return tokenResponse.json();
+    })(), TOKEN_TIMEOUT, "The Activity server did not answer in time.");
+  } finally {
+    tokenController.abort();
   }
-  const token = await tokenResponse.json();
   if (!token?.access_token) throw new Error("Activity token missing.");
   const auth = await withTimeout(
     sdk.commands.authenticate({
@@ -116,11 +127,11 @@ async function initialize() {
   if (!auth?.user?.id) throw new Error("Discord did not authenticate this player.");
 
   try {
-    await sdk.commands.setOrientationLockState({
+    await withTimeout(sdk.commands.setOrientationLockState({
       lock_state: Common.OrientationLockStateTypeObject.UNLOCKED,
       picture_in_picture_lock_state: Common.OrientationLockStateTypeObject.LANDSCAPE,
       grid_lock_state: Common.OrientationLockStateTypeObject.LANDSCAPE,
-    });
+    }), ORIENTATION_TIMEOUT, "Discord orientation controls did not answer in time.");
   } catch {
     // Older Discord clients may not expose orientation controls.
   }
@@ -148,8 +159,8 @@ async function initialize() {
 }
 
 async function invite() {
-  if (!sdk) return false;
-  await sdk.commands.openInviteDialog();
+  if (!sdk || !connected) return false;
+  await withTimeout(sdk.commands.openInviteDialog(), COMMAND_TIMEOUT, "Discord did not open the invite dialog in time.");
   return true;
 }
 
@@ -165,8 +176,9 @@ async function openExternal(url) {
 
 function begin({ force = false } = {}) {
   if (!embedded) return Promise.resolve(null);
-  if (readyPromise && !force) return readyPromise;
-  const attempt = initialize().catch((error) => {
+  if (readyPromise && (!force || initializing)) return readyPromise;
+  initializing = true;
+  const attempt = Promise.resolve().then(initialize).catch((error) => {
     connected = false;
     const message = error instanceof Error ? error.message : "Activity startup failed.";
     stage(
@@ -176,16 +188,16 @@ function begin({ force = false } = {}) {
     );
     dispatch("neon-activity-error", { message });
     throw error;
-  });
+  }).finally(() => { initializing = false; });
   attempt.catch(() => {});
   readyPromise = attempt;
   return attempt;
 }
 
 function retry() {
+  if (initializing) return readyPromise;
   connected = false;
   sdkReady = false;
-  sdk = null;
   return begin({ force: true });
 }
 

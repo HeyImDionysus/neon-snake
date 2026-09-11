@@ -64,6 +64,52 @@ function movementSteps({ nextMoveAt, now, moveBefore, stepDuration = 10 }) {
 }
 
 const tests = [
+  ["resuming a paused run preserves the time since its last pickup", () => {
+    const context = {
+      performance: { now() { return 12000; } },
+      demoMode: false, rushDrainPending: false, rushDeadlineReached() { return false; },
+      runState: "paused", activeMode: "classic", pausedAt: 2000,
+      lastEatAt: 1000, comboExpiresAt: 6000, overdriveUntil: 0,
+      food: { kind: "core", expiresAt: 7000 }, mutation: { expiresAt: 8000 },
+      overlay: {}, announcement: {}, canvas: {}, pausedMotionProgress: .5,
+      stepDuration: 100, pausedStepRemaining: 50,
+      setState() {}, updateActionLabels() {}, focusWithoutScroll() {},
+    };
+    vm.runInNewContext(`${functionBody("togglePause")}\nthis.togglePause = togglePause;`, context);
+    context.togglePause();
+    assert.equal(context.runState, "running");
+    assert.equal(12000 - context.lastEatAt, 1000, "paused time must not break the next pickup's combo");
+    assert.equal(context.comboExpiresAt, 16000);
+    assert.equal(context.food.expiresAt, 17000);
+    assert.equal(context.mutation.expiresAt, 18000);
+  }],
+  ["solo shortcuts preserve native controls and browser commands", () => {
+    const calls = [];
+    const context = {
+      DIRECTIONS: { up: "up", down: "down", left: "left", right: "right" },
+      runState: "running", demoMode: false, activeMode: "classic",
+      requestDirection(direction) { calls.push(direction); },
+      togglePause() { calls.push("pause"); },
+      prepareRun() { calls.push("restart"); },
+    };
+    vm.runInNewContext(`${functionBody("handleKeyboard")}\nthis.handleKeyboard = handleKeyboard;`, context);
+    const event = (key, extra = {}) => ({
+      key, code: key === " " ? "Space" : "KeyR",
+      target: { matches() { return false; }, closest() { return null; } },
+      preventDefault() { calls.push("prevented"); }, ...extra,
+    });
+    for (const extra of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }, { defaultPrevented: true }, { isComposing: true }]) {
+      context.handleKeyboard(event("r", extra));
+    }
+    context.handleKeyboard(event("w", { target: { matches() { return false; }, isContentEditable: true } }));
+    context.handleKeyboard(event(" ", { repeat: true }));
+    context.handleKeyboard(event("r", { repeat: true }));
+    assert.deepEqual(calls, []);
+    context.handleKeyboard(event("w"));
+    context.handleKeyboard(event(" "));
+    context.handleKeyboard(event("r"));
+    assert.deepEqual(calls, ["prevented", "up", "prevented", "pause", "prevented", "restart"]);
+  }],
   ["Activity challenge URLs preserve Discord launch identity", () => {
     const initial = "https://1531235601070686228.discordsays.com/?frame_id=frame-1&instance_id=instance-1&guild_id=guild-1&signal=OLD234&mode=portal&pace=steady";
     const context = {

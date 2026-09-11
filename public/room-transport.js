@@ -1,6 +1,10 @@
 (function exposeRoomTransports(root) {
   "use strict";
 
+  // How long before a connection's server-declared expiry the client opens its
+  // replacement. Wide enough to absorb a slow handshake and one retry.
+  const ROTATE_LEAD_MS = 45_000;
+
   function broadcastRoomSupported(runtime = root) {
     return typeof runtime?.BroadcastChannel === "function";
   }
@@ -24,6 +28,7 @@
     setTimeoutImpl = root.setTimeout,
     clearTimeoutImpl = root.clearTimeout,
     locationHref = root.location?.href || "https://neon-snake.invalid/",
+    storage,
   } = {}) {
     if (typeof code !== "string" || !code.trim()) throw new TypeError("A room code is required.");
     if (typeof clientId !== "string" || !clientId.trim()) throw new TypeError("A client id is required.");
@@ -33,6 +38,15 @@
     if (typeof WebSocketImpl !== "function") throw new TypeError("WebSocket is not available.");
 
     const normalizedCode = code.trim().toUpperCase();
+    const sessionKey = `neon-snake-realtime-session:${normalizedCode}:${clientId}`;
+    let resumeToken = "";
+    try {
+      storage = storage || root.sessionStorage;
+      const saved = storage?.getItem?.(sessionKey);
+      if (/^[a-f0-9-]{36}$/.test(saved || "")) resumeToken = saved;
+    } catch {
+      // An open transport retains its credential even when storage is unavailable.
+    }
     const baseEndpoint = new URL(endpoint, locationHref);
     if (baseEndpoint.protocol === "https:") baseEndpoint.protocol = "wss:";
     if (baseEndpoint.protocol === "http:") baseEndpoint.protocol = "ws:";
@@ -114,6 +128,11 @@
       const localPlayer = roster.find((player) => player?.id === clientId);
       role = localPlayer && Number(localPlayer.slot) >= 0 ? "player" : "spectator";
       slot = role === "player" ? Number(localPlayer.slot) : -1;
+      if (previousRole !== role) {
+        ready = false;
+        readySent = false;
+        if (role === "player") sendReady();
+      }
       players.forEach((player) => {
         if (!player || player.id === clientId) return;
         onMessage({
@@ -191,6 +210,35 @@
       }, delay);
     }
 
+    // Vercel closes a WebSocket when the Function invocation reaches its maximum
+    // duration. Reconnecting after that cut frees the seat to whoever is waiting
+    // and cancels the round, so the link is replaced before the cut lands: a
+    // second socket joins with the same credential, and only once it is welcomed
+    // does the old one close. The seat never becomes vacant.
+    let pendingSocket = null;
+    let rotateTimer = null;
+    let connectionExpiresAt = 0;
+
+    function isCurrentSocket(candidate) {
+      return candidate === socket || candidate === pendingSocket;
+    }
+
+    function clearRotateTimer() {
+      if (rotateTimer !== null) clearTimeoutImpl(rotateTimer);
+      rotateTimer = null;
+    }
+
+    function scheduleRotation() {
+      clearRotateTimer();
+      if (closed || !connectionExpiresAt) return;
+      const lead = Math.max(5_000, connectionExpiresAt - ROTATE_LEAD_MS - now());
+      rotateTimer = setTimeoutImpl(() => {
+        rotateTimer = null;
+        if (closed || pendingSocket) return;
+        void connect({ rotating: true });
+      }, lead);
+    }
+
     function socketUrl() {
       const url = new URL(baseEndpoint.href);
       url.searchParams.set("room", normalizedCode);
@@ -198,24 +246,40 @@
       return url.href;
     }
 
-    async function connect() {
+    async function connect({ rotating = false } = {}) {
       if (closed) return;
-      const nextSocket = new WebSocketImpl(socketUrl());
-      socket = nextSocket;
-      readySent = false;
+      // A rotation can only replace a link that already has a credential; without
+      // one the replacement would be treated as a stranger claiming the seat.
+      if (rotating && !resumeToken) return;
+      const protocols = ["neon-snake-v1"];
+      if (resumeToken) protocols.push(`resume.${resumeToken}`);
+      const nextSocket = new WebSocketImpl(socketUrl(), protocols);
+      if (rotating) pendingSocket = nextSocket;
+      else socket = nextSocket;
+      if (!rotating) readySent = false;
       connectionTimer = setTimeoutImpl(() => {
         connectionTimer = null;
+        if (nextSocket === pendingSocket) {
+          // The replacement never arrived; keep playing on the old link and try
+          // again shortly rather than dropping the seat.
+          pendingSocket = null;
+          nextSocket.close(4000, "Realtime rotation timed out");
+          scheduleRotation();
+          return;
+        }
         if (socket === nextSocket) nextSocket.close(4000, "Realtime connection timed out");
       }, 8_000);
       nextSocket.addEventListener("open", () => {
-        if (socket !== nextSocket || closed) return;
+        if (!isCurrentSocket(nextSocket) || closed) return;
+        if (nextSocket === pendingSocket) return;
         failures = 0;
         onStatus({ state: "socket-open", role, slot, players: roster, waiting, queuePosition });
         scheduleHeartbeat();
       });
       nextSocket.addEventListener("message", (event) => {
-        if (socket !== nextSocket || closed) return;
+        if (!isCurrentSocket(nextSocket) || closed) return;
         if (event.data === "pong") {
+          if (nextSocket === pendingSocket) return;
           lastPongAt = now();
           onStatus({
             state: "latency",
@@ -234,6 +298,27 @@
           return;
         }
         if (message.type === "welcome") {
+          if (nextSocket === pendingSocket) {
+            // The replacement holds the seat now; retire the outgoing link. Its
+            // close is a no-op server-side because the room no longer maps the
+            // seat to that connection.
+            const retiring = socket;
+            pendingSocket = null;
+            socket = nextSocket;
+            retiring?.close(1000, "Realtime link rotated");
+          }
+          if (Number.isFinite(Number(message.expiresAt)) && Number(message.expiresAt) > 0) {
+            connectionExpiresAt = now() + Math.max(0, Number(message.expiresAt) - Number(message.sentAt || 0));
+            scheduleRotation();
+          }
+          if (/^[a-f0-9-]{36}$/.test(message.resumeToken || "")) {
+            resumeToken = message.resumeToken;
+            try {
+              storage?.setItem?.(sessionKey, resumeToken);
+            } catch {
+              // In-memory reconnect remains available without session storage.
+            }
+          }
           if (connectionTimer !== null) clearTimeoutImpl(connectionTimer);
           connectionTimer = null;
           lastPongAt = now();
@@ -328,10 +413,24 @@
           armStateWatchdog(3_000);
         }
       });
-      nextSocket.addEventListener("close", () => {
+      nextSocket.addEventListener("close", (event) => {
+        if (nextSocket === pendingSocket) {
+          // The replacement failed to establish; the live link is untouched.
+          pendingSocket = null;
+          scheduleRotation();
+          return;
+        }
         if (socket !== nextSocket || closed) return;
         socket = null;
         clearSocketTimers();
+        if (event.code === 4001 || event.code === 4003) {
+          closed = true;
+          onStatus({
+            state: "rejected", role, slot, retryable: false,
+            code: event.code === 4003 ? "session_conflict" : "session_replaced",
+          });
+          return;
+        }
         scheduleReconnect();
       });
       nextSocket.addEventListener("error", () => {
@@ -376,7 +475,10 @@
         closed = true;
         if (reconnectTimer !== null) clearTimeoutImpl(reconnectTimer);
         reconnectTimer = null;
+        clearRotateTimer();
         clearSocketTimers();
+        pendingSocket?.close(1000, "Client left room");
+        pendingSocket = null;
         socket?.close(1000, "Client left room");
         socket = null;
       },

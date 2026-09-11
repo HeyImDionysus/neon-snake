@@ -91,7 +91,15 @@ function cookieMap(request) {
   String(header(request, "cookie") || "").split(";").forEach((part) => {
     const separator = part.indexOf("=");
     if (separator < 1) return;
-    result.set(part.slice(0, separator).trim(), decodeURIComponent(part.slice(separator + 1).trim()));
+    const name = part.slice(0, separator).trim();
+    const raw = part.slice(separator + 1).trim();
+    try {
+      result.set(name, decodeURIComponent(raw));
+    } catch {
+      // A malformed percent-escape in one unrelated cookie must not make every
+      // account route answer 503.
+      result.set(name, raw);
+    }
   });
   return result;
 }
@@ -376,14 +384,17 @@ async function persistDiscordSession(discordUser, {
   runRedis,
 }) {
   const provisional = publicProfile(discordUser);
+  const previousValue = await runRedis(["GET", `neon-snake:profile:${provisional.id}`]);
   let previousProfile = null;
-  try {
-    const previousValue = await runRedis(["GET", `neon-snake:profile:${provisional.id}`]);
-    previousProfile = previousValue
-      ? (typeof previousValue === "string" ? JSON.parse(previousValue) : previousValue)
-      : null;
-  } catch {
-    previousProfile = null;
+  if (previousValue !== null && previousValue !== undefined) {
+    try {
+      previousProfile = typeof previousValue === "string" ? JSON.parse(previousValue) : previousValue;
+    } catch {
+      throw new Error("Stored player profile could not be read.");
+    }
+    if (!previousProfile || typeof previousProfile !== "object" || previousProfile.id !== provisional.id) {
+      throw new Error("Stored player profile is invalid.");
+    }
   }
   const profile = storedProfile(discordUser, previousProfile);
   const sessionToken = random(32);
@@ -469,6 +480,7 @@ function createAccountHandler({
     try {
       if (route === "/api/auth/discord/start") {
         if (request.method !== "GET") return sendJson(response, 405, { error: "method_not_allowed" });
+        try {
         const config = environmentConfig(environment);
         const state = random(32);
         await runRedis(["SET", `neon-snake:oauth:${digest(state)}`, "1", "EX", OAUTH_TTL_SECONDS]);
@@ -482,10 +494,18 @@ function createAccountHandler({
         return redirect(response, authorization.href, [
           cookie(OAUTH_COOKIE, state, { maxAge: OAUTH_TTL_SECONDS }),
         ]);
+        } catch (error) {
+          console.error("Account API request failed.", {
+            route,
+            name: typeof error?.name === "string" ? error.name : "Error",
+          });
+          return redirect(response, "/?auth=unavailable", [cookie(OAUTH_COOKIE, "", { maxAge: 0 })]);
+        }
       }
 
       if (route === "/api/auth/discord/callback") {
         if (request.method !== "GET") return sendJson(response, 405, { error: "method_not_allowed" });
+        try {
         const config = environmentConfig(environment);
         const state = url.searchParams.get("state") || "";
         const expectedState = cookieMap(request).get(OAUTH_COOKIE) || "";
@@ -511,6 +531,16 @@ function createAccountHandler({
           cookie(OAUTH_COOKIE, "", { maxAge: 0 }),
           cookie(SESSION_COOKIE, sessionToken, { maxAge: SESSION_TTL_SECONDS }),
         ]);
+        } catch (error) {
+          // The state record has already been consumed, so retrying this URL
+          // cannot work. Send the player back to the site with a reason instead
+          // of rendering a JSON error as the whole page.
+          console.error("Account API request failed.", {
+            route,
+            name: typeof error?.name === "string" ? error.name : "Error",
+          });
+          return redirect(response, "/?auth=failed", [cookie(OAUTH_COOKIE, "", { maxAge: 0 })]);
+        }
       }
 
       if (route === "/api/activity/token") {
@@ -586,7 +616,11 @@ function createAccountHandler({
       if (route === "/api/profile") {
         if (request.method === "GET") {
           const current = await sessionFor(request);
-          const requestedUsername = usernameKey(url.searchParams.get("user"));
+          const requestedUser = url.searchParams.get("user");
+          const requestedUsername = usernameKey(requestedUser);
+          if (requestedUser !== null && !requestedUsername) {
+            return sendJson(response, 404, { error: "profile_not_found" });
+          }
           let profile = current?.profile || null;
           if (requestedUsername) {
             let userId = await runRedis(["GET", `neon-snake:username:${requestedUsername}`]);

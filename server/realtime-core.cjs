@@ -2,7 +2,7 @@
 
 require("../public/game-logic.js");
 
-const { randomUUID } = require("node:crypto");
+const { createHash, randomUUID } = require("node:crypto");
 const {
   createSessionReader,
   recordMatchResult,
@@ -18,6 +18,13 @@ const MAX_CONNECTIONS = 12;
 const MAX_MESSAGE_BYTES = 32 * 1024;
 const MAX_MESSAGES_PER_SECOND = 40;
 const CONNECTION_TTL_MS = 30_000;
+// Vercel closes a WebSocket when the Function invocation reaches maxDuration
+// (300 s in vercel.json). Clients are told a shorter lifetime so they can open a
+// replacement link and hand the seat over before the platform cuts it.
+const CONNECTION_LIFETIME_MS = 240_000;
+// How long a seat is held after a link is cut rather than closed, so a
+// reconnecting player reclaims it instead of losing it to the waiting line.
+const RECLAIM_WINDOW_MS = 8_000;
 const ROOM_TTL_SECONDS = 45;
 const DEFAULT_ROOM_CAPACITY = 2;
 const DUEL_GRID = 30;
@@ -46,6 +53,8 @@ local favoriteMode = ARGV[12]
 local snakeStyle = ARGV[13]
 local loserSlotA = tonumber(ARGV[14] or "-1")
 local loserSlotB = tonumber(ARGV[15] or "-1")
+local resumeHash = ARGV[16]
+local left = false
 local cutoff = now - ${CONNECTION_TTL_MS}
 
 local stale = redis.call("ZRANGEBYSCORE", presenceKey, "-inf", cutoff)
@@ -91,6 +100,9 @@ end
 
 local current = read(clientId)
 if action == "join" then
+  if current and (not current["resumeHash"] or current["resumeHash"] ~= resumeHash) then
+    return cjson.encode({ error = "session_conflict" })
+  end
   local generation = redis.call("INCR", generationKey)
   if not current and redis.call("ZCARD", presenceKey) >= ${MAX_CONNECTIONS} then
     return cjson.encode({ error = "room_full" })
@@ -99,6 +111,7 @@ if action == "join" then
   current = {
     id = clientId,
     connectionId = connectionId,
+    resumeHash = resumeHash,
     slot = slot,
     ready = false,
     readyEpoch = 0,
@@ -116,16 +129,29 @@ if action == "join" then
   redis.call("ZADD", presenceKey, now, clientId)
   redis.call("HSET", metadataKey, clientId, cjson.encode(current))
 elseif current and current["connectionId"] == connectionId then
-  if action == "leave" then
+  if action == "relinquish" then
+    -- The link was cut rather than closed. Hold the seat briefly so the player
+    -- can return with their credential, then let the ordinary stale sweep hand
+    -- it to whoever is waiting.
+    left = true
+    redis.call("ZADD", presenceKey, cutoff + ${RECLAIM_WINDOW_MS}, clientId)
+    current["ready"] = false
+    current["readyEpoch"] = 0
+    redis.call("HSET", metadataKey, clientId, cjson.encode(current))
+  elseif action == "leave" then
+    left = true
+    local wasSeated = tonumber(current["slot"]) >= 0
     redis.call("ZREM", presenceKey, clientId)
     redis.call("HDEL", metadataKey, clientId)
     current = nil
-    for _, id in ipairs(redis.call("ZRANGE", presenceKey, 0, -1)) do
-      local item = read(id)
-      if item then
-        item["ready"] = false
-        item["readyEpoch"] = 0
-        redis.call("HSET", metadataKey, id, cjson.encode(item))
+    if wasSeated then
+      for _, id in ipairs(redis.call("ZRANGE", presenceKey, 0, -1)) do
+        local item = read(id)
+        if item then
+          item["ready"] = false
+          item["readyEpoch"] = 0
+          redis.call("HSET", metadataKey, id, cjson.encode(item))
+        end
       end
     end
   else
@@ -182,7 +208,7 @@ if action == "rotate" then
     end
   end
   fillEmptySeats()
-elseif action == "join" or action == "leave" then
+elseif action == "join" or action == "leave" or #stale > 0 then
   fillEmptySeats()
 end
 
@@ -220,7 +246,9 @@ if current and tonumber(current["slot"]) < 0 then
 end
 
 return cjson.encode({
+  left = left,
   active = current ~= nil and current["connectionId"] == connectionId,
+  replaced = current ~= nil and current["connectionId"] ~= connectionId,
   role = current and tonumber(current["slot"]) >= 0 and "player" or "spectator",
   slot = current and tonumber(current["slot"]) or -1,
   joinEpoch = current and tonumber(current["joinEpoch"]) or 0,
@@ -303,7 +331,10 @@ function validateRealtimeMessage(value, { slot, allReady, capacity = DEFAULT_ROO
   if (value.type === "ping") {
     return safeInteger(value.at, 0) ? { type: "ping", at: Number(value.at) } : null;
   }
-  if (value.type === "ready" && Number.isInteger(slot) && slot >= 0 && slot < capacity) {
+  if (value.type === "ready") {
+    // Accepted from any participant. A player rotated out of their seat between
+    // sending and delivery still has a well-formed frame, and rejecting it tells
+    // the client its link is unhealthy when only its seat changed.
     return { type: "ready", ready: Boolean(value.ready) };
   }
   if (value.type === "input" && Number.isInteger(slot) && slot >= 0 && slot < capacity) {
@@ -344,7 +375,9 @@ function requestIsSameOrigin(request) {
   if (!origin || !host) return false;
   try {
     const parsed = new URL(origin);
-    return parsed.protocol === "https:" && parsed.host === host;
+    const local = parsed.protocol === "http:"
+      && /^(localhost|127(?:\.\d{1,3}){3}|\[::1\])$/.test(parsed.hostname);
+    return (parsed.protocol === "https:" || local) && parsed.host === host;
   } catch {
     return false;
   }
@@ -595,6 +628,8 @@ class RoomSimulation {
 
   enqueue(slot, message) {
     if (!this.game || message.round !== this.game.round) return;
+    const acknowledged = slot === 0 ? this.game.playerInputAck : this.game.guestInputAck;
+    if (message.sequence <= acknowledged) return;
     const queue = slot === 0 ? this.game.playerInputs : this.game.opponentInputs;
     if (queue.some((input) => input.sequence === message.sequence) || queue.length >= 4) return;
     queue.push(message);
@@ -602,24 +637,32 @@ class RoomSimulation {
   }
 
   consumeInput(queue, currentDirection) {
+    // A reversal is discarded rather than applied, but it has still been seen.
+    // Reporting it as consumed keeps the acknowledgement monotonic over
+    // everything the server has processed, so a delayed duplicate cannot be
+    // replayed later and the client can retire its matching prediction.
+    let consumedThrough = 0;
     while (queue.length) {
       const input = queue.shift();
-      if (!this.reverse(input.direction, currentDirection)) return input;
+      consumedThrough = Math.max(consumedThrough, input.sequence);
+      if (!this.reverse(input.direction, currentDirection)) {
+        return { input, consumedThrough };
+      }
     }
-    return null;
+    return { input: null, consumedThrough };
   }
 
   resolveTick() {
     const game = this.game;
-    const playerInput = this.consumeInput(game.playerInputs, game.playerDirection);
-    const opponentInput = this.consumeInput(game.opponentInputs, game.opponentDirection);
-    if (playerInput) {
-      game.playerDirection = { ...playerInput.direction };
-      game.playerInputAck = Math.max(game.playerInputAck, playerInput.sequence);
+    const playerCommand = this.consumeInput(game.playerInputs, game.playerDirection);
+    const opponentCommand = this.consumeInput(game.opponentInputs, game.opponentDirection);
+    game.playerInputAck = Math.max(game.playerInputAck, playerCommand.consumedThrough);
+    game.guestInputAck = Math.max(game.guestInputAck, opponentCommand.consumedThrough);
+    if (playerCommand.input) {
+      game.playerDirection = { ...playerCommand.input.direction };
     }
-    if (opponentInput) {
-      game.opponentDirection = { ...opponentInput.direction };
-      game.guestInputAck = Math.max(game.guestInputAck, opponentInput.sequence);
+    if (opponentCommand.input) {
+      game.opponentDirection = { ...opponentCommand.input.direction };
     }
     const resolved = Rules.resolveDuelTick({
       players: {
@@ -690,13 +733,13 @@ class RoomSimulation {
     if (game.over) {
       try {
         await publishing;
+        await this.hub.recordMatch(this.room, game.round, result);
+        if (this.hub.rotateRound) await this.hub.rotateRound(this.room, result);
+        else await this.hub.resetReady(this.room);
       } catch (error) {
         this.hub.abortRound(this.room, this, error);
         return;
       }
-      await this.hub.recordMatch(this.room, game.round, result);
-      if (this.hub.rotateRound) await this.hub.rotateRound(this.room, result);
-      else await this.hub.resetReady(this.room);
       this.stop();
       return;
     }
@@ -918,7 +961,8 @@ function createRealtimeHub({
     if (!state.subscription) {
       state.subscription = eventBus.subscribe(room, (event) => dispatch(room, event))
         .then((unsubscribe) => {
-          state.unsubscribe = unsubscribe;
+          if (rooms.get(room) !== state || !localConnections(room).length) unsubscribe();
+          else state.unsubscribe = unsubscribe;
         });
     }
     await state.subscription;
@@ -951,10 +995,24 @@ function createRealtimeHub({
       clean?.snakeStyle || "signal",
       String(loserSlots[0] ?? -1),
       String(loserSlots[1] ?? -1),
+      connection.resumeToken
+        ? createHash("sha256").update(connection.resumeToken).digest("hex")
+        : "",
     ]);
     const payload = typeof result === "string" ? JSON.parse(result) : result;
     if (!payload || typeof payload !== "object") throw new Error("Invalid realtime presence response.");
-    if (clean?.userId && action !== "leave" && payload.role === "player") {
+    if (!payload.error) {
+      for (const key of ["players", "waiting"]) {
+        if (Array.isArray(payload[key])) continue;
+        if (payload[key] && typeof payload[key] === "object" && !Object.keys(payload[key]).length) {
+          payload[key] = [];
+        } else {
+          throw new Error("Invalid realtime roster response.");
+        }
+      }
+    }
+    const departing = action === "leave" || action === "relinquish";
+    if (clean?.userId && !departing && payload.role === "player") {
       try {
         await runRedis([
           "SET",
@@ -1008,7 +1066,10 @@ function createRealtimeHub({
   async function refresh(connection, action = "touch", options = {}) {
     const result = await presence(connection, action, options);
     if (!result.active && action !== "leave") {
-      connection.socket.close(4001, "Realtime session replaced");
+      // A record claimed by another connection is terminal; a record that simply
+      // expired is recoverable, so the client must be allowed to reconnect.
+      if (result.replaced) connection.socket.close(4001, "Realtime session replaced");
+      else connection.socket.close(1012, "Realtime session expired");
       return result;
     }
     await publishRoster(connection.room, result.players || [], result.waiting || []);
@@ -1059,7 +1120,7 @@ function createRealtimeHub({
     }
   }
 
-  async function closeConnection(connection) {
+  async function closeConnection(connection, { deliberate = true } = {}) {
     if (!connections.has(connection.socket)) return;
     connections.delete(connection.socket);
     const reportFailure = (stage, error) => {
@@ -1068,19 +1129,24 @@ function createRealtimeHub({
         name: typeof error?.name === "string" ? error.name : "Error",
       });
     };
-    const cancelTask = connection.slot >= 0 && connection.slot < DEFAULT_ROOM_CAPACITY
-      ? publish(connection.room, {
-        kind: "cancel",
-        slot: connection.slot,
-      }).catch((error) => {
-        reportFailure("cancel", error);
-      })
-      : Promise.resolve();
+    const ownedSlot = connectionOwnsSlot(connection.room, connection.connectionId, connection.slot);
+    const retainSeat = !deliberate && ownedSlot;
     let presenceResult = null;
     try {
-      presenceResult = await presence(connection, "leave");
+      presenceResult = await presence(connection, retainSeat ? "relinquish" : "leave");
     } catch (error) {
       reportFailure("presence", error);
+    }
+    if (
+      ownedSlot
+      && (presenceResult?.left || !presenceResult)
+      && connectionOwnsSlot(connection.room, connection.connectionId, connection.slot)
+    ) {
+      try {
+        await publish(connection.room, { kind: "cancel", slot: connection.slot });
+      } catch (error) {
+        reportFailure("cancel", error);
+      }
     }
     if (presenceResult) {
       try {
@@ -1093,7 +1159,6 @@ function createRealtimeHub({
         reportFailure("roster", error);
       }
     }
-    await cancelTask;
     if (!localConnections(connection.room).length) {
       const state = stateFor(connection.room);
       state.simulation?.stop();
@@ -1107,7 +1172,7 @@ function createRealtimeHub({
   }
 
   async function handleMessage(connection, raw) {
-    if (!connections.has(connection.socket)) return;
+    if (!connections.has(connection.socket) || !connection.initialized) return;
     const size = typeof raw === "string" ? Buffer.byteLength(raw) : raw?.byteLength;
     if (!Number.isFinite(size) || size > MAX_MESSAGE_BYTES) {
       connection.socket.close(1009, "Message too large");
@@ -1166,6 +1231,7 @@ function createRealtimeHub({
       return;
     }
     if (message.type === "ready") {
+      if (connection.slot < 0) return;
       const wasReady = stateFor(connection.room).players.some((player) => (
         player.connectionId === connection.connectionId && player.ready
       ));
@@ -1237,7 +1303,8 @@ function createRealtimeHub({
         try {
           const result = await presence(connection, "touch");
           if (!result.active) {
-            connection.socket.close(4001, "Realtime session replaced");
+            if (result.replaced) connection.socket.close(4001, "Realtime session replaced");
+            else connection.socket.close(1012, "Realtime session expired");
           } else {
             byRoom.set(connection.room, {
               players: result.players || [],
@@ -1271,6 +1338,9 @@ function createRealtimeHub({
       socket.close(1008, "Invalid room request");
       return;
     }
+    const resumeProtocol = String(request.headers?.["sec-websocket-protocol"] || "")
+      .split(",").map((protocol) => protocol.trim())
+      .find((protocol) => /^resume\.[a-f0-9-]{36}$/.test(protocol));
     const connection = {
       socket,
       room,
@@ -1279,25 +1349,70 @@ function createRealtimeHub({
       joinEpoch: 0,
       slot: -1,
       profile: null,
+      resumeToken: resumeProtocol ? resumeProtocol.slice(7) : randomUUID(),
+      openedAt: now(),
+      initialized: false,
       rateWindow: 0,
       rateCount: 0,
     };
     connections.set(socket, connection);
-    socket.on("message", (raw) => void handleMessage(connection, raw));
-    const close = () => void closeConnection(connection);
-    socket.on("close", close);
-    socket.on("error", close);
+    let messageTask = Promise.resolve();
+    let pendingMessages = 0;
+    socket.on("message", (raw) => {
+      if (!connections.has(socket) || !connection.initialized) return;
+      if (pendingMessages >= MAX_MESSAGES_PER_SECOND) {
+        socket.close(1008, "Message queue limit exceeded");
+        return;
+      }
+      pendingMessages += 1;
+      messageTask = messageTask.then(() => handleMessage(connection, raw)).catch(async (error) => {
+        logger.error("Realtime message failed.", {
+          name: typeof error?.name === "string" ? error.name : "Error",
+        });
+        socket.close(1012, "Realtime service interrupted");
+        await closeConnection(connection);
+      }).finally(() => {
+        pendingMessages -= 1;
+      });
+    });
+    // A clean close - 1000 normal, 1001 going away, 1005 no status supplied - is
+    // the client saying it is done, so the seat is freed at once. An abnormal
+    // close is a link that was cut: the platform's maxDuration limit, a dropped
+    // network, a crashed tab. Those players may be seconds from returning with
+    // their credential, so the seat is held briefly rather than handed to
+    // whoever is waiting.
+    const DELIBERATE_CLOSE_CODES = new Set([1000, 1001, 1005]);
+    socket.on("close", (code) => void closeConnection(connection, {
+      deliberate: code === undefined || DELIBERATE_CLOSE_CODES.has(Number(code)),
+    }));
+    socket.on("error", () => void closeConnection(connection, { deliberate: false }));
     try {
       await ensureSubscription(room);
       const current = await readSession(request);
+      if (!connections.has(socket) || socket.readyState !== 1) return;
       connection.profile = cleanProfile(current?.profile);
       const result = await presence(connection, "join", { profile: connection.profile });
+      if (!connections.has(socket) || socket.readyState !== 1) {
+        await presence(connection, "leave");
+        return;
+      }
+      if (result.error === "session_conflict") {
+        connections.delete(socket);
+        socket.close(4003, "Room session belongs to another connection");
+        if (!localConnections(room).length) {
+          const state = rooms.get(room);
+          state?.unsubscribe?.();
+          rooms.delete(room);
+        }
+        return;
+      }
       if (result.error === "room_full") {
         socket.close(1013, "Room connection limit reached");
         return;
       }
       connection.slot = Number(result.slot);
       connection.joinEpoch = Number(result.joinEpoch) || 0;
+      connection.initialized = true;
       stateFor(room).players = result.players || [];
       stateFor(room).waiting = result.waiting || [];
       send(connection, {
@@ -1310,6 +1425,8 @@ function createRealtimeHub({
           position: Number(player.position) || index + 1,
         })),
         queuePosition: Number(result.queuePosition) || 0,
+        resumeToken: connection.resumeToken,
+        expiresAt: connection.openedAt + CONNECTION_LIFETIME_MS,
         sentAt: now(),
       });
       if (connection.profile) {

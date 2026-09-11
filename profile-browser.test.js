@@ -108,16 +108,34 @@ async function waitUntil(predicate) {
   await waitUntil(() => window.__patchPayload);
   await waitUntil(() => document.querySelector("#profileSaveStatus").textContent.includes("PUBLISHED"));
 
+  const saved = {
+    payload: window.__patchPayload,
+    status: document.querySelector("#profileSaveStatus").textContent,
+    saveDisabled: save.disabled,
+    draftState: document.querySelector("#profileDraftState").textContent,
+  };
+  window.__delayPatch = true;
+  callsign.value = "FIRST DRAFT";
+  callsign.dispatchEvent(new Event("input", { bubbles: true }));
+  save.click();
+  await waitUntil(() => window.__finishPatch);
+  callsign.value = "NEWER DRAFT";
+  callsign.dispatchEvent(new Event("input", { bubbles: true }));
+  window.__finishPatch();
+  await waitUntil(() => editor.getAttribute("aria-busy") !== "true");
+  const editedWhileSaving = {
+    callsign: callsign.value,
+    preview: document.querySelector("#profilePreviewCallsign").textContent,
+    saveEnabled: !save.disabled,
+    draftState: document.querySelector("#profileDraftState").textContent,
+  };
+
   resultNode.dataset.json = encodeURIComponent(JSON.stringify({
     initial,
     previewed,
     resetState,
-    saved: {
-      payload: window.__patchPayload,
-      status: document.querySelector("#profileSaveStatus").textContent,
-      saveDisabled: save.disabled,
-      draftState: document.querySelector("#profileDraftState").textContent,
-    },
+    saved,
+    editedWhileSaving,
   }));
   resultNode.textContent = "complete";
 })().catch((error) => {
@@ -131,6 +149,9 @@ window.__patchPayload = null;
 window.fetch = async (_url, options = {}) => {
   if (options.method === "PATCH") {
     window.__patchPayload = JSON.parse(options.body);
+    if (window.__delayPatch) {
+      await new Promise((resolve) => { window.__finishPatch = resolve; });
+    }
     return {
       ok: true,
       status: 200,
@@ -219,6 +240,12 @@ try {
   assert.match(result.saved.status, /PUBLISHED/);
   assert.equal(result.saved.saveDisabled, true);
   assert.equal(result.saved.draftState, "SAVED");
+  assert.deepEqual(result.editedWhileSaving, {
+    callsign: "NEWER DRAFT",
+    preview: "NEWER DRAFT",
+    saveEnabled: true,
+    draftState: "UNSAVED PREVIEW",
+  }, "A completed save must preserve edits typed while its request was pending");
   process.stdout.write("PASS profile controls preview, reset, and publish in a real browser\n");
 } finally {
   fs.rmSync(temporaryDirectory, { recursive: true, force: true });

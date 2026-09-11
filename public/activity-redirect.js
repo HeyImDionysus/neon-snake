@@ -108,6 +108,7 @@
       || /(?:^|\/)duel(?:\.html)?$/.test(normalizedPath)
     ) {
       link.href = preserveActivityQuery("/duel", { type: "live" });
+      link.referrerPolicy = "no-referrer";
       return;
     }
 
@@ -119,6 +120,7 @@
       || rawHref === "/index.html"
     ) {
       link.href = preserveActivityQuery("/", { type: null, room: null });
+      link.referrerPolicy = "no-referrer";
       return;
     }
 
