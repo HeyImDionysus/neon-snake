@@ -10,6 +10,14 @@ const discordAssetRoot = path.join(publicRoot, "assets", "discord");
 const vercel = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8"));
 const manifest = JSON.parse(fs.readFileSync(path.join(publicRoot, "manifest.webmanifest"), "utf8"));
 const serviceWorker = fs.readFileSync(path.join(publicRoot, "sw.js"), "utf8");
+// The cache-busting stamp is derived from asset content by
+// scripts/stamp-assets.mjs; tests read it rather than pinning a literal.
+const ASSET_STAMP = (() => {
+  const match = serviceWorker.match(/const CACHE_NAME = "neon-snake-shell-([0-9a-z]+)";/);
+  assert.ok(match, "public/sw.js must declare a stamped CACHE_NAME");
+  return match[1];
+})();
+
 const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
 const workflow = fs.readFileSync(path.join(root, ".github", "workflows", "verify.yml"), "utf8");
 const roomFunction = fs.readFileSync(path.join(root, "api", "room.mjs"), "utf8");
@@ -94,7 +102,7 @@ const tests = [
     });
   }],
   ["Discord Activity entry assets use one explicit cache-busting release", () => {
-    const expectedVersion = "83";
+    const expectedVersion = ASSET_STAMP;
     const shell = serviceWorker.match(/const APP_SHELL = \[([^]*?)\];/);
     assert.ok(shell, "Expected an APP_SHELL declaration");
     const cachedUrls = new Set(

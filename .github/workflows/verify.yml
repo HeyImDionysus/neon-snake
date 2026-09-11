@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   deterministic-browser-rules:
     runs-on: ubuntu-latest
@@ -42,6 +46,7 @@ jobs:
         run: |
           npm run build:activity
           git diff --exit-code -- public/activity-sdk.js
+          npm run check:stamp
           node --check public/activity-redirect.js
           node --check public/activity-sdk.js
           node --check public/game.js
@@ -64,6 +69,7 @@ jobs:
 
       - name: Verify deterministic behavior
         run: |
+          node asset-stamp.test.js
           node game-logic.test.js
           node ai-quality.test.js
           node canvas-performance.test.js

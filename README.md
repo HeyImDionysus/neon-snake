@@ -11,6 +11,7 @@ Open `public/index.html` in a modern browser. The browser shell remains dependen
 To run the deterministic rules and control-flow suites:
 
 ```powershell
+node asset-stamp.test.js
 node game-logic.test.js
 node ai-quality.test.js
 node canvas-performance.test.js
@@ -141,6 +142,8 @@ Discord sign-in is optional for play and required only for a verified profile or
 - `wallpaper/windows` — Lively metadata and user-configurable properties.
 - `wallpaper/android` — native, offline Android live-wallpaper project with no network permission.
 - `scripts/build-wallpapers.mjs` — reproducible Windows Lively archive builder.
+- `scripts/stamp-assets.mjs` — derives the cache-busting asset stamp from the content it protects and writes it into the pages and offline shell.
+- `asset-stamp.test.js` — executable proof that the committed stamp matches current asset content, that the stamp moves when content or names move, and that every stamped reference agrees with the offline shell.
 - `game-logic.test.js` — executable rule regressions using Node's built-in assertions.
 - `ai-quality.test.js` — three-seed full-board completion plus eight-seed, all-pace timing, routing-efficiency, safety-cycle, adversarial multiplayer, route-diversity, and loop-recovery checks.
 - `canvas-performance.test.js` — executable late-run gate for accumulated raster strokes, 2× compositing, effect retirement, and worst-shaped Autopilot planning.
@@ -205,6 +208,17 @@ The Activity reuses the same Vercel deployment and Discord application; it does 
 Discord currently limits unverified Activities to servers with fewer than 25 members. A 40-member server therefore requires Discord app verification even when Discovery remains disabled. Until verification is approved, the same build can be tested in a smaller private server by the owner or invited App Testers.
 
 Verification also requires team ownership, a complete app identity, a Terms of Service URL, a Privacy Policy URL, verified email, and 2FA. Moving an existing personally owned app to a developer Team is irreversible in the portal and should be confirmed by the owner immediately before transfer.
+
+### Cache busting
+
+Discord's Activity proxy serves JavaScript and CSS with a four-hour cache regardless of the headers the origin sends, so a client can otherwise pair fresh HTML with stale scripts. The `?v=` stamp on every script and stylesheet, and the offline shell's cache name, are therefore derived from a SHA-256 over the content of `public/**/*.{js,css,webmanifest}` rather than maintained by hand:
+
+```powershell
+npm run stamp        # rewrite the stamp after changing any asset
+npm run check:stamp  # fail when the committed stamp is stale
+```
+
+`asset-stamp.test.js` runs the same check in CI, so an asset change that forgets the stamp fails the build instead of reaching players as a mismatched bundle. HTML is deliberately excluded from the hash: both surfaces serve it uncached, so editing copy must not invalidate every cached script.
 
 `vercel.json` supplies security headers, service-worker cache behavior, and conservative asset caching. `manifest.webmanifest` and `sw.js` provide an installable, offline-capable shell after the first successful visit.
 

@@ -5,7 +5,9 @@
   "description": "A fluid neon snake game with solo modes, authoritative multiplayer, public profiles, rankings, and native live wallpapers.",
   "scripts": {
     "build:activity": "node scripts/build-activity.mjs",
-    "test": "node scripts/verify.cjs"
+    "test": "node scripts/verify.cjs",
+    "stamp": "node scripts/stamp-assets.mjs",
+    "check:stamp": "node scripts/stamp-assets.mjs --check"
   },
   "engines": {
     "node": ">=22"
