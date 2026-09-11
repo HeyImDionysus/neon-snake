@@ -26,6 +26,37 @@
     return signature;
   }
 
+  // The sign-in route reports its outcome by redirecting back with ?auth=...
+  // Nothing read it, so a failed sign-in looked identical to never having tried.
+  const AUTH_OUTCOMES = {
+    discord: "",
+    invalid: "That sign-in link did not match this browser. Try signing in again.",
+    expired: "That sign-in link expired. Try signing in again.",
+    failed: "Discord could not complete the sign-in. Try again in a moment.",
+    unavailable: "Discord sign-in is offline right now. Play continues without an account.",
+  };
+
+  function announceAuthOutcome() {
+    const outcome = activityQuery.get("auth");
+    if (outcome === null) return;
+    const message = AUTH_OUTCOMES[outcome] ?? AUTH_OUTCOMES.failed;
+    if (message) {
+      controls.forEach((control) => {
+        const note = element("small", "account-notice", message);
+        note.setAttribute("role", "status");
+        control.append(note);
+      });
+    }
+    // Keep the reason out of the address bar so a refresh does not repeat it.
+    try {
+      const clean = new URL(root.location.href);
+      clean.searchParams.delete("auth");
+      root.history?.replaceState?.(null, "", `${clean.pathname}${clean.search}${clean.hash}`);
+    } catch {
+      // A browser without history access simply keeps the parameter.
+    }
+  }
+
   function renderSignedOut() {
     if (root.NeonSnakeAccount) root.NeonSnakeAccount.profile = null;
     controls.forEach((control) => {
@@ -213,7 +244,7 @@
       .then(() => root.NeonSnakeAccount.refresh())
       .catch(() => {});
   }
-  void root.NeonSnakeAccount.refresh();
+  void root.NeonSnakeAccount.refresh().then(announceAuthOutcome, announceAuthOutcome);
   if (leaderboard && !embeddedActivity) {
     setInterval(() => {
       if (!document.hidden) void loadLeaderboard();
