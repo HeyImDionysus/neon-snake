@@ -125,6 +125,52 @@ body.activity-mode .duel-header .site-menu-toggle { display: none; }
 body.activity-mode .duel-header .brand { pointer-events: auto; }
 body.activity-mode .duel-shell { padding-top: 24px; }
 
+/* Discord gives the Activity a fixed viewport, so the arena is bounded by
+   height as well as width or it runs off the bottom of the iframe. Above the
+   single-column breakpoint the page stops scrolling and the side panel scrolls
+   in its own column instead. */
+body.activity-mode {
+  --activity-chrome: 300px;
+}
+
+/* The Activity dock and context strip already say what this surface is, so the
+   page-title block above the arena is duplicated chrome. Removing it hands its
+   height back to the board. */
+body.activity-mode .duel-intro { display: none; }
+
+body.activity-mode .duel-board {
+  width: auto;
+  max-width: 100%;
+  max-height: calc(100dvh - var(--activity-chrome));
+  margin-inline: auto;
+}
+
+@media (max-width: 960px) {
+  body.activity-mode {
+    --activity-chrome: 340px;
+  }
+}
+
+@media (min-width: 961px) {
+  body.activity-mode {
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  body.activity-mode .duel-shell {
+    height: calc(100dvh - 58px);
+    align-items: start;
+    overflow: hidden;
+    padding-bottom: 16px;
+  }
+
+  body.activity-mode .duel-panel {
+    max-height: 100%;
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+}
+
 .activity-legal {
   display: none;
 }

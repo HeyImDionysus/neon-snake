@@ -109,6 +109,25 @@ const tests = [
     context.handleKeyboard(event(" "));
     context.handleKeyboard(event("r"));
     assert.deepEqual(calls, ["prevented", "up", "prevented", "pause", "prevented", "restart"]);
+
+    // The landing page is several screens tall. While no run is in progress
+    // these keys do nothing, so cancelling their default left keyboard users
+    // unable to scroll at all.
+    context.announcement = { textContent: "" };
+    context.modeLabel = () => "Classic";
+    for (const idleState of ["ready", "over"]) {
+      calls.length = 0;
+      context.runState = idleState;
+      context.handleKeyboard(event("w"));
+      context.handleKeyboard(event("arrowdown"));
+      context.handleKeyboard(event(" "));
+      assert.deepEqual(calls, [], `steering and pause keys must scroll the page while ${idleState}`);
+    }
+    calls.length = 0;
+    context.runState = "over";
+    context.handleKeyboard(event("r"));
+    assert.deepEqual(calls, ["prevented", "restart"], "restart still works after a run ends");
+    context.runState = "running";
   }],
   ["Activity challenge URLs preserve Discord launch identity", () => {
     const initial = "https://1531235601070686228.discordsays.com/?frame_id=frame-1&instance_id=instance-1&guild_id=guild-1&signal=OLD234&mode=portal&pace=steady";

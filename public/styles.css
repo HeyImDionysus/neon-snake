@@ -1945,15 +1945,12 @@ body.activity-mode .product-header .system-status,
 body.activity-mode .product-header .sound-toggle,
 body.activity-mode .product-header .site-menu-toggle { display: none; }
 
-body.activity-mode .product-header .site-nav {
-  position: static;
-  display: flex;
-  justify-content: flex-end;
-  transform: none;
-  opacity: 1;
-  visibility: visible;
-  pointer-events: auto;
-}
+/* The dock already carries SOLO and MULTIPLAYER, so the header nav was a
+   duplicate. It was also forced visible here while the mobile shell marked it
+   inert below 821px, which left links that rendered but could not be clicked or
+   focused. Hiding it removes the dead controls and returns the height to the
+   board. */
+body.activity-mode .product-header .site-nav { display: none; }
 
 body.activity-mode .arcade-shell {
   width: min(calc(100% - 28px), 1320px);
@@ -1965,6 +1962,50 @@ body.activity-mode .arcade-shell {
 }
 
 body.activity-mode .game-console { box-shadow: 0 22px 62px #0009; }
+
+/* Discord gives the Activity a fixed viewport, so the board has to be bounded by
+   height as well as width or the play surface runs off the bottom. Above the
+   single-column breakpoint the page itself stops scrolling and the control deck
+   scrolls in its own column instead, which keeps the board on screen. The
+   reserve covers the header, the HUD strip and the dock. */
+body.activity-mode {
+  --activity-chrome: 330px;
+}
+
+body.activity-mode .board-wrap {
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: calc(100dvh - var(--activity-chrome));
+  margin-inline: auto;
+}
+
+/* Below the two-column breakpoint the dock stacks onto a second row, so more
+   height is spoken for before the board starts. */
+@media (max-width: 960px) {
+  body.activity-mode {
+    --activity-chrome: 360px;
+  }
+}
+
+@media (min-width: 961px) {
+  body.activity-mode {
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  body.activity-mode .arcade-shell {
+    height: calc(100dvh - 58px);
+    align-items: start;
+    overflow: hidden;
+  }
+
+  body.activity-mode .control-deck {
+    max-height: 100%;
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+}
 body.activity-mode .control-deck { padding-top: 0; }
 body.activity-mode .wallpaper-launch,
 body.activity-mode .career-card,
@@ -2006,6 +2047,20 @@ body.activity-mode .control-deck .instructions { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* The global override below collapses every animation to .01ms. With
+     `both` fill that leaves the toast parked on its final keyframe, which is
+     opacity 0, so score, mutation and confirmation feedback never appeared at
+     all. Reduced motion means no movement, not no message. */
+  .pickup-toast.show {
+    /* The blanket rule below forces animation-duration with !important, so the
+       animation still ran and still landed on its final keyframe. Removing the
+       animation by name is what actually stops the keyframes applying and lets
+       this opacity win. */
+    animation-name: none !important;
+    opacity: 1 !important;
+    transform: translate(-50%, 0) !important;
+  }
+
   *, *::before, *::after {
     scroll-behavior: auto !important;
     animation-duration: .01ms !important;
