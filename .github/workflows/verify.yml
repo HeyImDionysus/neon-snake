@@ -130,13 +130,52 @@ jobs:
         with:
           gradle-version: "8.13"
 
-      - name: Build installable Android wallpaper
+      # A release keystore keeps one signing certificate across versions, which
+      # is what lets players update in place. Without the secrets the job still
+      # builds a debug APK so the project keeps compiling on every push, but
+      # that build is for verification only and is not a publishable release.
+      # The secrets context is not available in a step condition, so the keystore
+      # step always runs and reports whether it found one.
+      - name: Restore release keystore
+        id: keystore
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE" ]; then
+            printf '%s' "$ANDROID_KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "path=$RUNNER_TEMP/release.keystore" >> "$GITHUB_OUTPUT"
+          else
+            echo "No release keystore configured; building for verification only."
+            echo "path=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build signed Android wallpaper
+        if: ${{ steps.keystore.outputs.path != '' }}
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ steps.keystore.outputs.path }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: gradle -p wallpaper/android :app:assembleRelease --stacktrace
+
+      - name: Build verification-only Android wallpaper
+        if: ${{ steps.keystore.outputs.path == '' }}
         run: gradle -p wallpaper/android :app:assembleDebug --stacktrace
 
-      - name: Upload Android wallpaper
+      - name: Upload signed Android wallpaper
+        if: ${{ steps.keystore.outputs.path != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: Neon-Snake-Android
+          path: wallpaper/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload verification Android build
+        if: ${{ steps.keystore.outputs.path == '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Neon-Snake-Android-unsigned
           path: wallpaper/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30

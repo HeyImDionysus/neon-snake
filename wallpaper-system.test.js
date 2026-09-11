@@ -111,7 +111,31 @@ assert.match(wallpaperScript, /visibilitychange/);
 assert.match(wallpaperScript, /livelyPropertyListener/);
 assert.match(wallpaperScript, /resolveLivelyChoice\(value, PALETTE_CHOICES\)/);
 assert.match(wallpaperScript, /resolveLivelyChoice\(value, MODE_CHOICES\)/);
+// Lively's WebView2 player JSON-serialises every argument, so the wallpaper is
+// handed the string '{"IsPaused":true}'. Coercing that with Number() yielded
+// NaN, NaN !== 0 was true, and the wallpaper animated through every pause while
+// the downloads page promised it stopped. A name match could not see that, so
+// the reader is executed against the exact payloads Lively sends.
 assert.match(wallpaperScript, /livelyWallpaperPlaybackChanged/);
+{
+  const start = wallpaperScript.indexOf("function playbackIsPlaying");
+  assert.ok(start >= 0, "Expected a playback reader that can be exercised directly");
+  const end = wallpaperScript.indexOf("root.NeonSnakeWallpaperPreview", start);
+  const playbackIsPlaying = new Function(
+    `${wallpaperScript.slice(start, end)}; return playbackIsPlaying;`,
+  )();
+  assert.equal(playbackIsPlaying('{"IsPaused": true}'), false, "Lively's pause payload must pause the wallpaper");
+  assert.equal(playbackIsPlaying('{"IsPaused": false}'), true, "Lively's resume payload must resume the wallpaper");
+  assert.equal(playbackIsPlaying({ IsPaused: true }), false);
+  assert.equal(playbackIsPlaying("0"), false, "An older player's numeric state still pauses");
+  assert.equal(playbackIsPlaying("1"), true);
+  assert.equal(playbackIsPlaying("nonsense"), null, "An unreadable payload must not change playback");
+  assert.match(
+    wallpaperScript,
+    /livelyWallpaperPlaybackChanged = \(data\) => \{\s*const playing = playbackIsPlaying\(data\);/,
+    "The Lively callback must route through the reader these cases cover",
+  );
+}
 assert.match(wallpaperScript, /Math\.min\(2, Math\.max\(1, devicePixelRatio/);
 assert.match(wallpaperScript, /fps: clampNumber\(query\.get\("fps"\), 8, 30, 24\)/);
 assert.match(wallpaperScript, /drawSnakeHead/);

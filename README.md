@@ -183,7 +183,7 @@ The wallpaper is not a browser tab left open in the background. Both packages st
 
 ### Android
 
-`wallpaper/android` is a native Android live wallpaper for Android 8.0 and newer. Its offline autonomous engine uses the same guaranteed eat/grow rhythm and renders the same layered snake, face, Signals, Cores, pickup burst, and score HUD as the browser surface. Opening the installed app launches the system live-wallpaper chooser. The service has no `INTERNET` permission, stops its frame callbacks whenever the wallpaper is hidden, and lowers rendering from roughly 24 fps to 15 fps in system power-save mode. CI builds an installable debug-signed APK artifact that can be downloaded and installed directly.
+`wallpaper/android` is a native Android live wallpaper for Android 8.0 and newer. Its offline autonomous engine uses the same guaranteed eat/grow rhythm and renders the same layered snake, face, Signals, Cores, pickup burst, and score HUD as the browser surface. Opening the installed app launches the system live-wallpaper chooser. The service has no `INTERNET` permission, stops its frame callbacks whenever the wallpaper is hidden, and lowers rendering from roughly 24 fps to 15 fps in system power-save mode. CI builds a release APK signed with one stable keystore supplied through the `ANDROID_KEYSTORE`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` repository secrets, so players update in place instead of having to uninstall first. Without those secrets the job still builds a debug APK, but that artifact is for verification only: Android refuses to update a package whose signing certificate has changed, and every debug build carries a fresh throwaway certificate.
 
 ## Production deployment
 

@@ -491,7 +491,30 @@
     root.livelyPropertyListener("glow", glowControl.value);
     updatePreviewStatus();
   });
+  // Lively's WebView2 player JSON-serialises every argument before invoking this
+  // callback, so the wallpaper receives the string '{"IsPaused":true}' rather
+  // than a number. Coercing that with Number() produced NaN, NaN !== 0 was
+  // true, and the wallpaper animated straight through every pause.
+  // Returns true to play, false to pause, or null when the payload says nothing.
+  function playbackIsPlaying(data) {
+    let payload = data;
+    if (typeof payload === "string") {
+      try {
+        payload = JSON.parse(payload);
+      } catch {
+        const numeric = Number(data);
+        return Number.isFinite(numeric) ? numeric !== 0 : null;
+      }
+    }
+    if (payload && typeof payload === "object" && "IsPaused" in payload) {
+      return !payload.IsPaused;
+    }
+    const numeric = Number(payload?.state ?? payload);
+    return Number.isFinite(numeric) ? numeric !== 0 : null;
+  }
+
   root.NeonSnakeWallpaperPreview = {
+    playbackIsPlaying,
     settings: () => ({ ...settings }),
     update(name, value) {
       root.livelyPropertyListener(name, value);
@@ -500,8 +523,8 @@
   };
 
   root.livelyWallpaperPlaybackChanged = (data) => {
-    const playbackState = typeof data === "string" ? Number(data) : Number(data?.state ?? data);
-    setVisibility(playbackState !== 0);
+    const playing = playbackIsPlaying(data);
+    if (playing !== null) setVisibility(playing);
   };
 
   addEventListener("resize", resize, { passive: true });
