@@ -637,24 +637,32 @@ class RoomSimulation {
   }
 
   consumeInput(queue, currentDirection) {
+    // A reversal is discarded rather than applied, but it has still been seen.
+    // Reporting it as consumed keeps the acknowledgement monotonic over
+    // everything the server has processed, so a delayed duplicate cannot be
+    // replayed later and the client can retire its matching prediction.
+    let consumedThrough = 0;
     while (queue.length) {
       const input = queue.shift();
-      if (!this.reverse(input.direction, currentDirection)) return input;
+      consumedThrough = Math.max(consumedThrough, input.sequence);
+      if (!this.reverse(input.direction, currentDirection)) {
+        return { input, consumedThrough };
+      }
     }
-    return null;
+    return { input: null, consumedThrough };
   }
 
   resolveTick() {
     const game = this.game;
-    const playerInput = this.consumeInput(game.playerInputs, game.playerDirection);
-    const opponentInput = this.consumeInput(game.opponentInputs, game.opponentDirection);
-    if (playerInput) {
-      game.playerDirection = { ...playerInput.direction };
-      game.playerInputAck = Math.max(game.playerInputAck, playerInput.sequence);
+    const playerCommand = this.consumeInput(game.playerInputs, game.playerDirection);
+    const opponentCommand = this.consumeInput(game.opponentInputs, game.opponentDirection);
+    game.playerInputAck = Math.max(game.playerInputAck, playerCommand.consumedThrough);
+    game.guestInputAck = Math.max(game.guestInputAck, opponentCommand.consumedThrough);
+    if (playerCommand.input) {
+      game.playerDirection = { ...playerCommand.input.direction };
     }
-    if (opponentInput) {
-      game.opponentDirection = { ...opponentInput.direction };
-      game.guestInputAck = Math.max(game.guestInputAck, opponentInput.sequence);
+    if (opponentCommand.input) {
+      game.opponentDirection = { ...opponentCommand.input.direction };
     }
     const resolved = Rules.resolveDuelTick({
       players: {
