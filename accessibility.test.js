@@ -46,6 +46,27 @@ function assertAriaReferencesResolve(html, page) {
 }
 
 const tests = [
+  ["reduced motion keeps pickup feedback visible instead of hiding it", () => {
+    const marker = "@media (prefers-reduced-motion: reduce)";
+    const blockStart = soloStyles.indexOf(marker);
+    assert.ok(blockStart >= 0, "Expected a reduced-motion block");
+    const block = soloStyles.slice(blockStart);
+    // The blanket rule in that block collapses every animation to .01ms with
+    // !important. The toast is driven by a keyframe whose final state is
+    // opacity 0, so without an explicit exception every pickup, mutation and
+    // confirmation message rendered invisibly for reduced-motion users.
+    const toastStart = block.indexOf(".pickup-toast.show");
+    assert.ok(toastStart >= 0, "Reduced motion must give the pickup toast its own presentation");
+    const toast = block.slice(toastStart, block.indexOf("}", toastStart));
+    assert.match(toast, /animation-name:\s*none/, "The keyframe must be removed, not merely shortened");
+    assert.match(toast, /opacity:\s*1/, "The toast must stay visible without its animation");
+    assert.match(
+      soloScript,
+      /pickupToast\.classList\.remove\("show"\)/,
+      "Without an animation to end, the toast needs an explicit timer to retire it",
+    );
+  }],
+
   ["both pages expose one clear document title, main landmark, and top-level heading", () => {
     [soloHtml, duelHtml].forEach((html) => {
       assert.equal((html.match(/<title>/g) || []).length, 1);

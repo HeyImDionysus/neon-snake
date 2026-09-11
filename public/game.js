@@ -1246,12 +1246,21 @@ function animateScore() {
   container.classList.add("pop");
 }
 
+let pickupToastTimer = null;
+
 function showPickup(name, points) {
   pickupName.textContent = name;
   pickupPoints.textContent = points;
   pickupToast.classList.remove("show");
   void pickupToast.offsetWidth;
   pickupToast.classList.add("show");
+  // Under reduced motion the toast is shown without an animation, so nothing
+  // would ever take it away again. Retiring the class on a timer covers both
+  // presentations.
+  clearTimeout(pickupToastTimer);
+  pickupToastTimer = setTimeout(() => {
+    pickupToast.classList.remove("show");
+  }, 1_100);
 }
 
 function renderLeaderboard() {
@@ -2036,12 +2045,16 @@ function handleKeyboard(event) {
   };
 
   if (keyDirections[key]) {
+    // While no run is in progress these keys do nothing, and cancelling the
+    // default stopped keyboard users scrolling a page several screens tall.
+    if (runState !== "running" && runState !== "countdown" && runState !== "paused") return;
     event.preventDefault();
     requestDirection(keyDirections[key]);
     return;
   }
   if (event.repeat) return;
   if (event.code === "Space") {
+    if (runState !== "running" && runState !== "paused") return;
     event.preventDefault();
     togglePause();
   } else if (key === "r") {
