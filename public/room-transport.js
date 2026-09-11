@@ -24,6 +24,7 @@
     setTimeoutImpl = root.setTimeout,
     clearTimeoutImpl = root.clearTimeout,
     locationHref = root.location?.href || "https://neon-snake.invalid/",
+    storage,
   } = {}) {
     if (typeof code !== "string" || !code.trim()) throw new TypeError("A room code is required.");
     if (typeof clientId !== "string" || !clientId.trim()) throw new TypeError("A client id is required.");
@@ -33,6 +34,15 @@
     if (typeof WebSocketImpl !== "function") throw new TypeError("WebSocket is not available.");
 
     const normalizedCode = code.trim().toUpperCase();
+    const sessionKey = `neon-snake-realtime-session:${normalizedCode}:${clientId}`;
+    let resumeToken = "";
+    try {
+      storage = storage || root.sessionStorage;
+      const saved = storage?.getItem?.(sessionKey);
+      if (/^[a-f0-9-]{36}$/.test(saved || "")) resumeToken = saved;
+    } catch {
+      // An open transport retains its credential even when storage is unavailable.
+    }
     const baseEndpoint = new URL(endpoint, locationHref);
     if (baseEndpoint.protocol === "https:") baseEndpoint.protocol = "wss:";
     if (baseEndpoint.protocol === "http:") baseEndpoint.protocol = "ws:";
@@ -114,6 +124,11 @@
       const localPlayer = roster.find((player) => player?.id === clientId);
       role = localPlayer && Number(localPlayer.slot) >= 0 ? "player" : "spectator";
       slot = role === "player" ? Number(localPlayer.slot) : -1;
+      if (previousRole !== role) {
+        ready = false;
+        readySent = false;
+        if (role === "player") sendReady();
+      }
       players.forEach((player) => {
         if (!player || player.id === clientId) return;
         onMessage({
@@ -200,7 +215,9 @@
 
     async function connect() {
       if (closed) return;
-      const nextSocket = new WebSocketImpl(socketUrl());
+      const protocols = ["neon-snake-v1"];
+      if (resumeToken) protocols.push(`resume.${resumeToken}`);
+      const nextSocket = new WebSocketImpl(socketUrl(), protocols);
       socket = nextSocket;
       readySent = false;
       connectionTimer = setTimeoutImpl(() => {
@@ -234,6 +251,14 @@
           return;
         }
         if (message.type === "welcome") {
+          if (/^[a-f0-9-]{36}$/.test(message.resumeToken || "")) {
+            resumeToken = message.resumeToken;
+            try {
+              storage?.setItem?.(sessionKey, resumeToken);
+            } catch {
+              // In-memory reconnect remains available without session storage.
+            }
+          }
           if (connectionTimer !== null) clearTimeoutImpl(connectionTimer);
           connectionTimer = null;
           lastPongAt = now();
@@ -328,10 +353,18 @@
           armStateWatchdog(3_000);
         }
       });
-      nextSocket.addEventListener("close", () => {
+      nextSocket.addEventListener("close", (event) => {
         if (socket !== nextSocket || closed) return;
         socket = null;
         clearSocketTimers();
+        if (event.code === 4001 || event.code === 4003) {
+          closed = true;
+          onStatus({
+            state: "rejected", role, slot, retryable: false,
+            code: event.code === 4003 ? "session_conflict" : "session_replaced",
+          });
+          return;
+        }
         scheduleReconnect();
       });
       nextSocket.addEventListener("error", () => {

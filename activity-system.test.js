@@ -63,7 +63,12 @@ function request(url, {
 (async () => {
   assert.equal(manifest.devDependencies["@discord/embedded-app-sdk"], "2.5.0");
   assert.equal(manifest.devDependencies.esbuild, "0.25.12");
-  assert.match(entry, /new DiscordSDK\(CLIENT_ID\)/);
+  assert.match(entry, /new DiscordSDK\(CLIENT_ID, \{ disableConsoleLogOverride: true \}\)/);
+  assert.doesNotMatch(
+    entry,
+    /sdk\.close\(/,
+    "close() posts an RPC CLOSE opcode that ends the Activity; a retry must never call it",
+  );
   assert.match(entry, /withTimeout/);
   assert.match(entry, /neon-activity-stage/);
   assert.match(entry, /retry/);
@@ -111,29 +116,29 @@ function request(url, {
   assert.doesNotMatch(activityBoot, /DOMContentLoaded/);
   assert.match(activityBootCss, /\.activity-boot-status\[hidden\]/);
   assert.match(indexHtml, /id="activityBootStatus"/);
-  assert.match(indexHtml, /href="activity-boot\.css\?v=82"/);
-  assert.match(indexHtml, /src="activity-boot\.js\?v=82"/);
+  assert.match(indexHtml, /href="activity-boot\.css\?v=83"/);
+  assert.match(indexHtml, /src="activity-boot\.js\?v=83"/);
   [indexHtml, duelHtml].forEach((html) => {
     assert.ok(
-      html.indexOf('id="activityBootStatus"') < html.indexOf('src="activity-boot.js?v=82"'),
+      html.indexOf('id="activityBootStatus"') < html.indexOf('src="activity-boot.js?v=83"'),
       "Activity fallback markup must parse before the external boot guard",
     );
     assert.ok(
-      html.indexOf('src="activity-boot.js?v=82"') < html.indexOf('src="activity-redirect.js?v=82"'),
+      html.indexOf('src="activity-boot.js?v=83"') < html.indexOf('src="activity-redirect.js?v=83"'),
       "Activity boot guard must install before the shell script",
     );
     assert.ok(
-      html.indexOf('src="activity-redirect.js?v=82"') < html.indexOf('src="activity-sdk.js?v=82"'),
+      html.indexOf('src="activity-redirect.js?v=83"') < html.indexOf('src="activity-sdk.js?v=83"'),
       "Activity shell listeners must install before SDK startup",
     );
     assert.match(
       html,
-      /src="activity-redirect\.js\?v=82" data-activity-critical/,
+      /src="activity-redirect\.js\?v=83" data-activity-critical/,
       "Activity shell load failures must remain boot-fatal",
     );
     assert.doesNotMatch(
       html,
-      /src="signal-field\.js\?v=82" data-activity-critical/,
+      /src="signal-field\.js\?v=83" data-activity-critical/,
       "Decorative signal-field failures must not cover a playable Activity",
     );
   });
@@ -141,17 +146,17 @@ function request(url, {
     /<script src="([^"]+)" data-activity-critical><\/script>/g,
   )].map((match) => match[1]);
   assert.deepEqual(criticalScripts(indexHtml), [
-    "activity-redirect.js?v=82",
-    "game-logic.js?v=82",
-    "touch-controls.js?v=82",
-    "game.js?v=82",
+    "activity-redirect.js?v=83",
+    "game-logic.js?v=83",
+    "touch-controls.js?v=83",
+    "game.js?v=83",
   ]);
   assert.deepEqual(criticalScripts(duelHtml), [
-    "activity-redirect.js?v=82",
-    "game-logic.js?v=82",
-    "room-transport.js?v=82",
-    "touch-controls.js?v=82",
-    "duel.js?v=82",
+    "activity-redirect.js?v=83",
+    "game-logic.js?v=83",
+    "room-transport.js?v=83",
+    "touch-controls.js?v=83",
+    "duel.js?v=83",
   ]);
   assert.match(indexHtml, /id="activityDock"/);
   assert.match(indexHtml, /id="activityDockInvite"/);
@@ -159,7 +164,7 @@ function request(url, {
   assert.match(indexHtml, /id="activityWebsiteLink"/);
   assert.match(indexHtml, /id="activityWallpapersLink"/);
   assert.match(indexHtml, /https:\/\/neon-snake-green-tau\.vercel\.app\/downloads\.html/);
-  assert.match(indexHtml, /src="activity-sdk\.js\?v=82"/);
+  assert.match(indexHtml, /src="activity-sdk\.js\?v=83"/);
   ["classic", "portal", "rush", "canvas"].forEach((mode) => {
     assert.match(indexHtml, new RegExp(`name="mode" value="${mode}"`));
   });
@@ -175,11 +180,11 @@ function request(url, {
   assert.match(duelHtml, /id="activityContext"/);
   assert.match(duelHtml, /id="activitySoloLink"/);
   assert.match(duelHtml, /id="activityContextRetry"/);
-  assert.match(duelHtml, /src="activity-redirect\.js\?v=82"/);
+  assert.match(duelHtml, /src="activity-redirect\.js\?v=83"/);
   assert.match(duelHtml, /class="activity-legal" aria-label="Activity policies"/);
   assert.match(duelHtml, /href="\/terms\.html" target="_blank"/);
   assert.match(duelHtml, /href="\/privacy\.html" target="_blank"/);
-  assert.match(duelHtml, /src="activity-sdk\.js\?v=82"/);
+  assert.match(duelHtml, /src="activity-sdk\.js\?v=83"/);
   assert.match(duel, /NeonSnakeActivity\.ready/);
   assert.match(duel, /NeonSnakeActivity\?\.retry\(\)/);
   assert.match(duel, /catch \(error\) \{\s*renderActivityFailure\(error\)/);

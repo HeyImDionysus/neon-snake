@@ -4,7 +4,8 @@
   "private": true,
   "description": "A fluid neon snake game with solo modes, authoritative multiplayer, public profiles, rankings, and native live wallpapers.",
   "scripts": {
-    "build:activity": "node scripts/build-activity.mjs"
+    "build:activity": "node scripts/build-activity.mjs",
+    "test": "node scripts/verify.cjs"
   },
   "engines": {
     "node": ">=22"
@@ -14,6 +15,7 @@
   },
   "devDependencies": {
     "@discord/embedded-app-sdk": "2.5.0",
-    "esbuild": "0.25.12"
+    "esbuild": "0.25.12",
+    "playwright": "1.62.1"
   }
 }

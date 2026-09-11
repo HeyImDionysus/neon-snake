@@ -188,11 +188,19 @@
       }
       const payload = await response.json();
       if (!payload?.profile) throw new Error("PROFILE SAVE RETURNED NO PLAYER");
+      const latestDraft = draftFromControls();
+      const editedWhileSaving = !Config.draftsEqual(latestDraft, draft);
       render(payload.profile, true);
-      setText(saveStatus, "PUBLISHED · ROOMS AND RANKINGS NOW USE THIS PROFILE");
+      if (editedWhileSaving) {
+        writeControls(latestDraft);
+        applyDraftPreview(latestDraft);
+      }
+      setText(saveStatus, editedWhileSaving
+        ? "PUBLISHED · YOUR NEWER CHANGES ARE STILL UNSAVED"
+        : "PUBLISHED · ROOMS AND RANKINGS NOW USE THIS PROFILE");
       void globalThis.NeonSnakeAccount?.refresh();
     } catch (saveError) {
-      applyDraftPreview(draft, { updateState: false });
+      applyDraftPreview(draftFromControls(), { updateState: false });
       draftState.classList.add("is-dirty");
       setText(draftState, "NOT SAVED");
       setText(saveStatus, saveError?.name === "AbortError"

@@ -26,7 +26,12 @@ node service-worker.test.js
 node deployment-contract.test.js
 node realtime-worker.test.js
 node platform-security.test.js
+node account-persistence.test.js
 node activity-system.test.js
+node activity-lifecycle.test.js
+node activity-navigation-browser.test.js
+node terminal-room-ui.test.js
+node realtime-integration.test.js
 node profile-system.test.js
 node profile-interaction.test.js
 node profile-browser.test.js
@@ -151,6 +156,11 @@ Discord sign-in is optional for play and required only for a verified profile or
 - `deployment-contract.test.js` — executable public-boundary, manifest, cache-shell, and hosted-verification regressions.
 - `realtime-worker.test.js` — executable Vercel connection, Redis relay, input authority, and verified-result regressions.
 - `platform-security.test.js` — executable Discord data-minimization, state, cookie, HMAC, and leaderboard-write regressions.
+- `account-persistence.test.js` — executable proof that an unreadable profile record is never overwritten by a failed sign-in.
+- `realtime-integration.test.js`, `realtime-fixture-server.cjs` — two real Vercel-shaped hubs, real WebSockets and a real Redis 7 exercising seat ownership, spectator departure, queue promotion and stale-seat expiry.
+- `activity-lifecycle.test.js` — executable Activity handshake lifecycle: orientation hangs, token timeouts, duplicate retries, and a retry that must never close the Activity.
+- `activity-navigation-browser.test.js` — real Chromium proof that the Embedded App SDK still reaches its cross-origin parent after Solo → Multiplayer → Solo navigation.
+- `terminal-room-ui.test.js` — executable proof that a replaced or conflicting room session stops reconnecting and explains the recovery.
 - `profile-system.test.js` — executable profile customization, public identity, live activity, and origin-bound write regressions.
 - `activity-system.test.js` — executable Discord iframe, SDK, instance-room, origin, token, and partitioned-cookie regressions.
 - `product-experience.test.js` — executable navigation, download routing, copy, responsive-header, profile, and leaderboard regressions.
@@ -210,7 +220,8 @@ The production live-room adapter opens one secure same-origin WebSocket to Verce
 
 The server boundary enforces:
 
-- an exact same-host HTTPS browser Origin, exact six-character room codes, and bounded client identifiers;
+- an exact same-host HTTPS browser Origin (plus same-host HTTP loopback for local development), exact six-character room codes, and bounded client identifiers;
+- a private per-connection resume credential, issued by the server and stored only as a SHA-256 digest, so a seat cannot be claimed by copying the client identifier that every roster broadcasts;
 - a 32 KiB message ceiling and per-connection rate limit;
 - exactly two live player slots, with later visitors restricted to spectator reads;
 - Player 1-only countdowns, player-only direction inputs, and rejection of every browser state snapshot;

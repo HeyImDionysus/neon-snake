@@ -376,14 +376,17 @@ async function persistDiscordSession(discordUser, {
   runRedis,
 }) {
   const provisional = publicProfile(discordUser);
+  const previousValue = await runRedis(["GET", `neon-snake:profile:${provisional.id}`]);
   let previousProfile = null;
-  try {
-    const previousValue = await runRedis(["GET", `neon-snake:profile:${provisional.id}`]);
-    previousProfile = previousValue
-      ? (typeof previousValue === "string" ? JSON.parse(previousValue) : previousValue)
-      : null;
-  } catch {
-    previousProfile = null;
+  if (previousValue !== null && previousValue !== undefined) {
+    try {
+      previousProfile = typeof previousValue === "string" ? JSON.parse(previousValue) : previousValue;
+    } catch {
+      throw new Error("Stored player profile could not be read.");
+    }
+    if (!previousProfile || typeof previousProfile !== "object" || previousProfile.id !== provisional.id) {
+      throw new Error("Stored player profile is invalid.");
+    }
   }
   const profile = storedProfile(discordUser, previousProfile);
   const sessionToken = random(32);

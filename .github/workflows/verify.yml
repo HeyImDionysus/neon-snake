@@ -10,7 +10,18 @@ permissions:
 jobs:
   deterministic-browser-rules:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
+
+    services:
+      redis:
+        image: redis:7.0.15
+        ports:
+          - 16379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
 
     steps:
       - name: Check out source
@@ -23,6 +34,9 @@ jobs:
 
       - name: Install server runtime
         run: npm ci --ignore-scripts
+
+      - name: Install browser for Activity protocol verification
+        run: npx playwright install --with-deps chromium
 
       - name: Verify syntax
         run: |
@@ -65,7 +79,12 @@ jobs:
           node deployment-contract.test.js
           node realtime-worker.test.js
           node platform-security.test.js
+          node account-persistence.test.js
           node activity-system.test.js
+          node activity-lifecycle.test.js
+          ACTIVITY_BROWSER_REQUIRED=1 node activity-navigation-browser.test.js
+          node terminal-room-ui.test.js
+          REALTIME_REDIS_REQUIRED=1 node realtime-integration.test.js
           node profile-system.test.js
           node profile-interaction.test.js
           PROFILE_BROWSER_REQUIRED=1 node profile-browser.test.js

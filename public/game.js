@@ -1682,6 +1682,7 @@ function togglePause() {
     announcement.textContent = "Game paused.";
   } else {
     const pauseDuration = performance.now() - pausedAt;
+    if (lastEatAt) lastEatAt += pauseDuration;
     if (food?.kind === "core") food.expiresAt += pauseDuration;
     if (comboExpiresAt) comboExpiresAt += pauseDuration;
     if (overdriveUntil) overdriveUntil += pauseDuration;
@@ -2020,7 +2021,8 @@ function updateReadyOverlay() {
 }
 
 function handleKeyboard(event) {
-  if (event.target.matches("button, select, input, textarea")) return;
+  if (event.defaultPrevented || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
+  if (event.target?.isContentEditable || event.target?.closest?.("button, select, input, textarea, a[href], [role='button'], [role='tab']")) return;
   const key = event.key.toLowerCase();
   const keyDirections = {
     arrowup: DIRECTIONS.up,
@@ -2036,7 +2038,10 @@ function handleKeyboard(event) {
   if (keyDirections[key]) {
     event.preventDefault();
     requestDirection(keyDirections[key]);
-  } else if (event.code === "Space") {
+    return;
+  }
+  if (event.repeat) return;
+  if (event.code === "Space") {
     event.preventDefault();
     togglePause();
   } else if (key === "r") {

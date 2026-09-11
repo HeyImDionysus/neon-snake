@@ -39,8 +39,9 @@ class FakeWebSocket {
   static OPEN = 1;
   static instances = [];
 
-  constructor(url) {
+  constructor(url, protocols) {
     this.url = url;
+    this.protocols = protocols;
     this.readyState = 0;
     this.listeners = new Map();
     this.messages = [];
@@ -111,6 +112,48 @@ function createTimerHarness() {
 }
 
 const tests = [
+  ["a promoted waiting participant can explicitly ready without being auto-readied", async () => {
+    const timers = createTimerHarness();
+    const transport = await transports.createWebSocketRoomTransport({
+      code: "ABC234", clientId: "waiting-client", endpoint: "https://neon.example.test/api/realtime",
+      WebSocketImpl: FakeWebSocket, onMessage() {}, onStatus() {},
+      setTimeoutImpl: timers.setTimeout, clearTimeoutImpl: timers.clearTimeout,
+    });
+    const socket = FakeWebSocket.instances.at(-1);
+    socket.emit("open");
+    socket.message({ type: "welcome", role: "spectator", slot: -1, players: [], waiting: [] });
+    socket.message({ type: "roster", players: [{ id: "waiting-client", slot: 1, ready: false }] });
+    assert.equal(socket.messages.some((message) => message.ready === true), false);
+    assert.equal(transport.send({ type: "ready", ready: true }), true);
+    assert.deepEqual(socket.messages.at(-1), { type: "ready", ready: true });
+    transport.close();
+  }],
+  ["private resume credentials survive reconnect and session conflicts stop retrying", async () => {
+    const timers = createTimerHarness();
+    const statuses = [];
+    const stored = new Map();
+    const token = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    const options = {
+      code: "ABC234", clientId: "private-client", endpoint: "https://neon.example.test/api/realtime",
+      WebSocketImpl: FakeWebSocket, onMessage() {}, onStatus: (status) => statuses.push(status),
+      storage: { getItem: (key) => stored.get(key), setItem: (key, value) => stored.set(key, value) },
+      setTimeoutImpl: timers.setTimeout, clearTimeoutImpl: timers.clearTimeout,
+    };
+    let transport = await transports.createWebSocketRoomTransport(options);
+    let socket = FakeWebSocket.instances.at(-1);
+    socket.emit("open");
+    socket.message({ type: "welcome", role: "spectator", slot: -1, players: [], resumeToken: token });
+    transport.close();
+    transport = await transports.createWebSocketRoomTransport(options);
+    socket = FakeWebSocket.instances.at(-1);
+    assert.deepEqual(socket.protocols, ["neon-snake-v1", `resume.${token}`]);
+    assert.equal(socket.url.includes(token), false);
+    socket.emit("close", { code: 4003 });
+    assert.equal(statuses.at(-1).code, "session_conflict");
+    assert.equal(statuses.at(-1).retryable, false);
+    assert.equal(timers.size(), 0);
+    transport.close();
+  }],
   ["support detection is explicit", () => {
     assert.equal(transports.broadcastRoomSupported({ BroadcastChannel: FakeBroadcastChannel }), true);
     assert.equal(transports.broadcastRoomSupported({}), false);
