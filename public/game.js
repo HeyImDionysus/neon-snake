@@ -175,7 +175,6 @@ let lastFrame = performance.now();
 let renderFrame = 0;
 let lastActivityIdleFrame = -ACTIVITY_IDLE_FRAME_INTERVAL;
 let resizeFrame = 0;
-let lastGamepadPoll = 0;
 let gamepadDirection = "";
 let gamepadPausePressed = false;
 let soundEnabled = getStored("neon-snake-sound", "true") !== "false";
@@ -2060,7 +2059,12 @@ function updateReadyOverlay() {
 
 function handleKeyboard(event) {
   if (event.defaultPrevented || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
-  if (event.target?.isContentEditable || event.target?.closest?.("button, select, input, textarea, a[href], [role='button'], [role='tab']")) return;
+  // Only text entry owns the keyboard. Starting a run or Autopilot focuses a
+  // button, and ignoring every key aimed at a button meant Escape, R, L and the
+  // arrows silently stopped working after any click.
+  const target = event.target;
+  if (target?.isContentEditable || target?.closest?.("input, textarea, select, [contenteditable=''], [contenteditable='true']")) return;
+  const onActivatable = Boolean(target?.closest?.("button, a[href], [role='button'], [role='tab']"));
   const key = event.key.toLowerCase();
   const keyDirections = {
     arrowup: DIRECTIONS.up,
@@ -2089,7 +2093,8 @@ function handleKeyboard(event) {
     return;
   }
   if (event.code === "Space") {
-    if (runState !== "running" && runState !== "paused") return;
+    // Space on a focused button is that button's own activation.
+    if (onActivatable || (runState !== "running" && runState !== "paused")) return;
     event.preventDefault();
     togglePause();
   } else if (key === "r") {
@@ -2122,8 +2127,9 @@ function handleVisibilityChange() {
 }
 
 function pollGamepad(now) {
-  if (now - lastGamepadPoll < 80 || !navigator.getGamepads) return;
-  lastGamepadPoll = now;
+  // Polled every frame: turns are edge-triggered below, and an 80 ms throttle
+  // added up to a whole step of latency at the faster paces.
+  if (!navigator.getGamepads) return;
   const pad = [...navigator.getGamepads()].find(Boolean);
   if (!pad) return;
 

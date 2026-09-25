@@ -531,7 +531,7 @@ const tests = [
       run.mode === "rush" ? "deadline" : "timeout",
       JSON.stringify(run),
     ));
-    assert.ok(runs.find((run) => run.mode === "portal").foods >= 55, JSON.stringify(runs));
+    assert.ok(runs.find((run) => run.mode === "portal").foods >= 30, JSON.stringify(runs));
     assert.ok(runs.find((run) => run.mode === "rush").foods >= 40, JSON.stringify(runs));
     assert.ok(runs.find((run) => run.mode === "canvas").foods >= 18, JSON.stringify(runs));
   }],
@@ -561,7 +561,9 @@ const tests = [
     assert.equal(new Set(codes).size, codes.length);
     const expectations = {
       classic: { foods: 45, maxCaptureGap: 140 },
-      portal: { foods: 100, maxCaptureGap: 180 },
+      // Portal follows the same completion-safe cycle as Classic, trading some
+      // early speed for a guarantee that it never circles its tail forever.
+      portal: { foods: 70, maxCaptureGap: 180 },
     };
     for (const [mode, expectation] of Object.entries(expectations)) {
       const runs = codes.map((code) => simulateSolo(code, mode, 2000));
@@ -645,6 +647,15 @@ const tests = [
       + `${Math.max(...runs.map((run) => run.maxCaptureGap))}, `
       + `expired cores ${runs.map((run) => run.coresExpired).join("/")}\n`,
     );
+  }],
+  ["Portal Autopilot completes the board instead of circling its tail", () => {
+    // NEON22 used to settle into an exact 182-step tail loop at length 181:
+    // the safety cycle was Classic-only and the stagnation window cannot see
+    // loops that long. The serpentine cycle is equally valid when edges wrap.
+    const run = simulateSolo("NEON22", "portal", 120_000);
+    assert.equal(run.outcome, "clear", JSON.stringify(run));
+    assert.equal(run.length, 400, JSON.stringify(run));
+    assert.ok(run.maxCaptureGap <= 500, JSON.stringify(run));
   }],
 ];
 

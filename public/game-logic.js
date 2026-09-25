@@ -530,7 +530,7 @@
   }
 
   function cyclePlannerState(snake, food, mode, gridSize) {
-    if (mode !== "classic" || !Array.isArray(snake) || snake.length < 2) return null;
+    if ((mode !== "classic" && mode !== "portal") || !Array.isArray(snake) || snake.length < 2) return null;
     const cycle = hamiltonianCycle(gridSize);
     if (!cycle.length) return null;
 

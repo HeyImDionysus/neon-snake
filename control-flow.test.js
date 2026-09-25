@@ -128,6 +128,21 @@ const tests = [
     context.handleKeyboard(event("r"));
     assert.deepEqual(calls, ["prevented", "restart"], "restart still works after a run ends");
     context.runState = "running";
+
+    // Starting a run or Autopilot focuses a button. Shortcuts must still work
+    // there, while Space keeps the button's own activation.
+    const button = { matches() { return false; }, closest(selector) { return /button/.test(selector) ? this : null; } };
+    context.endRun = () => calls.push("end");
+    calls.length = 0;
+    context.handleKeyboard(event("arrowup", { target: button }));
+    context.handleKeyboard(event("Escape", { target: button }));
+    context.handleKeyboard(event(" ", { target: button }));
+    assert.deepEqual(calls, ["prevented", "up", "prevented", "end"]);
+    calls.length = 0;
+    const field = { matches() { return false; }, closest(selector) { return /input/.test(selector) ? this : null; } };
+    context.handleKeyboard(event("arrowup", { target: field }));
+    context.handleKeyboard(event("Escape", { target: field }));
+    assert.deepEqual(calls, [], "text entry keeps the keyboard");
   }],
   ["Activity challenge URLs preserve Discord launch identity", () => {
     const initial = "https://1531235601070686228.discordsays.com/?frame_id=frame-1&instance_id=instance-1&guild_id=guild-1&signal=OLD234&mode=portal&pace=steady";
