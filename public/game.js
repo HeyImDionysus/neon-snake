@@ -1814,7 +1814,7 @@ function endGame(reason) {
   saveProfile();
   updateHud();
   setSetupDisabled(false);
-  setState("over", reason === "time" ? "TIME EXPIRED" : reason === "clear" ? "BOARD CLEARED" : "SIGNAL LOST");
+  setState("over", reason === "time" ? "TIME EXPIRED" : reason === "clear" ? "BOARD CLEARED" : "RUN OVER");
 
   gameConsole.classList.remove("crash");
   void gameConsole.offsetWidth;
