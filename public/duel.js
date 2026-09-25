@@ -51,7 +51,6 @@ const DUEL_GRID = Rules.duelGridSize(20);
 const SIGNAL_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const TICK_DURATION = 138;
 const LIVE_ROOM_CAPACITY = 2;
-const PEER_TIMEOUT = 6000;
 const DIRECTIONS = {
   up: { x: 0, y: -1 },
   right: { x: 1, y: 0 },
@@ -88,10 +87,11 @@ let playerInputBuffer = [];
 let playerInputSequences = [];
 let opponentInputBuffer = [];
 let opponentInputSequences = [];
+// The server tick each buffered live turn was stamped for (see requestDirection).
+let playerInputTicks = [];
+let opponentInputTicks = [];
 let autopilotRecentHeads = [];
 let localInputSequence = Date.now();
-let lastGuestInputSequence = 0;
-let guestInputAck = 0;
 let playerScore = 0;
 let opponentScore = 0;
 let food = null;
@@ -117,17 +117,17 @@ let roomRole = "disconnected";
 let roomSlot = -1;
 let roomConnectionState = "disconnected";
 let roomPlayers = [];
+let presenceStartedAt = 0;
 let roomWaitingPlayers = [];
 let roomQueuePosition = 0;
 let roomPeers = new Map();
 let authoritativeDeparturePending = false;
 let liveCountdownTimer = null;
 let liveCountdownActive = false;
-let pendingCountdownRound = 0;
-let pendingCountdownExpiresAt = 0;
-let pendingCountdownAttempts = 0;
 let liveRoundId = 0;
-let liveSequence = 0;
+// The server tick the screen currently shows: the last snapshot's tick plus
+// the ticks predicted since. Input stamps are derived from it.
+let predictedTick = 0;
 let lastRemoteSequence = -1;
 let liveLatencyMs = 0;
 let liveClockOffsetMs = null;
@@ -226,16 +226,16 @@ function resetDuel() {
   playerInputSequences = [];
   opponentInputBuffer = [];
   opponentInputSequences = [];
+  playerInputTicks = [];
+  opponentInputTicks = [];
   autopilotRecentHeads = [];
-  lastGuestInputSequence = 0;
-  guestInputAck = 0;
   playerScore = 0;
   opponentScore = 0;
   signalCursor = Rules.signalState(roomCode);
   lastMoveAt = performance.now();
   nextMoveAt = 0;
   pausedMotion = 1;
-  liveSequence = 0;
+  predictedTick = 0;
   lastRemoteSequence = -1;
   playerPredictionIndex = 0;
   opponentPredictionIndex = 0;
@@ -269,7 +269,10 @@ function placeFood() {
 
 function resizeCanvas() {
   const cssSize = Math.max(1, board.getBoundingClientRect().width);
-  const pixelRatioCap = activityEmbedded ? ACTIVITY_PIXEL_RATIO_CAP : 2;
+  // An overheating phone (reported by Discord) renders at 1x until it cools.
+  const pixelRatioCap = document.documentElement.dataset.thermal
+    ? 1
+    : activityEmbedded ? ACTIVITY_PIXEL_RATIO_CAP : 2;
   const pixelRatio = Math.min(pixelRatioCap, Math.max(1, window.devicePixelRatio || 1));
   const backingSize = Math.max(1, Math.round(cssSize * pixelRatio));
   if (
@@ -452,10 +455,10 @@ function render(now) {
   const localIndex = duelType === "live"
     ? roomPlayers.findIndex((player) => player.id === clientId)
     : -1;
-  const firstDirection = roomTransport?.authoritative && localIndex === 0
+  const firstDirection = localIndex === 0
     ? previewDirection(playerDirection, playerInputBuffer, playerPredictionIndex)
     : playerDirection;
-  const secondDirection = roomTransport?.authoritative && localIndex === 1
+  const secondDirection = localIndex === 1
     ? previewDirection(opponentDirection, opponentInputBuffer, opponentPredictionIndex)
     : opponentDirection;
   drawFluidSnake(
@@ -547,47 +550,26 @@ function tickAi(now) {
   applyDuelResult(result, now);
 }
 
-function tickLiveHost(now) {
-  const playerTurn = Rules.consumeDirectionBuffer(playerInputBuffer, playerDirection);
-  const opponentTurn = Rules.consumeDirectionBuffer(opponentInputBuffer, opponentDirection);
-  const opponentTurnConsumed = opponentTurn.queue.length < opponentInputBuffer.length;
-  playerQueuedDirection = playerTurn.direction;
-  opponentQueuedDirection = opponentTurn.direction;
-  playerInputBuffer = playerTurn.queue;
-  opponentInputBuffer = opponentTurn.queue;
-  if (opponentTurnConsumed) {
-    const appliedSequence = opponentInputSequences.shift();
-    if (Number.isSafeInteger(appliedSequence)) guestInputAck = Math.max(guestInputAck, appliedSequence);
-  }
-  playerDirection = { ...playerQueuedDirection };
-  opponentDirection = { ...opponentQueuedDirection };
-  const result = Rules.resolveDuelTick({
-    players: {
-      player: { snake: playerSnake, direction: playerDirection, score: playerScore },
-      opponent: { snake: opponentSnake, direction: opponentDirection, score: opponentScore },
-    },
-    food,
-    mode: "classic",
-    gridSize: DUEL_GRID,
-  });
-  applyDuelResult(result, now);
-  broadcastSnapshot(result);
-}
-
 function tickPredictedLive(now) {
   const localIndex = roomPlayers.findIndex((player) => player.id === clientId);
   if (localIndex < 0) {
     nextMoveAt = 0;
     return;
   }
+  predictedTick += 1;
 
   let predictedPlayerDirection = playerDirection;
   let predictedOpponentDirection = opponentDirection;
+  // A buffered turn is drawn on the tick it was stamped for, which is the
+  // tick the server applies it on, so the screen does not have to snap back.
+  const turnIsDue = (ticks, index) => !(ticks[index] > predictedTick);
   if (localIndex === 0) {
-    const next = previewDirection(playerDirection, playerInputBuffer, playerPredictionIndex);
-    if (next !== playerDirection) playerPredictionIndex += 1;
-    predictedPlayerDirection = { ...next };
-  } else {
+    if (turnIsDue(playerInputTicks, playerPredictionIndex)) {
+      const next = previewDirection(playerDirection, playerInputBuffer, playerPredictionIndex);
+      if (next !== playerDirection) playerPredictionIndex += 1;
+      predictedPlayerDirection = { ...next };
+    }
+  } else if (turnIsDue(opponentInputTicks, opponentPredictionIndex)) {
     const next = previewDirection(opponentDirection, opponentInputBuffer, opponentPredictionIndex);
     if (next !== opponentDirection) opponentPredictionIndex += 1;
     predictedOpponentDirection = { ...next };
@@ -627,7 +609,7 @@ function tickPredictedLive(now) {
 
 function advanceGame(now) {
   if (runState !== "running" || !nextMoveAt) return;
-  if (duelType === "live" && roomTransport?.authoritative) {
+  if (duelType === "live") {
     let predictedSteps = 0;
     while (runState === "running" && now >= nextMoveAt && predictedSteps < 2) {
       tickPredictedLive(nextMoveAt);
@@ -638,14 +620,10 @@ function advanceGame(now) {
     if (predictedSteps === 2 && now >= nextMoveAt) nextMoveAt = now + TICK_DURATION;
     return;
   }
-  const isLiveHost = duelType === "live" && roomPlayers[0]?.id === clientId;
-  if (duelType === "live" && !isLiveHost) return;
-
   let steps = 0;
   while (runState === "running" && now >= nextMoveAt && steps < 3) {
     const stepAt = nextMoveAt;
-    if (duelType === "ai") tickAi(stepAt);
-    else tickLiveHost(stepAt);
+    tickAi(stepAt);
     nextMoveAt += TICK_DURATION;
     steps += 1;
   }
@@ -653,7 +631,14 @@ function advanceGame(now) {
 }
 
 function setRunState(state, label) {
+  const enteringCountdown = state === "countdown" && runState !== "countdown";
   runState = state;
+  // Bring the arena on screen when a round is about to start; the page intro
+  // pushes it below the fold on laptop displays.
+  if (enteringCountdown && !document.body.classList.contains("activity-mode")) {
+    const smooth = !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    board.closest(".duel-console")?.scrollIntoView?.({ block: "nearest", behavior: smooth ? "smooth" : "auto" });
+  }
   document.body.dataset.duelState = state;
   statusText.textContent = label;
   const pausable = duelType === "ai" && (state === "running" || state === "paused");
@@ -669,6 +654,34 @@ function setRunState(state, label) {
     duelType === "live" && (state === "countdown" || state === "running"),
     liveRoundId,
   );
+  reportPresence();
+}
+
+// Inside Discord, the player's status says what they are doing. The Activity
+// bridge keeps only the latest description and rate-limits the calls.
+function describePresence() {
+  const tally = `${playerScore}–${opponentScore}`;
+  const live = runState === "running" || runState === "paused";
+  if (duelType !== "live") {
+    return { details: "Duel vs Autopilot", state: live ? tally : "Getting ready" };
+  }
+  const details = roomCode ? `Multiplayer · Room ${roomCode}` : "Multiplayer";
+  if (roomRole === "spectator") {
+    return { details, state: live ? `Watching a round · ${tally}` : "Watching the room" };
+  }
+  if (roomRole !== "player") return { details, state: "Joining the room" };
+  if (live) return { details, state: `Round live · ${tally}` };
+  if (runState === "countdown") return { details, state: "Round starting" };
+  return { details, state: roomPlayers.length < 2 ? "Waiting for a rival" : "In the lobby" };
+}
+
+function reportPresence() {
+  const activity = globalThis.NeonSnakeActivity;
+  if (!activityEmbedded || !activity?.setPresence) return;
+  const live = runState === "running" || runState === "paused";
+  if (!live) presenceStartedAt = 0;
+  else if (!presenceStartedAt) presenceStartedAt = Date.now();
+  activity.setPresence({ ...describePresence(), startedAt: presenceStartedAt || undefined });
 }
 
 function showOverlay(kicker, title, message, action = "") {
@@ -722,6 +735,29 @@ function startAiDuel() {
   focusWithoutScroll(canvas);
 }
 
+// Says who crashed and into what, from this screen's point of view. It used
+// to print the cause alone ("First crash: opponent."), which read as if the
+// rival had crashed when the player had run into the rival.
+function describeCrash(winnerIndex, localIndex, crashes = {}) {
+  if (winnerIndex < 0) {
+    return crashes.player === "head-on" || crashes.player === "head-swap"
+      ? "Head-on: both snakes hit each other on the same tick."
+      : "Both signals broke on the same tick.";
+  }
+  const loserIndex = 1 - winnerIndex;
+  const cause = crashes[loserIndex === 0 ? "player" : "opponent"];
+  const you = loserIndex === localIndex;
+  const who = you ? "You"
+    : duelType === "ai" ? "Autopilot"
+      : localIndex >= 0 ? "Your rival" : `Player ${loserIndex + 1}`;
+  const other = you ? (duelType === "ai" ? "Autopilot" : "your rival")
+    : localIndex >= 0 ? "you" : `Player ${winnerIndex + 1}`;
+  if (cause === "wall") return `${who} hit the wall.`;
+  if (cause === "self") return `${who} ran into ${you ? "your" : "their"} own tail.`;
+  if (cause === "opponent") return `${who} ran into ${other}.`;
+  return `${who} crashed first.`;
+}
+
 function endDuel(winner, crashes = {}) {
   nextMoveAt = 0;
   if (duelType === "live") {
@@ -739,11 +775,10 @@ function endDuel(winner, crashes = {}) {
     : opponentWon ? "RIVAL<br><em>SURVIVED</em>"
       : spectatorWinner ? `PLAYER ${winnerIndex + 1}<br><em>VICTORIOUS</em>`
         : "DUAL<br><em>COLLISION</em>";
-  const reason = crashes.player || crashes.opponent || "collision";
   showOverlay(
     duelType === "ai" ? "AUTOPILOT DUEL COMPLETE" : "LIVE DUEL COMPLETE",
     title,
-    winner ? `First crash: ${reason.replace("-", " ")}.` : "Both signals broke on the same tick.",
+    describeCrash(winnerIndex, localIndex, crashes),
     duelType === "ai" ? "Run it back" : "",
   );
   announcement.textContent = playerWon
@@ -770,6 +805,7 @@ function updateHud() {
     rightLabel.textContent = "PLAYER 2";
     leftScore.textContent = String(playerScore).padStart(2, "0");
     rightScore.textContent = String(opponentScore).padStart(2, "0");
+    reportPresence();
     return;
   }
   const localIsOpponent = duelType === "live" && localIndex === 1;
@@ -777,6 +813,25 @@ function updateHud() {
   rightLabel.textContent = localIsOpponent ? "YOU" : duelType === "ai" ? "AUTOPILOT" : "RIVAL";
   leftScore.textContent = String(playerScore).padStart(2, "0");
   rightScore.textContent = String(opponentScore).padStart(2, "0");
+  reportPresence();
+}
+
+// Predicted ticks land at the same moment the server runs them (snapshots are
+// aligned by their one-way delay), so a turn pressed less than a one-way trip
+// before the next tick cannot reach the server in time. Stamping it for the
+// first tick it can reach, and drawing it there, keeps the screen in step with
+// the server instead of showing the turn a cell early and snapping back.
+const INPUT_TRANSIT_MARGIN_MS = 12;
+// Used until the first ping returns.
+const ASSUMED_ROUND_TRIP_MS = 100;
+
+function liveInputTick(stampedTicks) {
+  const untilNextTick = nextMoveAt ? nextMoveAt - performance.now() : TICK_DURATION;
+  const transit = (liveLatencyMs || ASSUMED_ROUND_TRIP_MS) / 2 + INPUT_TRANSIT_MARGIN_MS;
+  const ticksLate = untilNextTick < transit ? Math.ceil((transit - untilNextTick) / TICK_DURATION) : 0;
+  const reachable = predictedTick + 1 + ticksLate;
+  const afterQueued = stampedTicks.length ? stampedTicks[stampedTicks.length - 1] + 1 : 0;
+  return Math.max(reachable, afterQueued);
 }
 
 function requestDirection(next) {
@@ -784,41 +839,28 @@ function requestDirection(next) {
   if (duelType === "live") {
     const localIndex = roomPlayers.findIndex((player) => player.id === clientId);
     if (localIndex < 0) return;
-    if (roomTransport?.authoritative) {
-      const currentDirection = localIndex === 0 ? playerDirection : opponentDirection;
-      const currentBuffer = localIndex === 0 ? playerInputBuffer : opponentInputBuffer;
-      const buffered = Rules.bufferDirection(currentBuffer, currentDirection, next);
-      if (buffered.length > currentBuffer.length) {
-        localInputSequence = Math.max(localInputSequence + 1, Date.now());
-        const sent = postRoomMessage({
-          type: "input",
-          round: liveRoundId,
-          sequence: localInputSequence,
-          direction: next,
-        });
-        if (!sent) return;
-        if (localIndex === 0) {
-          playerInputBuffer = buffered;
-          playerInputSequences.push(localInputSequence);
-        } else {
-          opponentInputBuffer = buffered;
-          opponentInputSequences.push(localInputSequence);
-        }
-      }
-    } else if (localIndex === 0) {
-      playerInputBuffer = Rules.bufferDirection(playerInputBuffer, playerDirection, next);
-    } else {
-      const buffered = Rules.bufferDirection(opponentInputBuffer, opponentDirection, next);
-      if (buffered.length > opponentInputBuffer.length) {
-        localInputSequence = Math.max(localInputSequence + 1, Date.now());
+    const currentDirection = localIndex === 0 ? playerDirection : opponentDirection;
+    const currentBuffer = localIndex === 0 ? playerInputBuffer : opponentInputBuffer;
+    const buffered = Rules.bufferDirection(currentBuffer, currentDirection, next);
+    if (buffered.length > currentBuffer.length) {
+      localInputSequence = Math.max(localInputSequence + 1, Date.now());
+      const tick = liveInputTick(localIndex === 0 ? playerInputTicks : opponentInputTicks);
+      const sent = postRoomMessage({
+        type: "input",
+        round: liveRoundId,
+        sequence: localInputSequence,
+        direction: next,
+        tick,
+      });
+      if (!sent) return;
+      if (localIndex === 0) {
+        playerInputBuffer = buffered;
+        playerInputSequences.push(localInputSequence);
+        playerInputTicks.push(tick);
+      } else {
         opponentInputBuffer = buffered;
         opponentInputSequences.push(localInputSequence);
-        postRoomMessage({
-          type: "input",
-          round: liveRoundId,
-          sequence: localInputSequence,
-          direction: next,
-        });
+        opponentInputTicks.push(tick);
       }
     }
     return;
@@ -1002,15 +1044,7 @@ function updateRosterSlot(element, player, index) {
 }
 
 function activeRoomRoster() {
-  const peers = [...roomPeers.values()].filter((peer) => (
-    roomTransport?.authoritative || Date.now() - peer.seenAt < PEER_TIMEOUT
-  ));
-  if (roomTransport?.kind === "broadcast-channel") {
-    const localPlayers = roomConnected ? [roomIdentity(), ...peers] : peers;
-    return localPlayers
-      .filter((player) => player.connected)
-      .sort((first, second) => first.id.localeCompare(second.id));
-  }
+  const peers = [...roomPeers.values()];
   const all = roomConnected && roomRole === "player"
     ? [roomIdentity(), ...peers]
     : peers;
@@ -1114,33 +1148,9 @@ function syncLiveRoom() {
       : runState === "running"
         ? "LIVE DUEL ACTIVE"
         : "BOTH READY · COUNTDOWN";
-    if (!gateOpen && liveCountdownActive) {
-      abortLiveCountdown();
-    } else if (
-      gateOpen
-      && runState !== "running"
-      && !liveCountdownActive
-      && roomPlayers[0]?.id === clientId
-    ) {
-      const now = Date.now();
-      const round = now;
-      if (pendingCountdownAttempts >= 2) {
-        roomState.textContent = "COUNTDOWN REQUEST FAILED · RETRY READY";
-        return;
-      }
-      if (pendingCountdownRound && now < pendingCountdownExpiresAt) return;
-      postRoomMessage({
-        type: "countdown",
-        round,
-        startsAt: now + 3_200,
-      });
-      pendingCountdownRound = round;
-      pendingCountdownExpiresAt = now + 1_500;
-      pendingCountdownAttempts += 1;
-      if (!roomTransport?.authoritative) {
-        beginLiveCountdown(Date.now() + 3_200, round);
-      }
-    }
+    // The server starts the round the moment both seats are ready; the
+    // countdown arrives as a message (handleRoomMessage).
+    if (!gateOpen && liveCountdownActive) abortLiveCountdown();
   }
   if (roomConnectionState === "reconnecting") {
     roomState.textContent = "ROOM LINK RECONNECTING";
@@ -1180,22 +1190,8 @@ function handleRoomStatus(status) {
       showOverlay("ROOM SESSION", "RECONNECT<br><em>WHEN READY</em>", message);
       return;
     }
-    const rejectedCountdown = pendingCountdownRound !== 0;
-    pendingCountdownRound = 0;
-    pendingCountdownExpiresAt = 0;
-    if (rejectedCountdown) {
-      // Only a countdown request tells us anything about the room's state. Any
-      // other rejected frame - most often a Ready sent by a player the server
-      // has already rotated out of their seat - says nothing about link health,
-      // and treating it as degradation used to close the countdown gate for the
-      // rest of the session.
-      roomConnectionState = "degraded";
-      if (liveCountdownActive) abortLiveCountdown();
-      roomState.textContent = pendingCountdownAttempts >= 2
-        ? "COUNTDOWN REQUEST FAILED · RETRY READY"
-        : "COUNTDOWN REQUEST REJECTED";
-      announcement.textContent = "The room service rejected the countdown request. Press Ready again when both players are connected.";
-    }
+    // A rejected frame - most often a Ready sent by a player the server has
+    // already rotated out of their seat - says nothing about link health.
     return;
   }
   if (status.state === "latency") {
@@ -1245,7 +1241,7 @@ async function connectLiveRoom() {
     roomState.textContent = "ENTER A VALID 6-CHARACTER SIGNAL";
     return;
   }
-  if (!Transports?.remoteRoomSupported()) {
+  if (!Transports?.webSocketRoomSupported()) {
     roomState.textContent = "LIVE ROOM UNSUPPORTED IN THIS BROWSER";
     return;
   }
@@ -1264,21 +1260,13 @@ async function connectLiveRoom() {
   roomConnectionState = "connecting";
 
   try {
-    const realtimeUrl = globalThis.NEON_SNAKE_CONFIG?.realtimeUrl;
-    roomTransport = realtimeUrl
-      ? await Transports.createWebSocketRoomTransport({
-        code: normalized,
-        clientId,
-        endpoint: realtimeUrl,
-        onMessage: handleRoomMessage,
-        onStatus: handleRoomStatus,
-      })
-      : await Transports.createRemoteRoomTransport({
-        code: normalized,
-        clientId,
-        onMessage: handleRoomMessage,
-        onStatus: handleRoomStatus,
-      });
+    roomTransport = await Transports.createWebSocketRoomTransport({
+      code: normalized,
+      clientId,
+      endpoint: globalThis.NEON_SNAKE_CONFIG?.realtimeUrl || "/api/realtime",
+      onMessage: handleRoomMessage,
+      onStatus: handleRoomStatus,
+    });
     postRoomMessage({ type: "ready", ready: false });
   } catch (error) {
     roomTransport = null;
@@ -1297,7 +1285,6 @@ async function connectLiveRoom() {
     return;
   }
 
-  if (!roomTransport.authoritative) roomConnected = true;
   connectRoomButton.disabled = false;
   roomSweep = setInterval(syncLiveRoom, 700);
   const url = new URL(window.location.href);
@@ -1330,9 +1317,6 @@ function disconnectLiveRoom() {
   roomConnectionState = "disconnected";
   liveLatencyMs = 0;
   liveClockOffsetMs = null;
-  pendingCountdownRound = 0;
-  pendingCountdownExpiresAt = 0;
-  pendingCountdownAttempts = 0;
   roomLatency.textContent = "REALTIME PING · NOT MEASURED";
   abortLiveCountdown();
   if (duelType === "live") {
@@ -1367,9 +1351,6 @@ function beginLiveCountdown(startsAt, round) {
     liveCountdownActive = false;
   }
   liveCountdownActive = true;
-  pendingCountdownRound = 0;
-  pendingCountdownExpiresAt = 0;
-  pendingCountdownAttempts = 0;
   resetDuel();
   liveRoundId = round;
   setRunState("countdown", "LIVE DUEL COUNTDOWN");
@@ -1408,8 +1389,6 @@ function abortLiveCountdown() {
   clearInterval(liveCountdownTimer);
   liveCountdownTimer = null;
   liveCountdownActive = false;
-  pendingCountdownRound = 0;
-  pendingCountdownExpiresAt = 0;
   if (runState === "countdown" && duelType === "live") {
     setRunState("ready", "LIVE ROOM WAITING");
     showOverlay(
@@ -1428,61 +1407,32 @@ function startLiveDuel() {
   overlay.hidden = true;
   overlayTitle.classList.remove("countdown");
   lastMoveAt = performance.now();
-  nextMoveAt = roomTransport?.authoritative
-    ? lastMoveAt + TICK_DURATION
-    : roomPlayers[0]?.id === clientId ? lastMoveAt + TICK_DURATION : 0;
+  nextMoveAt = lastMoveAt + TICK_DURATION;
   setRunState("running", "LIVE DUEL ACTIVE");
   roomState.textContent = "LIVE DUEL ACTIVE";
   focusWithoutScroll(canvas);
-  if (!roomTransport?.authoritative && roomPlayers[0]?.id === clientId) {
-    broadcastSnapshot({ crashes: { player: null, opponent: null }, over: false, winner: null });
-  }
   announcement.textContent = "Live duel active. Both players connected.";
 }
 
-function broadcastSnapshot(result) {
-  liveSequence += 1;
-  postRoomMessage({
-    type: "state",
-    sequence: liveSequence,
-    state: {
-      playerSnake,
-      opponentSnake,
-      playerDirection,
-      opponentDirection,
-      playerScore,
-      opponentScore,
-      food,
-      signalCursor,
-      round: liveRoundId,
-      playerInputAck: 0,
-      guestInputAck,
-      crashes: result.crashes,
-      over: result.over,
-      winner: result.winner,
-    },
-  });
-}
-
 function applyRemoteSnapshot(message) {
-  if (
-    message.sequence <= lastRemoteSequence
-    || (!roomTransport?.authoritative && roomPlayers[0]?.id === clientId)
-  ) return;
+  if (message.sequence <= lastRemoteSequence) return;
   const state = message.state;
   if (state?.round !== liveRoundId) return;
   if (!state?.playerSnake?.length || !state?.opponentSnake?.length) return;
   const localIndex = roomPlayers.findIndex((player) => player.id === clientId);
   const localSequences = localIndex === 0 ? playerInputSequences : opponentInputSequences;
+  const localTicks = localIndex === 0 ? playerInputTicks : opponentInputTicks;
   const localBuffer = localIndex === 0 ? playerInputBuffer : opponentInputBuffer;
   const acknowledged = Number(localIndex === 0 ? state.playerInputAck : state.guestInputAck) || 0;
   while (localSequences.length && localSequences[0] <= acknowledged) {
     localSequences.shift();
     localBuffer.shift();
+    localTicks.shift();
   }
   playerPredictionIndex = 0;
   opponentPredictionIndex = 0;
   lastRemoteSequence = message.sequence;
+  predictedTick = message.sequence;
   previousPlayerSnake = cloneSnake(
     authoritativePlayerSnake.length ? authoritativePlayerSnake : state.playerSnake,
   );
@@ -1552,6 +1502,22 @@ function cancelLiveRound(message) {
     return;
   }
   if (!wasActive || duelType !== "live") return;
+  if (message?.reason === "forfeit" && authoritativeDeparture) {
+    const localForfeit = departedSlot === roomSlot;
+    setRunState("ready", localForfeit ? "ROUND CONCEDED" : "RIVAL FORFEITED");
+    roomState.textContent = localForfeit ? "ROUND CONCEDED" : "WIN BY FORFEIT";
+    showOverlay(
+      localForfeit ? "ROUND CONCEDED" : "RIVAL LEFT",
+      localForfeit ? "ROUND<br><em>CONCEDED</em>" : "WIN BY<br><em>FORFEIT</em>",
+      localForfeit
+        ? "Leaving or un-readying after the start concedes the round."
+        : "Your rival left after the start, so the round counts as your win.",
+    );
+    announcement.textContent = localForfeit
+      ? "You conceded the live round."
+      : "Your rival left the live round. You win by forfeit.";
+    return;
+  }
   setRunState("ready", "RIVAL DISCONNECTED");
   roomState.textContent = "ROUND CANCELLED · WAITING FOR PLAYER";
   showOverlay(
@@ -1566,9 +1532,6 @@ function handleRoomMessage(message) {
   if (!message || message.room !== roomCode) return;
   if (message.from === clientId && message.type !== "countdown") return;
   if (message.type === "countdown-cancel") {
-    pendingCountdownRound = 0;
-    pendingCountdownExpiresAt = 0;
-    pendingCountdownAttempts = 0;
     cancelLiveRound(message);
     return;
   }
@@ -1593,34 +1556,7 @@ function handleRoomMessage(message) {
     const startsAt = Number(message.startsAt);
     const round = Number(message.round);
     if (Number.isFinite(startsAt) && Number.isSafeInteger(round)) {
-      pendingCountdownRound = 0;
-      pendingCountdownExpiresAt = 0;
-      pendingCountdownAttempts = 0;
       beginLiveCountdown(startsAt, round);
-    }
-    return;
-  }
-  if (
-    message.type === "input"
-    && !roomTransport?.authoritative
-    && roomPlayers[0]?.id === clientId
-  ) {
-    const next = message.direction;
-    const round = Number(message.round);
-    const sequence = Number(message.sequence);
-    if (
-      !next
-      || round !== liveRoundId
-      || !Number.isSafeInteger(sequence)
-      || sequence <= lastGuestInputSequence
-    ) return;
-    if (CANDIDATES.some((candidate) => candidate.x === next.x && candidate.y === next.y)) {
-      const buffered = Rules.bufferDirection(opponentInputBuffer, opponentDirection, next);
-      if (buffered.length > opponentInputBuffer.length) {
-        opponentInputBuffer = buffered;
-        opponentInputSequences.push(sequence);
-        lastGuestInputSequence = sequence;
-      }
     }
     return;
   }
@@ -1684,7 +1620,9 @@ function handleKeyboard(event) {
   if (key === "r") {
     event.preventDefault();
     if (duelType === "ai") prepareAiDuel();
-    else if (roomConnected) {
+    // Un-readying after the start concedes a live round, which a stray R press
+    // should never do; leaving the room is the deliberate way out.
+    else if (roomConnected && runState !== "running") {
       setRoomReadyIntent(false);
       postRoomMessage({ type: "ready", ready: false });
       syncLiveRoom();
@@ -1774,6 +1712,7 @@ function scheduleResizeCanvas() {
     resizeCanvas();
   });
 }
+window.addEventListener("neon-activity-thermal", scheduleResizeCanvas);
 if ("ResizeObserver" in window) new ResizeObserver(scheduleResizeCanvas).observe(board);
 else window.addEventListener("resize", scheduleResizeCanvas);
 

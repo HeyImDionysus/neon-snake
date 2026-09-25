@@ -11,8 +11,8 @@
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/assets/icon-180.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css" />
-    <link rel="stylesheet" href="legal.css" />
+    <link rel="stylesheet" href="styles.css?v=6f66246818" />
+    <link rel="stylesheet" href="legal.css?v=6f66246818" />
   </head>
   <body class="legal-page">
     <canvas class="signal-field" id="signalField" aria-hidden="true"></canvas>
@@ -43,7 +43,7 @@
           <p class="legal-kicker">PLAYER DATA / PLAIN ENGLISH</p>
           <h1>Privacy, without the <em>fog.</em></h1>
         </div>
-        <p class="legal-effective">EFFECTIVE JULY 27, 2026<br />NEON SNAKE</p>
+        <p class="legal-effective">EFFECTIVE SEPTEMBER 25, 2026<br />NEON SNAKE</p>
       </header>
 
       <p class="legal-summary">
@@ -55,8 +55,9 @@
           <div>
             <h2>What we collect</h2>
             <p>If you sign in with Discord, Neon Snake stores your Discord user ID, username, display name, avatar reference, and the profile choices you submit: callsign, bio, accent color, favorite mode, and snake style.</p>
-            <p>For live rooms, we temporarily store your room presence, connection state, and match outcome. Aggregate wins, losses, and draws remain on your public profile.</p>
-            <p>For HTTP live-room requests, Neon Snake hashes the forwarded network address into a truncated anti-abuse identifier. It is used only for per-request rate limiting and automatically expires from Upstash after one second.</p>
+            <p>For live rooms, we temporarily store your room presence, connection state, and match outcome. Aggregate wins, losses, draws, and a skill rating remain on your public profile and the rankings.</p>
+            <p>If you are signed in and finish a Daily Signal run, its moves (the steps on which you turned) are sent to the server, which replays them to score the run. Your best score for that day is stored next to your Discord user ID and shown on the public Daily board; boards expire after nine days. The moves themselves are not stored.</p>
+            <p>To stop rankings being farmed, the server counts how many results each pair of signed-in players records per day. That counter holds the two Discord user IDs and expires after two days.</p>
           </div>
         </section>
 
@@ -71,8 +72,9 @@
         <section class="legal-section">
           <div>
             <h2>Discord authentication</h2>
-            <p>Neon Snake requests Discord’s <strong>identify</strong> permission only. Discord access and refresh tokens are not retained after the server exchanges the one-time authorization code.</p>
-            <p>A secure, HTTP-only session cookie keeps you signed in. Activity sessions use a partitioned cookie because Discord loads the game inside an embedded frame.</p>
+            <p>Signing in on the website requests Discord’s <strong>identify</strong> permission only. Inside the Discord Activity, Neon Snake also requests <strong>rpc.activities.write</strong>, which lets your Discord status show the mode, Signal Code, score or room you are playing; nothing else is posted for you. Discord access and refresh tokens are not retained after the server exchanges the one-time authorization code.</p>
+            <p>The Activity reads the display names of the people in the same Activity instance to show who is there. Those names stay in your Discord client and are never sent to the Neon Snake server.</p>
+            <p>A secure, HTTP-only session cookie keeps you signed in. Activity sessions use a partitioned cookie because Discord loads the game inside an embedded frame. Signing in again ends the session your browser already held.</p>
           </div>
         </section>
 
@@ -99,8 +101,8 @@
         <section class="legal-section">
           <div>
             <h2>Retention and control</h2>
-            <p>Room presence expires automatically. Session records expire or are replaced as sessions end. Public profile and aggregate match records remain until deletion is requested.</p>
-            <p>You can sign out at any time. To request profile deletion or correction, open a privacy request in the <a href="https://github.com/HeyImDionysus/neon-snake/issues">project issue tracker</a> without posting sensitive information.</p>
+            <p>Room presence expires automatically. Sessions end when you sign out, when you sign in again, or after 30 days. Your profile, record, and rating remain until you delete them.</p>
+            <p>You can edit your profile, sign out, or use <strong>Delete my data</strong> on your profile page at any time. Deleting removes your profile, record, rating, Daily Signal scores, and username link, and signs you out everywhere; it cannot be undone. For anything else, open a request in the <a href="https://github.com/HeyImDionysus/neon-snake/issues">project issue tracker</a> without posting sensitive information.</p>
           </div>
         </section>
 
@@ -124,7 +126,7 @@
       <span><a href="./">PLAY</a> · <a href="terms.html">TERMS</a> · <a href="privacy.html" aria-current="page">PRIVACY</a></span>
     </footer>
 
-    <script src="signal-field.js"></script>
-    <script src="site-shell.js"></script>
+    <script src="signal-field.js?v=6f66246818"></script>
+    <script src="site-shell.js?v=6f66246818"></script>
   </body>
 </html>

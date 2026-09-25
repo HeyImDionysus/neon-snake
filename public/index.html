@@ -12,20 +12,22 @@
     <meta property="og:site_name" content="Neon Snake" />
     <meta property="og:title" content="Neon Snake — Play, Duel, Grow" />
     <meta property="og:description" content="Four solo modes, server-authoritative multiplayer, public player profiles, verified rankings, and autonomous wallpapers." />
-    <meta property="og:image" content="/assets/neon-snake-social-fluid.png" />
-    <meta property="og:image:width" content="1734" />
-    <meta property="og:image:height" content="907" />
+    <meta property="og:url" content="https://neon-snake-green-tau.vercel.app/" />
+    <meta property="og:image" content="https://neon-snake-green-tau.vercel.app/assets/neon-snake-social.jpg" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="628" />
     <meta property="og:image:alt" content="A fluid neon snake arcs through atmospheric green and violet light toward a golden Core and glowing portal." />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Neon Snake — Play, Duel, Grow" />
     <meta name="twitter:description" content="Play solo, enter live rooms, climb the verified board, and put the Autopilot on your wallpaper." />
-    <meta name="twitter:image" content="/assets/neon-snake-social-fluid.png" />
+    <meta name="twitter:image" content="https://neon-snake-green-tau.vercel.app/assets/neon-snake-social.jpg" />
     <title>Neon Snake — Play, Duel, Grow</title>
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/assets/icon-180.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="stylesheet" href="activity-boot.css?v=0c3e9c7f41" />
-    <link rel="stylesheet" href="styles.css?v=0c3e9c7f41" />
+    <link rel="stylesheet" href="activity-boot.css?v=6f66246818" />
+    <link rel="stylesheet" href="styles.css?v=6f66246818" />
   </head>
   <body data-game-state="ready">
     <div class="activity-boot-status" id="activityBootStatus" role="status" aria-live="polite">
@@ -34,8 +36,8 @@
         <span>Preparing the game…</span>
       </div>
     </div>
-    <script src="activity-boot.js?v=0c3e9c7f41"></script>
-    <script src="activity-redirect.js?v=0c3e9c7f41" data-activity-critical></script>
+    <script src="activity-boot.js?v=6f66246818"></script>
+    <script src="activity-redirect.js?v=6f66246818" data-activity-critical></script>
     <canvas class="signal-field" id="signalField" aria-hidden="true"></canvas>
     <div class="ambient ambient-one" aria-hidden="true"></div>
     <div class="ambient ambient-two" aria-hidden="true"></div>
@@ -76,6 +78,7 @@
           <span class="activity-dock-mark"><i aria-hidden="true"></i> DISCORD ACTIVITY</span>
           <strong id="activityDockTitle">SOLO READY · CONNECTING DISCORD</strong>
           <small id="activityDockDetail">Single-player is available while the shared channel session connects.</small>
+          <small class="activity-participants" data-activity-participants hidden></small>
         </div>
         <nav class="activity-dock-nav" aria-label="Activity game type">
           <a class="activity-dock-tab is-active" href="/" data-activity-route="solo" aria-current="page">SOLO</a>
@@ -270,7 +273,9 @@
         <div class="signal-row">
           <div class="signal-copy">
             <span>SIGNAL CODE</span>
-            <small>Same code, same challenge</small>
+            <button class="daily-button" id="dailyButton" type="button" aria-label="Play today's Daily Signal: the same Classic board for every player">
+              DAILY <strong id="dailyCode">------</strong> ▸
+            </button>
           </div>
           <button class="signal-button" id="signalButton" type="button" aria-label="Generate a new Signal Code">
             <strong id="signalCode" aria-live="polite">------</strong>
@@ -326,7 +331,7 @@
           <p class="section-kicker">PUBLIC MULTIPLAYER</p>
           <h2 id="leaderboardTitle">Live players and rankings.</h2>
         </div>
-        <p>Signed-in players appear here while they are in a room—even before their first win. Completed server-run matches are the only results that change the ranking.</p>
+        <p>Signed-in players appear here while they are in a room—even before their first win. Players are ranked by a rating that only completed server-run matches change.</p>
       </header>
       <section class="live-now-panel" aria-labelledby="liveNowTitle">
         <header>
@@ -336,11 +341,19 @@
         <ul id="livePlayers"><li class="empty-run">No signed-in players are in a room.</li></ul>
       </section>
       <div class="public-board-table">
-        <div class="public-board-columns" aria-hidden="true"><span>RANK</span><span>PLAYER</span><span>RECORD</span></div>
+        <div class="public-board-columns" aria-hidden="true"><span>RANK</span><span>PLAYER</span><span>RATING</span></div>
         <ol id="onlineLeaderboard"><li class="empty-run">Loading verified players…</li></ol>
       </div>
+      <section class="live-now-panel daily-board" aria-labelledby="dailyBoardTitle">
+        <header>
+          <h3 id="dailyBoardTitle">Today's Daily Signal <strong id="dailyBoardCode"></strong></h3>
+          <span id="dailyBoardStatus">SERVER-REPLAYED RUNS</span>
+        </header>
+        <p class="daily-board-note">One Classic board at Arcade pace for everyone, new each day at 00:00 UTC. Signed-in runs are replayed on the server from their moves, and the board shows the score those moves earn.</p>
+        <ol id="dailyLeaderboard"><li class="empty-run">No verified runs today yet.</li></ol>
+      </section>
       <div class="public-board-footer">
-        <span id="onlineLeaderboardStatus">SERVER-VERIFIED LIVE WINS</span>
+        <span id="onlineLeaderboardStatus">RATED SERVER-RUN MATCHES</span>
         <a href="/api/auth/discord/start">Sign in to claim your profile ↗</a>
       </div>
     </section>
@@ -375,12 +388,12 @@
     </footer>
 
     <p class="sr-only" id="gameAnnouncement" aria-live="assertive"></p>
-    <script src="signal-field.js?v=0c3e9c7f41"></script>
-    <script src="site-shell.js?v=0c3e9c7f41"></script>
-    <script src="activity-sdk.js?v=0c3e9c7f41"></script>
-    <script src="account.js?v=0c3e9c7f41"></script>
-    <script src="game-logic.js?v=0c3e9c7f41" data-activity-critical></script>
-    <script src="touch-controls.js?v=0c3e9c7f41" data-activity-critical></script>
-    <script src="game.js?v=0c3e9c7f41" data-activity-critical></script>
+    <script src="signal-field.js?v=6f66246818"></script>
+    <script src="site-shell.js?v=6f66246818"></script>
+    <script src="activity-loader.js?v=6f66246818"></script>
+    <script src="account.js?v=6f66246818"></script>
+    <script src="game-logic.js?v=6f66246818" data-activity-critical></script>
+    <script src="touch-controls.js?v=6f66246818" data-activity-critical></script>
+    <script src="game.js?v=6f66246818" data-activity-critical></script>
   </body>
 </html>

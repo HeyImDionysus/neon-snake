@@ -7,6 +7,7 @@
   const card = document.querySelector("#profileCard");
   const form = document.querySelector("#profileEditor");
   const logout = document.querySelector("#logoutProfileButton");
+  const deleteData = document.querySelector("#deleteProfileButton");
   const copy = document.querySelector("#copyProfileButton");
   const save = form.querySelector("button[type=submit]");
   const reset = form.querySelector("button[type=reset]");
@@ -121,6 +122,7 @@
     applyDraftPreview(persistedDraft);
     form.hidden = !editable;
     logout.hidden = !editable;
+    deleteData.hidden = !editable;
     card.classList.toggle("is-editable", editable);
     loading.hidden = true;
     error.hidden = true;
@@ -240,6 +242,26 @@
       location.href = "./";
     } catch {
       logout.disabled = false;
+    }
+  });
+
+  deleteData.addEventListener("click", async () => {
+    const confirmed = window.confirm(
+      "Delete your Neon Snake profile, record and rating? This signs you out everywhere and cannot be undone. Signing in again starts a new, empty profile.",
+    );
+    if (!confirmed) return;
+    deleteData.disabled = true;
+    try {
+      const response = await fetch("/api/profile", {
+        method: "DELETE",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!response.ok) throw new Error("Deletion failed");
+      location.href = "./?deleted=1";
+    } catch {
+      deleteData.disabled = false;
+      deleteData.firstChild.textContent = "Deletion failed · try again ";
     }
   });
 

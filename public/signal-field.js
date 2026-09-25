@@ -203,8 +203,16 @@
       context.restore();
     }
 
+    // While a run or round is live the player is watching the board, and the
+    // full-viewport field was a second animation competing for every frame
+    // (under a blurred sticky header). It holds a still frame until play stops.
+    function playing() {
+      const { gameState, duelState } = root.document.body.dataset;
+      return gameState === "running" || gameState === "countdown" || duelState === "running";
+    }
+
     function animate(timestamp) {
-      if (root.document.hidden) {
+      if (root.document.hidden || playing()) {
         frame = 0;
         return;
       }
@@ -217,7 +225,7 @@
     }
 
     function handleVisibility() {
-      if (root.document.hidden) {
+      if (root.document.hidden || playing()) {
         root.cancelAnimationFrame?.(frame);
         frame = 0;
         return;
@@ -253,6 +261,11 @@
       attributeFilter: ["data-mode", "data-duel-type"],
     });
     if (signalElement) observer.observe(signalElement, { childList: true, characterData: true, subtree: true });
+    const playObserver = new MutationObserver(handleVisibility);
+    playObserver.observe(root.document.body, {
+      attributes: true,
+      attributeFilter: ["data-game-state", "data-duel-state"],
+    });
     roomElement?.addEventListener("input", refreshField);
     root.addEventListener("resize", resize, { passive: true });
     if (!activityMode) root.addEventListener("pointermove", handlePointerMove, { passive: true });
@@ -266,6 +279,7 @@
     return {
       destroy() {
         observer.disconnect();
+        playObserver.disconnect();
         root.cancelAnimationFrame?.(frame);
         roomElement?.removeEventListener("input", refreshField);
         root.removeEventListener("resize", resize);

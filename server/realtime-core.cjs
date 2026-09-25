@@ -2,7 +2,7 @@
 
 require("../public/game-logic.js");
 
-const { createHash, randomUUID } = require("node:crypto");
+const { createHash, randomInt, randomUUID } = require("node:crypto");
 const {
   createSessionReader,
   recordMatchResult,
@@ -10,7 +10,7 @@ const {
 const {
   executeRedisRest,
   redisConfig,
-} = require("./room-core.cjs");
+} = require("./redis-rest.cjs");
 
 const ROOM_PATTERN = /^[23456789A-HJ-NP-Z]{6}$/;
 const CLIENT_PATTERN = /^[A-Za-z0-9._:-]{8,96}$/;
@@ -22,6 +22,9 @@ const CONNECTION_TTL_MS = 30_000;
 // (300 s in vercel.json). Clients are told a shorter lifetime so they can open a
 // replacement link and hand the seat over before the platform cuts it.
 const CONNECTION_LIFETIME_MS = 240_000;
+// When the platform actually cuts the link (maxDuration 300 s less a margin).
+// Clients avoid handing over mid-round until they get this close to it.
+const CONNECTION_HARD_LIMIT_MS = 290_000;
 // How long a seat is held after a link is cut rather than closed, so a
 // reconnecting player reclaims it instead of losing it to the waiting line.
 const RECLAIM_WINDOW_MS = 8_000;
@@ -29,9 +32,29 @@ const ROOM_TTL_SECONDS = 45;
 const DEFAULT_ROOM_CAPACITY = 2;
 const DUEL_GRID = 30;
 const TICK_DURATION = 138;
+const COUNTDOWN_MS = 3_200;
+// How far ahead of the server a tick-stamped input may be scheduled.
+const MAX_INPUT_LEAD_TICKS = 4;
+// A round that has produced no snapshot for this long is treated as over, so a
+// crashed simulation can never block the next countdown for good.
+const ROUND_STALE_MS = 5_000;
+// Liveness: clients ping every 5 s during a round and every 15 s otherwise.
+const SILENT_CONNECTION_MS = 45_000;
+// A seated player who will not Ready up yields the seat to the waiting line.
+const IDLE_SEAT_MS = 60_000;
 const Rules = globalThis.SnakeRules;
 
 if (!Rules?.resolveDuelTick) throw new Error("Shared duel rules are unavailable.");
+
+// Logs used to carry only error.name, which made every failure read "Error".
+// Messages from this module and the Redis client never contain credentials.
+function describeError(error, context = {}) {
+  return {
+    ...context,
+    name: typeof error?.name === "string" ? error.name : "Error",
+    message: typeof error?.message === "string" ? error.message.slice(0, 200) : "",
+  };
+}
 
 const PRESENCE_SCRIPT = String.raw`
 local presenceKey = KEYS[1]
@@ -108,14 +131,19 @@ if action == "join" then
     return cjson.encode({ error = "room_full" })
   end
   local slot = current and tonumber(current["slot"]) or -1
+  -- A join carrying this record's credential is the same participant moving
+  -- to a new link, not a newcomer: it keeps its Ready state and its place in
+  -- the waiting line. Resetting them cancelled the round in progress and sent
+  -- a waiting player to the back of the queue on every link handover.
+  local resumed = current ~= nil
   current = {
     id = clientId,
     connectionId = connectionId,
     resumeHash = resumeHash,
     slot = slot,
-    ready = false,
-    readyEpoch = 0,
-    joinEpoch = generation,
+    ready = resumed and current["ready"] == true or false,
+    readyEpoch = resumed and tonumber(current["readyEpoch"]) or 0,
+    joinEpoch = resumed and tonumber(current["joinEpoch"]) or generation,
     seenAt = now,
     userId = userId,
     displayName = displayName,
@@ -341,11 +369,16 @@ function validateRealtimeMessage(value, { slot, allReady, capacity = DEFAULT_ROO
     if (!safeInteger(value.round, 1) || !safeInteger(value.sequence, 1) || !validDirection(value.direction)) {
       return null;
     }
+    if (value.tick !== undefined && !safeInteger(value.tick, 1)) return null;
     return {
       type: "input",
       round: Number(value.round),
       sequence: Number(value.sequence),
       direction: { x: Number(value.direction.x), y: Number(value.direction.y) },
+      // The tick the player's screen applied this turn on (see duel.js). The
+      // server never applies it earlier; browsers from before tick stamps
+      // omit it and are applied on the next tick, as before.
+      ...(value.tick !== undefined ? { tick: Number(value.tick) } : {}),
     };
   }
   if (value.type === "countdown" && slot === 0 && allReady) {
@@ -395,6 +428,16 @@ function roomKeys(room) {
   const tag = `{neon-snake:realtime:${room}}`;
   return [`${tag}:presence`, `${tag}:metadata`, `${tag}:generation`];
 }
+
+// The live countdown, kept briefly in Redis so a player joining on another
+// instance can find a round that was never relayed (see roomHasRemoteMembers).
+function roundKey(room) {
+  return `{neon-snake:realtime:${room}}:round`;
+}
+const ROUND_RECORD_TTL_MS = 15_000;
+const ROUND_RECORD_REFRESH_TICKS = 40;
+const READY_CHANGES_PER_WINDOW = 6;
+const READY_WINDOW_MS = 10_000;
 
 function roomChannel(room) {
   return `neon-snake:realtime:${room}:events`;
@@ -543,10 +586,12 @@ function createRedisRestBus({
 }
 
 class RoomSimulation {
-  constructor(hub, room, authorityConnectionId) {
+  // Authority belongs to Player 1's seat, not to one WebSocket: a player whose
+  // link is handed over keeps the round they are playing.
+  constructor(hub, room, authorityClientId) {
     this.hub = hub;
     this.room = room;
-    this.authorityConnectionId = authorityConnectionId;
+    this.authorityClientId = authorityClientId;
     this.game = null;
     this.tickTimer = null;
     this.nextTickAt = 0;
@@ -588,7 +633,11 @@ class RoomSimulation {
 
   start(countdown) {
     this.stop();
-    const seed = this.roomSeed() ^ Number(countdown.round);
+    // The seed is drawn by the server. It used to be the room hash XOR a round
+    // number Player 1's browser chose, which let Player 1 pick food placement.
+    const seed = Number.isSafeInteger(countdown.seed)
+      ? countdown.seed
+      : this.roomSeed() ^ Number(countdown.round);
     this.game = {
       round: countdown.round,
       startsAt: countdown.startsAt,
@@ -632,17 +681,23 @@ class RoomSimulation {
     if (message.sequence <= acknowledged) return;
     const queue = slot === 0 ? this.game.playerInputs : this.game.opponentInputs;
     if (queue.some((input) => input.sequence === message.sequence) || queue.length >= 4) return;
-    queue.push(message);
+    // A stamp far in the future cannot hold the queue hostage.
+    const latest = this.game.sequence + 1 + MAX_INPUT_LEAD_TICKS;
+    const tick = Number.isSafeInteger(message.tick) ? Math.min(message.tick, latest) : 0;
+    queue.push({ ...message, tick });
     queue.sort((first, second) => first.sequence - second.sequence);
   }
 
-  consumeInput(queue, currentDirection) {
+  consumeInput(queue, currentDirection, resolvingTick) {
     // A reversal is discarded rather than applied, but it has still been seen.
     // Reporting it as consumed keeps the acknowledgement monotonic over
     // everything the server has processed, so a delayed duplicate cannot be
     // replayed later and the client can retire its matching prediction.
     let consumedThrough = 0;
     while (queue.length) {
+      // Early turns wait for the tick the player saw them on. Late ones - the
+      // usual case over a real network - apply on the next tick.
+      if (queue[0].tick > resolvingTick) break;
       const input = queue.shift();
       consumedThrough = Math.max(consumedThrough, input.sequence);
       if (!this.reverse(input.direction, currentDirection)) {
@@ -654,8 +709,9 @@ class RoomSimulation {
 
   resolveTick() {
     const game = this.game;
-    const playerCommand = this.consumeInput(game.playerInputs, game.playerDirection);
-    const opponentCommand = this.consumeInput(game.opponentInputs, game.opponentDirection);
+    const resolvingTick = game.sequence + 1;
+    const playerCommand = this.consumeInput(game.playerInputs, game.playerDirection, resolvingTick);
+    const opponentCommand = this.consumeInput(game.opponentInputs, game.opponentDirection, resolvingTick);
     game.playerInputAck = Math.max(game.playerInputAck, playerCommand.consumedThrough);
     game.guestInputAck = Math.max(game.guestInputAck, opponentCommand.consumedThrough);
     if (playerCommand.input) {
@@ -693,18 +749,27 @@ class RoomSimulation {
 
   async tick() {
     this.tickTimer = null;
-    if (
-      !this.game
-      || this.game.over
-      || !this.hub.roomAllReady(this.room)
-      || !this.hub.connectionOwnsSlot(this.room, this.authorityConnectionId, 0)
-    ) {
+    if (!this.game || this.game.over) {
       this.stop();
+      return;
+    }
+    if (
+      !this.hub.roomAllReady(this.room)
+      || !this.hub.clientOwnsSlot(this.room, this.authorityClientId, 0)
+    ) {
+      // Stopping silently left every screen on another instance frozen until
+      // its own watchdog gave up; tell the whole room the round is over.
+      this.hub.cancelRound(this.room, this);
       return;
     }
     const result = this.resolveTick();
     const game = this.game;
     game.sequence += 1;
+    if (game.sequence % ROUND_RECORD_REFRESH_TICKS === 0 && !game.over) {
+      void this.hub.refreshLiveRound?.(this.room, {
+        type: "countdown", round: game.round, startsAt: game.startsAt,
+      });
+    }
     const publishing = this.hub.publish(this.room, {
       kind: "state",
       payload: {
@@ -733,7 +798,7 @@ class RoomSimulation {
     if (game.over) {
       try {
         await publishing;
-        await this.hub.recordMatch(this.room, game.round, result);
+        await this.hub.recordMatch(this.room, game.round, { ...result, startsAt: game.startsAt });
         if (this.hub.rotateRound) await this.hub.rotateRound(this.room, result);
         else await this.hub.resetReady(this.room);
       } catch (error) {
@@ -778,10 +843,7 @@ function createRealtimeHub({
     fetchImpl,
     redisCommand: runRedis,
     onError(error, room) {
-      logger.error("Realtime event relay failed.", {
-        room,
-        name: typeof error?.name === "string" ? error.name : "Error",
-      });
+      logger.error("Realtime event relay failed.", describeError(error, { room }));
     },
   });
   const readSession = sessionReader || createSessionReader({
@@ -800,6 +862,11 @@ function createRealtimeHub({
         simulation: null,
         unsubscribe: null,
         subscription: null,
+        // Every instance tracks the room's live round from the countdown, state
+        // and cancel events it relays, so any of them can reject a mid-round
+        // restart, record a forfeit, or bring a late joiner into the round.
+        liveRound: null,
+        lastRound: 0,
       };
       rooms.set(room, state);
     }
@@ -830,6 +897,54 @@ function createRealtimeHub({
     localConnections(room).forEach((connection) => send(connection, payload));
   }
 
+  function trackRound(room, event) {
+    const state = stateFor(room);
+    if (event.kind === "countdown") {
+      const round = Number(event.payload?.round);
+      if (!Number.isSafeInteger(round)) return;
+      state.lastRound = Math.max(state.lastRound, round);
+      state.liveRound = {
+        round,
+        startsAt: Number(event.payload.startsAt),
+        lastStateAt: now(),
+        countdown: event.payload,
+      };
+    } else if (event.kind === "state") {
+      const round = Number(event.payload?.state?.round);
+      if (state.liveRound?.round !== round) return;
+      if (event.payload.state.over) state.liveRound = null;
+      else state.liveRound.lastStateAt = now();
+    } else if (event.kind === "cancel") {
+      state.liveRound = null;
+    }
+  }
+
+  function liveRoundFor(room) {
+    const live = stateFor(room).liveRound;
+    if (!live) return null;
+    const lastSign = Math.max(live.lastStateAt, live.startsAt);
+    if (now() - lastSign > ROUND_STALE_MS) {
+      stateFor(room).liveRound = null;
+      return null;
+    }
+    return live;
+  }
+
+  // Leaving, un-readying or dropping out after the round has started concedes
+  // it. Before this, all three cancelled the round with no result, so a player
+  // about to lose could always void the loss.
+  async function forfeitRound(room, loserSlot) {
+    const live = liveRoundFor(room);
+    if (!live || now() < live.startsAt || (loserSlot !== 0 && loserSlot !== 1)) return false;
+    const result = {
+      winner: loserSlot === 0 ? "opponent" : "player",
+      crashes: { player: loserSlot === 0 ? "forfeit" : null, opponent: loserSlot === 1 ? "forfeit" : null },
+    };
+    await recordCompletedMatch(room, live.round, { ...result, startsAt: live.startsAt });
+    await publish(room, { kind: "cancel", slot: loserSlot, reason: "forfeit", round: live.round });
+    return result;
+  }
+
   function setRoster(room, players, waiting = []) {
     const state = stateFor(room);
     state.players = Array.isArray(players) ? players : [];
@@ -851,11 +966,80 @@ function createRealtimeHub({
       })),
       sentAt: now(),
     });
-    if (state.simulation && !roomAllReady(room)) {
-      state.simulation.stop();
-      state.simulation = null;
-      broadcast(room, { type: "countdown-cancel", sentAt: now() });
+    if (state.simulation && !roomAllReady(room)) cancelRound(room, state.simulation);
+    scheduleRoundStart(room);
+  }
+
+  // The server starts a round as soon as both seats are ready. It used to wait
+  // for Player 1's browser to ask, so a throttled or backgrounded tab (or one
+  // whose request was dropped) left the whole room stuck on "BOTH READY". The
+  // instance holding Player 1's connection runs the simulation, as before.
+  const startingRooms = new Set();
+  function scheduleRoundStart(room) {
+    if (startingRooms.has(room)) return;
+    const state = stateFor(room);
+    if (state.simulation?.game || liveRoundFor(room)) return;
+    const host = localConnections(room)
+      .find((connection) => connectionOwnsSlot(room, connection.connectionId, 0));
+    if (!host || !roomAllReady(room, host.joinEpoch)) return;
+    startingRooms.add(room);
+    Promise.resolve()
+      .then(() => startRound(host))
+      .catch((error) => {
+        logger.error("Realtime round start failed.", describeError(error, { room }));
+      })
+      .finally(() => startingRooms.delete(room));
+  }
+
+  async function startRound(host) {
+    const room = host.room;
+    const state = stateFor(room);
+    // The round id and the seed are the server's. The round only has to
+    // increase, and names the recorded match.
+    const round = Math.max(now(), state.lastRound + 1);
+    const countdown = {
+      type: "countdown",
+      round,
+      startsAt: now() + COUNTDOWN_MS,
+    };
+    state.simulation?.stop();
+    state.simulation = new RoomSimulation(
+      {
+        publish,
+        abortRound,
+        roomAllReady,
+        clientOwnsSlot,
+        cancelRound,
+        refreshLiveRound: (liveRoom, live) => recordLiveRound(liveRoom, live),
+        recordMatch: recordCompletedMatch,
+        resetReady,
+        rotateRound,
+      },
+      room,
+      host.clientId,
+    );
+    state.simulation.start({ ...countdown, seed: randomInt(1, 2 ** 32) });
+    await recordLiveRound(room, { ...countdown, from: host.clientId });
+    await publish(room, {
+      kind: "countdown",
+      payload: { ...countdown, from: host.clientId, sentAt: now() },
+    });
+  }
+
+  // Only the instance running the simulation knows a round has ended early, so
+  // the cancel is published rather than broadcast: screens attached to other
+  // instances would otherwise keep animating a round that no longer exists.
+  function cancelRound(room, simulation) {
+    const state = stateFor(room);
+    if (!simulation || state.simulation !== simulation) {
+      simulation?.stop();
+      return;
     }
+    simulation.stop();
+    state.simulation = null;
+    publish(room, { kind: "cancel", slot: -1 }).catch((error) => {
+      logger.error("Realtime round cancel relay failed.", describeError(error, { room }));
+    });
   }
 
   function abortRound(room, simulation, error) {
@@ -869,10 +1053,7 @@ function createRealtimeHub({
       reason: "relay_unavailable",
       sentAt: now(),
     });
-    logger.error("Realtime authoritative relay failed.", {
-      room,
-      name: typeof error?.name === "string" ? error.name : "Error",
-    });
+    logger.error("Realtime authoritative relay failed.", describeError(error, { room }));
     localConnections(room).forEach((connection) => {
       connection.socket.close(1012, "Realtime relay unavailable");
     });
@@ -882,6 +1063,12 @@ function createRealtimeHub({
     const players = stateFor(room).players;
     return players.length === DEFAULT_ROOM_CAPACITY && players.every((player) => (
       player.ready && Number(player.readyEpoch) >= minimumReadyEpoch
+    ));
+  }
+
+  function clientOwnsSlot(room, clientId, slot) {
+    return stateFor(room).players.some((player) => (
+      Number(player.slot) === slot && player.id === clientId
     ));
   }
 
@@ -927,6 +1114,7 @@ function createRealtimeHub({
     if (!envelope || envelope.room !== room) return;
     if (envelope.origin === instanceId) return;
     const state = stateFor(room);
+    trackRound(room, envelope);
     if (envelope.kind === "roster") {
       setRoster(room, envelope.players, envelope.waiting);
       return;
@@ -948,12 +1136,54 @@ function createRealtimeHub({
     if (envelope.kind === "cancel") {
       state.simulation?.stop();
       state.simulation = null;
-      broadcast(room, {
-        type: "countdown-cancel",
-        slot: Number(envelope.slot),
-        sentAt: now(),
-      });
+      broadcast(room, cancelMessage(envelope));
     }
+  }
+
+  function roomHasRemoteMembers(room) {
+    const state = stateFor(room);
+    const members = [...state.players, ...state.waiting];
+    if (!members.length) return true;
+    const local = new Set(localConnections(room).map((connection) => connection.connectionId));
+    return members.some((member) => !local.has(member.connectionId));
+  }
+
+  async function recordLiveRound(room, countdown) {
+    try {
+      await runRedis(["SET", roundKey(room), JSON.stringify(countdown), "PX", String(ROUND_RECORD_TTL_MS)]);
+    } catch (error) {
+      logger.error("Realtime round record failed.", describeError(error, { room }));
+    }
+  }
+
+  async function readLiveRound(room) {
+    const local = liveRoundFor(room);
+    if (local) return local;
+    let value;
+    try {
+      value = await runRedis(["GET", roundKey(room)]);
+    } catch (error) {
+      logger.error("Realtime round lookup failed.", describeError(error, { room }));
+      return null;
+    }
+    let countdown;
+    try {
+      countdown = typeof value === "string" ? JSON.parse(value) : value;
+    } catch {
+      return null;
+    }
+    if (!countdown || !Number.isSafeInteger(Number(countdown.round))) return null;
+    trackRound(room, { kind: "countdown", payload: countdown });
+    return liveRoundFor(room);
+  }
+
+  function cancelMessage(event) {
+    return {
+      type: "countdown-cancel",
+      slot: Number.isInteger(Number(event.slot)) ? Number(event.slot) : -1,
+      ...(event.reason ? { reason: String(event.reason) } : {}),
+      sentAt: now(),
+    };
   }
 
   async function ensureSubscription(room) {
@@ -1011,8 +1241,10 @@ function createRealtimeHub({
         }
       }
     }
-    const departing = action === "leave" || action === "relinquish";
-    if (clean?.userId && !departing && payload.role === "player") {
+    // "Playing now" expires after 35 s, so refreshing it on join and on the
+    // 10 s heartbeat is enough; refreshing on every Ready toggle doubled the
+    // Redis commands a client could cause.
+    if (clean?.userId && (action === "join" || action === "touch") && payload.role === "player") {
       try {
         await runRedis([
           "SET",
@@ -1022,9 +1254,7 @@ function createRealtimeHub({
           "35",
         ]);
       } catch (error) {
-        logger.error("Realtime profile activity refresh failed.", {
-          name: typeof error?.name === "string" ? error.name : "Error",
-        });
+        logger.error("Realtime profile activity refresh failed.", describeError(error));
       }
     }
     return payload;
@@ -1037,6 +1267,8 @@ function createRealtimeHub({
       origin: instanceId,
       sentAt: now(),
     };
+    const hadLiveRound = Boolean(stateFor(room).liveRound);
+    trackRound(room, event);
     if (event.kind === "roster") setRoster(room, event.players, event.waiting);
     else if (event.kind === "input") {
       const simulation = stateFor(room).simulation;
@@ -1050,11 +1282,19 @@ function createRealtimeHub({
       const state = stateFor(room);
       state.simulation?.stop();
       state.simulation = null;
-      broadcast(room, {
-        type: "countdown-cancel",
-        slot: Number(event.slot),
-        sentAt: now(),
+      broadcast(room, cancelMessage(event));
+    }
+    const roundEnded = hadLiveRound && (event.kind === "cancel" || (event.kind === "state" && event.payload?.state?.over));
+    if (roundEnded) {
+      runRedis(["DEL", roundKey(room)]).catch((error) => {
+        logger.error("Realtime round record cleanup failed.", describeError(error, { room }));
       });
+    }
+    // Every Redis command is billed. Game events only need relaying when
+    // someone in the room is attached to another instance; rosters and
+    // cancels are rare and always relayed.
+    if ((event.kind === "state" || event.kind === "input" || event.kind === "countdown") && !roomHasRemoteMembers(room)) {
+      return;
     }
     await eventBus.publish(room, envelope);
   }
@@ -1107,6 +1347,7 @@ function createRealtimeHub({
         secondUserId: players[1].userId,
         winnerUserId,
         endedAt: now(),
+        durationMs: Number.isFinite(Number(result.startsAt)) ? Math.max(0, now() - Number(result.startsAt)) : 0,
       }, {
         environment,
         fetchImpl,
@@ -1114,9 +1355,7 @@ function createRealtimeHub({
         now,
       });
     } catch (error) {
-      logger.error("Realtime match recording failed.", {
-        name: typeof error?.name === "string" ? error.name : "Error",
-      });
+      logger.error("Realtime match recording failed.", describeError(error));
     }
   }
 
@@ -1124,10 +1363,7 @@ function createRealtimeHub({
     if (!connections.has(connection.socket)) return;
     connections.delete(connection.socket);
     const reportFailure = (stage, error) => {
-      logger.error("Realtime disconnect cleanup failed.", {
-        stage,
-        name: typeof error?.name === "string" ? error.name : "Error",
-      });
+      logger.error("Realtime disconnect cleanup failed.", describeError(error, { stage }));
     };
     const ownedSlot = connectionOwnsSlot(connection.room, connection.connectionId, connection.slot);
     const retainSeat = !deliberate && ownedSlot;
@@ -1143,7 +1379,8 @@ function createRealtimeHub({
       && connectionOwnsSlot(connection.room, connection.connectionId, connection.slot)
     ) {
       try {
-        await publish(connection.room, { kind: "cancel", slot: connection.slot });
+        const forfeited = await forfeitRound(connection.room, connection.slot);
+        if (!forfeited) await publish(connection.room, { kind: "cancel", slot: connection.slot });
       } catch (error) {
         reportFailure("cancel", error);
       }
@@ -1161,7 +1398,18 @@ function createRealtimeHub({
     }
     if (!localConnections(connection.room).length) {
       const state = stateFor(connection.room);
-      state.simulation?.stop();
+      if (state.simulation) {
+        // The round cannot outlive the instance that simulates it; say so to
+        // players attached elsewhere instead of leaving them frozen.
+        const simulation = state.simulation;
+        simulation.stop();
+        state.simulation = null;
+        try {
+          await publish(connection.room, { kind: "cancel", slot: -1 });
+        } catch (error) {
+          reportFailure("orphaned-round", error);
+        }
+      }
       state.unsubscribe?.();
       rooms.delete(connection.room);
     }
@@ -1173,6 +1421,7 @@ function createRealtimeHub({
 
   async function handleMessage(connection, raw) {
     if (!connections.has(connection.socket) || !connection.initialized) return;
+    connection.lastSeenAt = now();
     const size = typeof raw === "string" ? Buffer.byteLength(raw) : raw?.byteLength;
     if (!Number.isFinite(size) || size > MAX_MESSAGE_BYTES) {
       connection.socket.close(1009, "Message too large");
@@ -1232,18 +1481,51 @@ function createRealtimeHub({
     }
     if (message.type === "ready") {
       if (connection.slot < 0) return;
+      if (timestamp - connection.readyWindowStart > READY_WINDOW_MS) {
+        connection.readyWindowStart = timestamp;
+        connection.readyChanges = 0;
+      }
+      connection.readyChanges += 1;
+      // Each Ready change runs the presence script and relays a roster; a
+      // client toggling it tens of times a second cost ~90 Redis commands/s.
+      if (connection.readyChanges > READY_CHANGES_PER_WINDOW) return;
       const wasReady = stateFor(connection.room).players.some((player) => (
         player.connectionId === connection.connectionId && player.ready
       ));
+      const forfeited = !message.ready && wasReady
+        && connectionOwnsSlot(connection.room, connection.connectionId, connection.slot)
+        ? await forfeitRound(connection.room, connection.slot)
+        : false;
+      const localSimulation = stateFor(connection.room).simulation;
       const result = await refresh(connection, "ready", { ready: message.ready });
-      if (!message.ready && wasReady && result.active) {
+      if (forfeited) {
+        await rotateRound(connection.room, forfeited);
+        return;
+      }
+      // When this instance runs the round, the roster update has already
+      // cancelled it (setRoster -> cancelRound); a second cancel is one more
+      // billed relay publish.
+      const cancelledHere = Boolean(localSimulation) && stateFor(connection.room).simulation !== localSimulation;
+      if (!message.ready && wasReady && result.active && !cancelledHere) {
         await publish(connection.room, { kind: "cancel" });
       }
       return;
     }
     if (message.type === "countdown") {
+      // Rounds start on the server (scheduleRoundStart). Browsers from before
+      // that change still ask; answer with the round that is already running,
+      // which also means a request mid-round can never restart the game.
+      const live = liveRoundFor(connection.room);
+      if (live) {
+        send(connection, live.countdown);
+        return;
+      }
+      const state = stateFor(connection.room);
+      if (
+        state.simulation?.game
+        || startingRooms.has(connection.room)
+      ) return;
       const result = await refresh(connection, "touch");
-      setRoster(connection.room, result.players || [], result.waiting || []);
       if (
         !roomAllReady(connection.room, connection.joinEpoch)
         || !connectionOwnsSlot(connection.room, connection.connectionId, 0)
@@ -1251,35 +1533,7 @@ function createRealtimeHub({
         send(connection, { type: "rejected", code: "room_not_ready" });
         return;
       }
-      const state = stateFor(connection.room);
-      const authoritativeStartsAt = now() + 3_200;
-      const authoritativeCountdown = {
-        ...message,
-        startsAt: authoritativeStartsAt,
-      };
-      state.simulation?.stop();
-      state.simulation = new RoomSimulation(
-        {
-          publish,
-          abortRound,
-          roomAllReady,
-          connectionOwnsSlot,
-          recordMatch: recordCompletedMatch,
-          resetReady,
-          rotateRound,
-        },
-        connection.room,
-        connection.connectionId,
-      );
-      state.simulation.start(authoritativeCountdown);
-      await publish(connection.room, {
-        kind: "countdown",
-        payload: {
-          ...authoritativeCountdown,
-          from: connection.clientId,
-          sentAt: timestamp,
-        },
-      });
+      if (result.active) scheduleRoundStart(connection.room);
       return;
     }
     if (message.type === "input") {
@@ -1294,12 +1548,46 @@ function createRealtimeHub({
     send(connection, { type: "rejected", code: "server_authoritative" });
   }
 
+  async function yieldIdleSeat(connection) {
+    const state = stateFor(connection.room);
+    const seat = state.players.find((player) => player.id === connection.clientId);
+    const idle = seat && Number(seat.slot) >= 0 && !seat.ready
+      && state.waiting.length > 0 && !liveRoundFor(connection.room)
+      && connectionOwnsSlot(connection.room, connection.connectionId, Number(seat.slot));
+    if (!idle) {
+      connection.idleSeatSince = 0;
+      return;
+    }
+    if (!connection.idleSeatSince) connection.idleSeatSince = now();
+    if (now() - connection.idleSeatSince < IDLE_SEAT_MS) return;
+    connection.idleSeatSince = 0;
+    const result = await presence(connection, "rotate", { loserSlots: [Number(seat.slot)] });
+    await publishRoster(connection.room, result.players || [], result.waiting || []);
+  }
+
+  function rosterSignature(players, waiting) {
+    const shape = (member) => [member.id, member.slot, Boolean(member.ready), member.connectionId, member.userId || ""];
+    return JSON.stringify([players.map(shape), waiting.map(shape)]);
+  }
+
   function scheduleHeartbeat() {
     if (heartbeatTimer !== null || !connections.size) return;
     heartbeatTimer = setTimeout(async () => {
       heartbeatTimer = null;
       const byRoom = new Map();
-      for (const connection of connections.values()) {
+      for (const connection of [...connections.values()]) {
+        if (connection.initialized && now() - connection.lastSeenAt > SILENT_CONNECTION_MS) {
+          // The server used to refresh presence for every socket it held, so a
+          // vanished device kept its seat indefinitely. A silent link is treated
+          // as cut: the seat is held briefly for a reconnect, then released.
+          connection.socket.close(4000, "Realtime link silent");
+          continue;
+        }
+        try {
+          await yieldIdleSeat(connection);
+        } catch (error) {
+          logger.error("Realtime idle seat rotation failed.", describeError(error, { room: connection.room }));
+        }
         try {
           const result = await presence(connection, "touch");
           if (!result.active) {
@@ -1316,6 +1604,12 @@ function createRealtimeHub({
         }
       }
       for (const [room, roster] of byRoom) {
+        const state = stateFor(room);
+        const signature = rosterSignature(roster.players, roster.waiting);
+        // An unchanged roster needs no relay; every instance refreshes its own
+        // presence and learns of real changes from the instance that made them.
+        if (state.heartbeatSignature === signature) continue;
+        state.heartbeatSignature = signature;
         try {
           await publishRoster(room, roster.players, roster.waiting);
         } catch {
@@ -1351,6 +1645,10 @@ function createRealtimeHub({
       profile: null,
       resumeToken: resumeProtocol ? resumeProtocol.slice(7) : randomUUID(),
       openedAt: now(),
+      lastSeenAt: now(),
+      idleSeatSince: 0,
+      readyWindowStart: 0,
+      readyChanges: 0,
       initialized: false,
       rateWindow: 0,
       rateCount: 0,
@@ -1366,9 +1664,7 @@ function createRealtimeHub({
       }
       pendingMessages += 1;
       messageTask = messageTask.then(() => handleMessage(connection, raw)).catch(async (error) => {
-        logger.error("Realtime message failed.", {
-          name: typeof error?.name === "string" ? error.name : "Error",
-        });
+        logger.error("Realtime message failed.", describeError(error));
         socket.close(1012, "Realtime service interrupted");
         await closeConnection(connection);
       }).finally(() => {
@@ -1427,6 +1723,7 @@ function createRealtimeHub({
         queuePosition: Number(result.queuePosition) || 0,
         resumeToken: connection.resumeToken,
         expiresAt: connection.openedAt + CONNECTION_LIFETIME_MS,
+        closesAt: connection.openedAt + CONNECTION_HARD_LIMIT_MS,
         sentAt: now(),
       });
       if (connection.profile) {
@@ -1440,12 +1737,16 @@ function createRealtimeHub({
           }).profile,
         });
       }
+      const live = await readLiveRound(room);
+      if (live && connections.has(socket)) {
+        // Someone arriving mid-round learns the round id here; otherwise every
+        // snapshot is dropped as belonging to an unknown round.
+        send(connection, { ...live.countdown, sentAt: now() });
+      }
       await publishRoster(room, result.players || [], result.waiting || []);
       scheduleHeartbeat();
     } catch (error) {
-      logger.error("Realtime connection failed.", {
-        name: typeof error?.name === "string" ? error.name : "Error",
-      });
+      logger.error("Realtime connection failed.", describeError(error));
       connections.delete(socket);
       if (!localConnections(room).length) {
         const state = rooms.get(room);
@@ -1468,6 +1769,7 @@ function createRealtimeHub({
       rooms.clear();
       eventBus.close?.();
     },
+    clientOwnsSlot,
     connectionOwnsSlot,
     publish,
     rotateRound,

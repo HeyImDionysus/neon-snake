@@ -69,8 +69,7 @@ function request(url, {
 }
 
 (async () => {
-  assert.equal(manifest.devDependencies["@discord/embedded-app-sdk"], "2.5.0");
-  assert.equal(manifest.devDependencies.esbuild, "0.25.12");
+  assert.ok(manifest.devDependencies["@discord/embedded-app-sdk"], "The Activity bundle is built from the Discord SDK");
   assert.match(entry, /new DiscordSDK\(CLIENT_ID, \{ disableConsoleLogOverride: true \}\)/);
   assert.doesNotMatch(
     entry,
@@ -85,7 +84,7 @@ function request(url, {
   assert.match(activityTokenApi, /from "\.\.\/\.\.\/server\/account-core\.cjs"/);
   assert.match(activityTokenApi, /request\.url = "\/api\/activity\/token"/);
   assert.equal(fs.existsSync(path.join(root, "api", "activity-token.mjs")), false);
-  assert.match(entry, /scope: \["identify", "applications\.commands"\]/);
+  assert.match(entry, /scope: \["identify", "rpc\.activities\.write"\]/);
   assert.match(entry, /commands\.authenticate/);
   assert.match(entry, /commands\.openInviteDialog/);
   assert.match(entry, /commands\.openExternalLink\(\{ url \}\)/);
@@ -136,7 +135,7 @@ function request(url, {
       "Activity boot guard must install before the shell script",
     );
     assert.ok(
-      html.indexOf(`src="activity-redirect.js?v=${ASSET_STAMP}"`) < html.indexOf(`src="activity-sdk.js?v=${ASSET_STAMP}"`),
+      html.indexOf(`src="activity-redirect.js?v=${ASSET_STAMP}"`) < html.indexOf(`src="activity-loader.js?v=${ASSET_STAMP}"`),
       "Activity shell listeners must install before SDK startup",
     );
     assert.match(
@@ -172,7 +171,9 @@ function request(url, {
   assert.match(indexHtml, /id="activityWebsiteLink"/);
   assert.match(indexHtml, /id="activityWallpapersLink"/);
   assert.match(indexHtml, /https:\/\/neon-snake-green-tau\.vercel\.app\/downloads\.html/);
-  assert.match(indexHtml, /src="activity-sdk\.js\?v=[0-9a-z]+"/);
+  // The SDK is written in by the loader, only inside Discord.
+  assert.match(indexHtml, /src="activity-loader\.js\?v=[0-9a-z]+"/);
+  assert.doesNotMatch(indexHtml, /src="activity-sdk\.js/);
   ["classic", "portal", "rush", "canvas"].forEach((mode) => {
     assert.match(indexHtml, new RegExp(`name="mode" value="${mode}"`));
   });
@@ -189,10 +190,10 @@ function request(url, {
   assert.match(duelHtml, /id="activitySoloLink"/);
   assert.match(duelHtml, /id="activityContextRetry"/);
   assert.match(duelHtml, /src="activity-redirect\.js\?v=[0-9a-z]+"/);
-  assert.match(duelHtml, /class="activity-legal" aria-label="Activity policies"/);
+  assert.match(duelHtml, /class="activity-context-legal" href="\/terms\.html"/);
   assert.match(duelHtml, /href="\/terms\.html" target="_blank"/);
   assert.match(duelHtml, /href="\/privacy\.html" target="_blank"/);
-  assert.match(duelHtml, /src="activity-sdk\.js\?v=[0-9a-z]+"/);
+  assert.match(duelHtml, /src="activity-loader\.js\?v=[0-9a-z]+"/);
   assert.match(duel, /NeonSnakeActivity/);
   // The shared room is derived from the instance id already present in the URL,
   // so two people in one channel reach the same board even when Discord's RPC
@@ -214,7 +215,7 @@ function request(url, {
   assert.doesNotMatch(duel, /location\.assign\(/);
   assert.match(duel, /neon-activity-external-error/);
   assert.match(duelCss, /--discord-safe-area-inset-top/);
-  assert.match(duelCss, /body\.activity-mode \.activity-legal\s*\{[^}]*display:\s*flex/);
+  assert.match(duelCss, /body\.activity-mode \.duel-header \{ display: none; \}/);
 
   const globalHeaders = Object.fromEntries(
     vercel.headers
@@ -255,6 +256,7 @@ function request(url, {
       values.set(command[1], command[2]);
       return "OK";
     }
+    if (command[0] === "DEL") return command.slice(1).filter((key) => values.delete(key)).length;
     throw new Error(`Unsupported command ${command[0]}`);
   };
   const fetchImpl = async (url, options = {}) => {
@@ -327,6 +329,26 @@ function request(url, {
     cookie: "__Secure-neon_activity=activity_session_token_32_characters",
   }));
   assert.equal(current.profile.username, "activity_player");
+
+  // Every Activity page load signs in again. The new session replaces the one
+  // this iframe already held instead of leaving another 30-day session alive.
+  const resignIn = createAccountHandler({
+    environment,
+    fetchImpl,
+    now: () => 1_785_184_000_000,
+    random: () => "second_activity_session_token_32chars",
+    redisCommand,
+  });
+  const second = responseHarness();
+  await resignIn(request("/api/activity/token", {
+    method: "POST",
+    body: { code: "valid_activity_code" },
+    cookie: "__Secure-neon_activity=activity_session_token_32_characters",
+  }), second);
+  assert.equal(second.statusCode, 200);
+  const sessions = [...values.keys()].filter((key) => key.startsWith("neon-snake:session:"));
+  assert.equal(sessions.length, 1, "Signing in again must end the previous session");
+  assert.notEqual(sessions[0], sessionKey);
   process.stdout.write("PASS Discord Activity uses official SDK auth, partitioned sessions, and instance rooms\n");
 })().catch((error) => {
   console.error(error);

@@ -5,10 +5,8 @@ const {
   randomBytes,
   timingSafeEqual,
 } = require("node:crypto");
-const {
-  executeRedisRest,
-  requestIsSameOrigin,
-} = require("./room-core.cjs");
+const { executeRedisRest } = require("./redis-rest.cjs");
+const Rules = require("../public/game-logic.js");
 
 const DISCORD_API = "https://discord.com/api/v10";
 const SESSION_COOKIE = "__Host-neon_session";
@@ -20,47 +18,92 @@ const ACTIVITY_TTL_SECONDS = 35;
 const PROFILE_ACCENTS = new Set(["acid", "cyan", "violet", "magenta", "ember"]);
 const PROFILE_MODES = new Set(["classic", "portal", "rush", "canvas", "live"]);
 const PROFILE_SNAKES = new Set(["signal", "spectral", "glass", "ember"]);
+// Results update a W/L/D record and an Elo rating; the public ranking is the
+// rating. Ranking by raw win count let two accounts that one person controls
+// farm ~800 wins an hour. Under Elo, beating the same weaker account quickly
+// stops paying, and on top of that only the first few results per pair of
+// players per day, and only rounds of a real length, move the rating.
+const RATING_START = 1000;
+const RATING_KEY = "neon-snake:leaderboard:rating";
+const LEGACY_WINS_KEY = "neon-snake:leaderboard:duel";
+const RATING_K = 32;
+const RATED_RESULTS_PER_PAIR_PER_DAY = 3;
+const MIN_RATED_ROUND_MS = 10_000;
+// Daily Signal: one Classic, Arcade-pace board per UTC day. Runs are replayed
+// here from their turns, so a board holds the score the moves earn.
+const DAILY_MODE = "classic";
+const DAILY_PACE = "arcade";
+const DAILY_TTL_SECONDS = 9 * 24 * 60 * 60;
+const DAILY_SUBMISSIONS_PER_DAY = 60;
+// A run that crosses midnight still counts for the day it was played on.
+const DAILY_GRACE_MS = 15 * 60 * 1000;
+const DAILY_MAX_STEPS = 50_000;
+const DAILY_BOARD_SIZE = 20;
+
+function dailyKey(date) {
+  return `neon-snake:daily:${date}`;
+}
 const MATCH_SCRIPT = String.raw`
 local eventKey = KEYS[1]
-local leaderboardKey = KEYS[2]
+local ratingKey = KEYS[2]
 local winnerStatsKey = KEYS[3]
 local loserStatsKey = KEYS[4]
+local pairKey = KEYS[5]
 local draw = ARGV[1] == "1"
 local winner = ARGV[2]
 local loser = ARGV[3]
+local longEnough = ARGV[4] == "1"
 if redis.call("SET", eventKey, "1", "NX", "EX", 604800) == false then
   return 0
 end
-if winner ~= "" then redis.call("ZADD", leaderboardKey, "NX", 0, winner) end
-if loser ~= "" then redis.call("ZADD", leaderboardKey, "NX", 0, loser) end
+redis.call("ZADD", ratingKey, "NX", ${RATING_START}, winner)
+redis.call("ZADD", ratingKey, "NX", ${RATING_START}, loser)
 if draw then
-  if winner ~= "" then redis.call("HINCRBY", winnerStatsKey, "draws", 1) end
-  if loser ~= "" then redis.call("HINCRBY", loserStatsKey, "draws", 1) end
+  redis.call("HINCRBY", winnerStatsKey, "draws", 1)
+  redis.call("HINCRBY", loserStatsKey, "draws", 1)
 else
-  redis.call("ZINCRBY", leaderboardKey, 1, winner)
   redis.call("HINCRBY", winnerStatsKey, "wins", 1)
   redis.call("HINCRBY", loserStatsKey, "losses", 1)
 end
-return 1
+local pairCount = redis.call("INCR", pairKey)
+redis.call("EXPIRE", pairKey, 172800)
+if not longEnough or pairCount > ${RATED_RESULTS_PER_PAIR_PER_DAY} then
+  return 1
+end
+local winnerRating = tonumber(redis.call("ZSCORE", ratingKey, winner))
+local loserRating = tonumber(redis.call("ZSCORE", ratingKey, loser))
+local expected = 1 / (1 + 10 ^ ((loserRating - winnerRating) / 400))
+local score = draw and 0.5 or 1
+local change = ${RATING_K} * (score - expected)
+redis.call("ZADD", ratingKey, winnerRating + change, winner)
+redis.call("ZADD", ratingKey, loserRating - change, loser)
+return 2
 `;
 const LEADERBOARD_SCRIPT = String.raw`
+if redis.call("EXISTS", KEYS[1]) == 0 then
+  -- Players ranked under the old win count keep a place on the rating board.
+  for _, userId in ipairs(redis.call("ZRANGE", KEYS[3], 0, -1)) do
+    redis.call("ZADD", KEYS[1], "NX", ${RATING_START}, userId)
+  end
+end
 local rows = redis.call("ZREVRANGE", KEYS[1], 0, 49, "WITHSCORES")
 local active = redis.call("ZREVRANGEBYSCORE", KEYS[2], ARGV[1], ARGV[2], "LIMIT", 0, 50)
 local result = {}
 local seen = {}
 local rank = 0
 
-local function append(userId, wins, playerRank)
+local function append(userId, rating, playerRank)
   if seen[userId] then return end
   seen[userId] = true
   local statsKey = "neon-snake:stats:" .. userId
   local activityKey = "neon-snake:activity:" .. userId
   table.insert(result, userId)
-  table.insert(result, wins)
+  table.insert(result, redis.call("HGET", statsKey, "wins") or "0")
   table.insert(result, redis.call("HGET", statsKey, "losses") or "0")
   table.insert(result, redis.call("HGET", statsKey, "draws") or "0")
   table.insert(result, redis.call("GET", activityKey) or "")
   table.insert(result, tostring(playerRank))
+  table.insert(result, rating or "")
 end
 
 for index = 1, #rows, 2 do
@@ -70,7 +113,7 @@ for index = 1, #rows, 2 do
 end
 
 for _, userId in ipairs(active) do
-  append(userId, redis.call("ZSCORE", KEYS[1], userId) or "0", 0)
+  append(userId, redis.call("ZSCORE", KEYS[1], userId) or "", 0)
 end
 return result
 `;
@@ -78,6 +121,24 @@ return result
 function header(request, name) {
   const value = request.headers?.[name] ?? request.headers?.[name.toLowerCase()];
   return Array.isArray(value) ? value[0] : value;
+}
+
+// Account writes must come from this site's own pages.
+function requestIsSameOrigin(request) {
+  const origin = header(request, "origin");
+  const forwardedHost = header(request, "x-forwarded-host");
+  const host = String(forwardedHost || header(request, "host") || "").split(",")[0].trim();
+  const forwardedProtocol = header(request, "x-forwarded-proto");
+  const protocol = String(forwardedProtocol || (host.startsWith("localhost") ? "http" : "https"))
+    .split(",")[0]
+    .trim();
+  const fetchSite = header(request, "sec-fetch-site");
+  if (!origin || !host || (fetchSite && fetchSite !== "same-origin")) return false;
+  try {
+    return new URL(origin).origin === `${protocol}://${host}`;
+  } catch {
+    return false;
+  }
 }
 
 function requestUrl(request) {
@@ -133,8 +194,8 @@ function activityCookie(value, clientId, {
   ].join("; ");
 }
 
-function sendJson(response, status, payload) {
-  response.setHeader("Cache-Control", "no-store");
+function sendJson(response, status, payload, { cacheControl = "no-store" } = {}) {
+  response.setHeader("Cache-Control", cacheControl);
   response.setHeader("Content-Type", "application/json; charset=utf-8");
   response.setHeader("X-Content-Type-Options", "nosniff");
   response.statusCode = status;
@@ -382,6 +443,7 @@ async function persistDiscordSession(discordUser, {
   now,
   random,
   runRedis,
+  previousToken = "",
 }) {
   const provisional = publicProfile(discordUser);
   const previousValue = await runRedis(["GET", `neon-snake:profile:${provisional.id}`]);
@@ -415,7 +477,35 @@ async function persistDiscordSession(discordUser, {
     "EX",
     SESSION_TTL_SECONDS,
   ]);
+  // Signing in again replaces the session this browser already held. Every
+  // Activity page switch signs in afresh, and each one used to leave another
+  // live 30-day session behind.
+  if (/^[A-Za-z0-9_-]{32,128}$/.test(previousToken) && previousToken !== sessionToken) {
+    await runRedis(["DEL", `neon-snake:session:${digest(previousToken)}`]);
+  }
   return { profile, sessionToken };
+}
+
+// Everything stored about a player. Match records hold no player data, and the
+// per-pair rating counters expire within two days.
+async function deletePlayerData(profile, { runRedis, sessionToken = "" }) {
+  const keys = [
+    `neon-snake:profile:${profile.id}`,
+    `neon-snake:stats:${profile.id}`,
+    `neon-snake:activity:${profile.id}`,
+  ];
+  const indexedUsername = usernameKey(profile.username);
+  if (indexedUsername) keys.push(`neon-snake:username:${indexedUsername}`);
+  if (sessionToken) keys.push(`neon-snake:session:${digest(sessionToken)}`);
+  await runRedis(["DEL", ...keys]);
+  await runRedis(["ZREM", RATING_KEY, profile.id]);
+  await runRedis(["ZREM", LEGACY_WINS_KEY, profile.id]);
+  await runRedis(["ZREM", "neon-snake:players:active", profile.id]);
+  // Daily boards expire after nine days; remove the player from each of them.
+  const today = Date.now();
+  for (let day = 0; day <= DAILY_TTL_SECONDS / 86_400; day += 1) {
+    await runRedis(["ZREM", dailyKey(Rules.utcDay(today - day * 86_400_000)), profile.id]);
+  }
 }
 
 async function recordMatchResult({
@@ -424,6 +514,7 @@ async function recordMatchResult({
   secondUserId,
   winnerUserId,
   endedAt,
+  durationMs = 0,
 }, options = {}) {
   const now = options.now || (() => Date.now());
   const first = String(firstUserId || "");
@@ -443,20 +534,24 @@ async function recordMatchResult({
     throw new TypeError("Match result is invalid.");
   }
   const loser = winner ? (winner === first ? second : first) : second;
+  const pair = [first, second].sort().join(":");
+  const day = new Date(timestamp).toISOString().slice(0, 10);
   const runRedis = createRedisRunner(options);
   const updated = await runRedis([
     "EVAL",
     MATCH_SCRIPT,
-    "4",
+    "5",
     `neon-snake:match:${digest(eventId)}`,
-    "neon-snake:leaderboard:duel",
+    RATING_KEY,
     `neon-snake:stats:${winner || first}`,
     `neon-snake:stats:${loser}`,
+    `neon-snake:pair:${pair}:${day}`,
     winner ? "0" : "1",
     winner || first,
     loser,
+    Number(durationMs) >= MIN_RATED_ROUND_MS ? "1" : "0",
   ]);
-  return Number(updated) === 1;
+  return Number(updated) >= 1;
 }
 
 function createAccountHandler({
@@ -526,6 +621,7 @@ function createAccountHandler({
           now,
           random,
           runRedis,
+          previousToken: cookieMap(request).get(SESSION_COOKIE) || "",
         });
         return redirect(response, "/?auth=discord", [
           cookie(OAUTH_COOKIE, "", { maxAge: 0 }),
@@ -564,6 +660,7 @@ function createAccountHandler({
           now,
           random,
           runRedis,
+          previousToken: cookieMap(request).get(ACTIVITY_SESSION_COOKIE) || "",
         });
         response.setHeader("Set-Cookie", activityCookie(
           sessionToken,
@@ -594,6 +691,99 @@ function createAccountHandler({
             activeAt,
             now: now(),
           }),
+        });
+      }
+
+      if (route === "/api/daily") {
+        const today = Rules.utcDay(now());
+        if (request.method === "GET") {
+          const current = await sessionFor(request).catch(() => null);
+          const rows = await runRedis(["ZREVRANGE", dailyKey(today), "0", String(DAILY_BOARD_SIZE - 1), "WITHSCORES"]);
+          const pairs = Array.isArray(rows) ? rows : [];
+          const userIds = pairs.filter((_, index) => index % 2 === 0);
+          const profiles = userIds.length
+            ? await runRedis(["MGET", ...userIds.map((id) => `neon-snake:profile:${id}`)])
+            : [];
+          const entries = userIds.map((id, index) => {
+            let profile = null;
+            try {
+              profile = profiles?.[index] ? JSON.parse(profiles[index]) : null;
+            } catch {
+              profile = null;
+            }
+            const customization = sanitizeProfileCustomization(profile?.customization);
+            return {
+              rank: index + 1,
+              score: Number(pairs[index * 2 + 1]) || 0,
+              displayName: profile?.displayName || "Discord Player",
+              username: profile?.username || "player",
+              avatarUrl: profile ? avatarUrl(profile) : "",
+              callsign: customization.callsign || profile?.displayName || "Discord Player",
+              accent: customization.accent,
+              snakeStyle: customization.snakeStyle,
+            };
+          });
+          let you = null;
+          if (current) {
+            const [rank, best] = await Promise.all([
+              runRedis(["ZREVRANK", dailyKey(today), current.profile.id]),
+              runRedis(["ZSCORE", dailyKey(today), current.profile.id]),
+            ]);
+            if (rank !== null && rank !== undefined) you = { rank: Number(rank) + 1, score: Number(best) || 0 };
+          }
+          return sendJson(response, 200, {
+            date: today,
+            signal: Rules.dailySignal(today),
+            mode: DAILY_MODE,
+            pace: DAILY_PACE,
+            entries,
+            you,
+          });
+        }
+        if (request.method !== "POST") return sendJson(response, 405, { error: "method_not_allowed" });
+        if (!requestIsAccountOrigin(request, environment)) {
+          return sendJson(response, 403, { error: "origin_not_allowed" });
+        }
+        const current = await sessionFor(request);
+        if (!current) return sendJson(response, 401, { error: "sign_in_required" });
+        const body = await readBody(request);
+        const date = String(body?.date || "");
+        const yesterday = Rules.utcDay(now() - DAILY_GRACE_MS);
+        if (date !== today && date !== yesterday) return sendJson(response, 400, { error: "daily_closed" });
+        const steps = Number(body?.steps);
+        const turns = typeof body?.turns === "string" ? Rules.decodeTurns(body.turns) : null;
+        if (!turns || !Number.isSafeInteger(steps) || steps < 1 || steps > DAILY_MAX_STEPS) {
+          return sendJson(response, 400, { error: "invalid_run" });
+        }
+        const limitKey = `neon-snake:daily-submissions:${date}:${current.profile.id}`;
+        const submissions = Number(await runRedis(["INCR", limitKey])) || 0;
+        if (submissions === 1) await runRedis(["EXPIRE", limitKey, String(2 * 24 * 60 * 60)]);
+        if (submissions > DAILY_SUBMISSIONS_PER_DAY) return sendJson(response, 429, { error: "too_many_runs" });
+        const replay = Rules.replaySoloRun({
+          signal: Rules.dailySignal(date),
+          mode: DAILY_MODE,
+          pace: DAILY_PACE,
+          turns,
+          maxSteps: steps,
+        });
+        // The run must end exactly where the player's did: a crash or a
+        // cleared board on the reported step, with every turn used.
+        if (!replay.valid || replay.outcome === "alive" || replay.steps !== steps) {
+          return sendJson(response, 422, { error: "run_did_not_replay" });
+        }
+        const key = dailyKey(date);
+        await runRedis(["ZADD", key, "GT", String(replay.score), current.profile.id]);
+        await runRedis(["EXPIRE", key, String(DAILY_TTL_SECONDS)]);
+        const [rank, best] = await Promise.all([
+          runRedis(["ZREVRANK", key, current.profile.id]),
+          runRedis(["ZSCORE", key, current.profile.id]),
+        ]);
+        return sendJson(response, 200, {
+          date,
+          score: replay.score,
+          outcome: replay.outcome,
+          best: Number(best) || replay.score,
+          rank: rank === null || rank === undefined ? null : Number(rank) + 1,
         });
       }
 
@@ -630,7 +820,7 @@ function createAccountHandler({
             if (!userId) {
               const leaderboardIds = await runRedis([
                 "ZREVRANGE",
-                "neon-snake:leaderboard:duel",
+                RATING_KEY,
                 "0",
                 "49",
               ]);
@@ -701,6 +891,20 @@ function createAccountHandler({
             }),
           });
         }
+        if (request.method === "DELETE") {
+          // Self-serve deletion. The only route before was a public GitHub issue.
+          if (!requestIsAccountOrigin(request, environment)) {
+            return sendJson(response, 403, { error: "origin_not_allowed" });
+          }
+          const current = await sessionFor(request);
+          if (!current) return sendJson(response, 401, { error: "authentication_required" });
+          await deletePlayerData(current.profile, { runRedis, sessionToken: current.token });
+          const clearCookies = [cookie(SESSION_COOKIE, "", { maxAge: 0 })];
+          const clientId = String(environment.DISCORD_CLIENT_ID || "");
+          if (/^[0-9]{15,24}$/.test(clientId)) clearCookies.push(activityCookie("", clientId, { maxAge: 0 }));
+          response.setHeader("Set-Cookie", clearCookies);
+          return sendJson(response, 200, { deleted: true });
+        }
         return sendJson(response, 405, { error: "method_not_allowed" });
       }
 
@@ -709,14 +913,15 @@ function createAccountHandler({
         const rows = await runRedis([
           "EVAL",
           LEADERBOARD_SCRIPT,
-          "2",
-          "neon-snake:leaderboard:duel",
+          "3",
+          RATING_KEY,
           "neon-snake:players:active",
+          LEGACY_WINS_KEY,
           String(now()),
           String(now() - ACTIVITY_TTL_SECONDS * 1_000),
         ]);
         const pairs = Array.isArray(rows) ? rows : [];
-        const stride = 6;
+        const stride = 7;
         const userIds = pairs.filter((_, index) => index % stride === 0);
         const profiles = userIds.length
           ? await runRedis(["MGET", ...userIds.map((id) => `neon-snake:profile:${id}`)])
@@ -734,6 +939,10 @@ function createAccountHandler({
           const draws = Number(pairs[index * stride + 3]) || 0;
           const activeAt = Number(pairs[index * stride + 4]) || 0;
           const rank = Number(pairs[index * stride + 5]) || null;
+          const ratingValue = Number(pairs[index * stride + 6]);
+          const rating = pairs[index * stride + 6] !== "" && Number.isFinite(ratingValue)
+            ? Math.round(ratingValue)
+            : null;
           return {
             rank,
             displayName: profile?.displayName || "Discord Player",
@@ -744,11 +953,17 @@ function createAccountHandler({
             favoriteMode: customization.favoriteMode,
             snakeStyle: customization.snakeStyle,
             wins,
+            rating,
             record: { wins, losses, draws },
             online: activeAt > 0 && now() - activeAt <= ACTIVITY_TTL_SECONDS * 1_000,
           };
         });
-        return sendJson(response, 200, { entries, verified: true, metric: "server-authoritative-wins" });
+        // The board is public and identical for everyone, so the CDN may serve
+        // it for a few seconds instead of every page view running a Redis
+        // script plus a 50-key MGET. No cookies are read on this route.
+        return sendJson(response, 200, { entries, verified: true, metric: "server-authoritative-rating" }, {
+          cacheControl: "public, max-age=0, s-maxage=10, stale-while-revalidate=30",
+        });
       }
 
       return sendJson(response, 404, { error: "not_found" });
@@ -759,6 +974,7 @@ function createAccountHandler({
       console.error("Account API request failed.", {
         route,
         name: typeof error?.name === "string" ? error.name : "Error",
+        message: typeof error?.message === "string" ? error.message.slice(0, 200) : "",
       });
       return sendJson(response, 503, { error: "account_service_unavailable" });
     }

@@ -34,8 +34,23 @@ if (!chrome) {
 const read = (...segments) => fs.readFileSync(path.join(root, ...segments), "utf8");
 const escapeScript = (source) => source.replace(/<\/script/gi, "<\\/script");
 
-function fixturePort(mode) {
-  return 41000 + [...mode].reduce((total, character) => total + character.charCodeAt(0), 0) % 1000;
+function startFixture(mode) {
+  const portFile = path.join(os.tmpdir(), `neon-fixture-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const server = spawn(
+    process.execPath,
+    [path.join(root, "browser-fixture-server.cjs"), path.join(root, "public"), "0", mode],
+    { stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, FIXTURE_PORT_FILE: portFile } },
+  );
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (fs.existsSync(portFile)) {
+      const port = Number(fs.readFileSync(portFile, "utf8"));
+      fs.rmSync(portFile, { force: true });
+      if (port > 0) return { server, port };
+    }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+  }
+  server.kill();
+  throw new Error(`Browser fixture did not report a port for ${mode}`);
 }
 
 function waitForFixture(url) {
@@ -51,12 +66,7 @@ function waitForFixture(url) {
 }
 
 function runShippedActivityFixture(mode, page = "/") {
-  const port = fixturePort(`${mode}:${page}`);
-  const server = spawn(
-    process.execPath,
-    [path.join(root, "browser-fixture-server.cjs"), path.join(root, "public"), String(port), mode],
-    { stdio: ["ignore", "ignore", "pipe"] },
-  );
+  const { server, port } = startFixture(mode);
   const separator = page.includes("?") ? "&" : "?";
   const url = `http://127.0.0.1:${port}${page}${separator}frame_id=fixture-${port}`;
   try {
@@ -208,7 +218,7 @@ const activityBrowserTest = String.raw`
 (async () => {
   await new Promise((resolve) => setTimeout(resolve, 30));
   document.querySelector("#activityContext").hidden = false;
-  const legal = document.querySelector(".activity-legal");
+  const legal = document.querySelector(".activity-context-actions");
   const terms = legal.querySelector('a[href*="terms.html"]');
   const privacy = legal.querySelector('a[href*="privacy.html"]');
   const solo = document.querySelector("#activitySoloLink");

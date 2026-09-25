@@ -54,10 +54,12 @@ function redisHarness() {
     }
     if (verb === "MGET") return [key, ...rest].map((entry) => values.get(entry) ?? null);
     if (verb === "HGETALL") return hashes.get(key) || [];
+    if (verb === "DEL") return [key, ...rest].filter((entry) => values.delete(entry) || hashes.delete(entry)).length;
+    if (verb === "ZREM") return 1;
     if (verb === "EVAL" && String(key).includes("ZREVRANGE")) {
       return [
-        "123456789012345678", "7", "3", "2", "1785124800000", "1",
-        "223456789012345678", "0", "0", "0", "1785124800400", "0",
+        "123456789012345678", "7", "3", "2", "1785124800000", "1", "1043.6",
+        "223456789012345678", "0", "0", "0", "1785124800400", "0", "",
       ];
     }
     throw new Error(`Unsupported fake Redis command: ${verb}`);
@@ -187,17 +189,53 @@ function redisHarness() {
   const leaderboardResponse = responseHarness();
   await handler(request("/api/leaderboard"), leaderboardResponse);
   assert.equal(leaderboardResponse.statusCode, 200);
+  assert.match(leaderboardResponse.headers["cache-control"], /s-maxage=10/,
+    "The public board is served from the CDN for a few seconds");
   const entry = JSON.parse(leaderboardResponse.body).entries[0];
   assert.equal(entry.username, "signal_player");
   assert.equal(entry.callsign, "Arc Runner");
   assert.equal(entry.online, true);
   assert.equal(entry.rank, 1);
   assert.deepEqual(entry.record, { wins: 7, losses: 3, draws: 2 });
+  assert.equal(entry.rating, 1044, "The public ranking is the rating, rounded for display");
   const activeWithoutWins = JSON.parse(leaderboardResponse.body).entries[1];
   assert.equal(activeWithoutWins.username, "new_player");
   assert.equal(activeWithoutWins.rank, null);
   assert.equal(activeWithoutWins.online, true);
   assert.deepEqual(activeWithoutWins.record, { wins: 0, losses: 0, draws: 0 });
+  assert.equal(activeWithoutWins.rating, null, "An unrated live player has no rating yet");
+
+  // Self-serve deletion: another site cannot trigger it, a signed-out visitor
+  // cannot, and the owner's data and session are gone afterwards.
+  const foreignDelete = responseHarness();
+  await handler(request("/api/profile", {
+    method: "DELETE",
+    headers: { cookie: `__Host-neon_session=${sessionToken}`, origin: "https://attacker.invalid" },
+  }), foreignDelete);
+  assert.equal(foreignDelete.statusCode, 403);
+  const anonymousDelete = responseHarness();
+  await handler(request("/api/profile", { method: "DELETE" }), anonymousDelete);
+  assert.equal(anonymousDelete.statusCode, 401);
+  const deleteResponse = responseHarness();
+  await handler(request("/api/profile", {
+    method: "DELETE",
+    headers: { cookie: `__Host-neon_session=${sessionToken}` },
+  }), deleteResponse);
+  assert.equal(deleteResponse.statusCode, 200);
+  for (const key of [
+    `neon-snake:profile:${userId}`,
+    `neon-snake:stats:${userId}`,
+    `neon-snake:activity:${userId}`,
+    "neon-snake:username:signal_player",
+    `neon-snake:session:${digest(sessionToken)}`,
+  ]) {
+    assert.equal(redis.values.has(key) || redis.hashes.has(key), false, `Deletion must remove ${key}`);
+  }
+  assert.ok(redis.commands.some((command) => command[0] === "ZREM" && command[1] === "neon-snake:leaderboard:rating" && command[2] === userId));
+  assert.match(String(deleteResponse.headers["set-cookie"]), /__Host-neon_session=;.*Max-Age=0/);
+  const afterDelete = responseHarness();
+  await handler(request("/api/me", { headers: { cookie: `__Host-neon_session=${sessionToken}` } }), afterDelete);
+  assert.equal(JSON.parse(afterDelete.body).authenticated, false, "A deleted player is signed out");
 
   process.stdout.write("PASS public profiles, safe customization, visible usernames, activity, and records stay server-backed\n");
 })().catch((error) => {

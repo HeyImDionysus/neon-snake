@@ -5,6 +5,7 @@ const { randomBytes, createHash } = require("node:crypto");
 const { WebSocket } = require("ws");
 const { PRESENCE_SCRIPT } = require("./server/realtime-core.cjs");
 const { createFixtureServer, redisConnection } = require("./realtime-fixture-server.cjs");
+const { LEADERBOARD_SCRIPT, MATCH_SCRIPT } = require("./server/account-core.cjs");
 const transports = require("./public/room-transport.js");
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -92,15 +93,21 @@ async function main() {
     assert.equal(peer.messages.filter((message) => message.type === "countdown-cancel").length, cancellations);
     console.log("PASS spectator departure preserves active round");
 
+    // The first round must finish before another can start; with no inputs both
+    // snakes reach a wall within a few seconds.
+    await waitFor(() => host.messages.some((message) => message.type === "state" && message.state.over), "first round ends", 15_000);
+    const firstRound = stateA.state.round;
     const copied = await connect("qa-owner");
     assert.equal(copied.closed, 4003);
     console.log("PASS copied public client id cannot steal an occupied seat");
     const resumed = await connect("qa-owner", host.welcome.resumeToken);
     assert.equal(resumed.welcome?.slot, 0);
     await ready(resumed, peer);
-    const secondRound = Date.now();
-    send(resumed, { type: "countdown", round: secondRound, startsAt: Date.now() + 3_200 });
-    await waitFor(() => resumed.messages.some((message) => message.type === "countdown" && message.round === secondRound), "resumed countdown");
+    send(resumed, { type: "countdown", round: Date.now(), startsAt: Date.now() + 3_200 });
+    const secondCountdown = await waitFor(() => resumed.messages.find((message) => (
+      message.type === "countdown" && message.round > firstRound
+    )), "resumed countdown");
+    const secondRound = secondCountdown.round;
     host.socket.close();
     await waitFor(() => host.closed, "replaced socket closes");
     await waitFor(() => resumed.messages.some((message) => message.type === "state" && message.state.round === secondRound), "replacement round after old close");
@@ -213,6 +220,119 @@ async function main() {
     );
     await redis.command(["DEL", ...cutKeys]);
     console.log("PASS a cut link keeps its seat while a closed one frees it");
+
+    // Every link is handed over before the platform cuts it. The replacement
+    // joins with the same credential, so it must be treated as the same player
+    // moving links: Ready and the round in progress survive.
+    const handoverRoom = roomCode();
+    const handoverHost = await connectTo(handoverRoom, "qa-handover-host");
+    const handoverGuest = await connectTo(handoverRoom, "qa-handover-guest");
+    for (const client of [handoverHost, handoverGuest]) send(client, { type: "ready", ready: true });
+    await waitFor(() => handoverHost.messages.filter((message) => message.type === "roster").at(-1)
+      ?.players.every((player) => player.ready) && handoverHost.messages.filter((message) => message.type === "roster").at(-1)
+      ?.players.length === 2, "handover players ready");
+    send(handoverHost, { type: "countdown", round: Date.now(), startsAt: Date.now() + 3_200 });
+    const handoverRound = (await waitFor(() => handoverGuest.messages.find((message) => message.type === "countdown"), "handover countdown")).round;
+    await waitFor(() => handoverGuest.messages.some((message) => message.type === "state" && message.state.round === handoverRound), "handover round starts");
+    const replacementGuest = await connectTo(handoverRoom, "qa-handover-guest", handoverGuest.welcome.resumeToken);
+    assert.equal(replacementGuest.welcome?.slot, 1, "The replacement link keeps the guest's seat");
+    assert.equal(
+      replacementGuest.welcome.players.find((player) => player.id === "qa-handover-guest")?.ready,
+      true,
+      "A handover must not revoke the guest's Ready",
+    );
+    handoverGuest.socket.close(1000, "Realtime link rotated");
+    await waitFor(() => handoverGuest.closed, "retired guest link closes");
+    const sequenceAfterHandover = replacementGuest.messages
+      .filter((message) => message.type === "state").at(-1)?.sequence || 0;
+    await waitFor(() => replacementGuest.messages.some((message) => (
+      message.type === "state" && message.state.round === handoverRound && message.sequence > sequenceAfterHandover + 3
+    )), "the round keeps ticking on the replacement link");
+    for (const client of [handoverHost, replacementGuest]) {
+      assert.equal(
+        client.messages.some((message) => message.type === "countdown-cancel"),
+        false,
+        `${client.id} must not see the round cancelled by a handover`,
+      );
+    }
+    await redis.command(["DEL", ...keys(handoverRoom)]);
+    console.log("PASS a mid-round link handover keeps Ready and the round in progress");
+
+    // A waiting participant who hands over keeps their place in line.
+    await lua("join", "ttl-queue-a", "ttl-queue-a-1", 131_000);
+    const queued = await lua("join", "ttl-queue-b", "ttl-queue-b-1", 131_001);
+    const queueBefore = queued.waiting.map((player) => player.id);
+    const handedOver = await lua("join", queueBefore[0], `${queueBefore[0]}-2`, 131_002);
+    assert.deepEqual(handedOver.waiting.map((player) => player.id), queueBefore,
+      "A handover must not send a waiting participant to the back of the line");
+    console.log("PASS a waiting participant's handover keeps their place in line");
+
+    // Game events are relayed through Redis only when someone in the room is
+    // attached to another instance. Hubs alternate per connection, so a filler
+    // socket in another room puts both players on the same hub and the late
+    // spectator on the other one, which must find the round in Redis.
+    const localRoom = roomCode();
+    const fillerRoom = roomCode();
+    const localHost = await connectTo(localRoom, "qa-local-host");
+    await connectTo(fillerRoom, "qa-local-filler");
+    const localGuest = await connectTo(localRoom, "qa-local-guest");
+    for (const client of [localHost, localGuest]) send(client, { type: "ready", ready: true });
+    await waitFor(() => localHost.messages.filter((message) => message.type === "roster").at(-1)
+      ?.players.filter((player) => player.ready).length === 2, "local players ready");
+    const published = [];
+    const monitor = redisConnection((message) => published.push(message));
+    await monitor.command(["SUBSCRIBE", `neon-snake:qa:${localRoom}`]);
+    send(localHost, { type: "countdown", round: Date.now(), startsAt: Date.now() + 3_200 });
+    const localCountdown = await waitFor(() => localGuest.messages.find((message) => message.type === "countdown"), "local countdown");
+    await waitFor(() => localGuest.messages.filter((message) => message.type === "state").length >= 3, "local round ticks");
+    assert.equal(
+      published.some((message) => JSON.parse(message[2]).kind === "state"),
+      false,
+      "A room whose members share one instance relays no snapshots through Redis",
+    );
+    const lateWatcher = await connectTo(localRoom, "qa-local-watcher");
+    assert.ok(lateWatcher.messages.some((message) => (
+      message.type === "countdown" && message.round === localCountdown.round
+    )), "A spectator on another instance learns the live round from Redis");
+    await waitFor(() => lateWatcher.messages.some((message) => (
+      message.type === "state" && message.state.round === localCountdown.round
+    )), "the remote spectator receives snapshots once it is in the roster");
+    monitor.close();
+    await redis.command(["DEL", ...keys(localRoom), ...keys(fillerRoom), `{neon-snake:realtime:${localRoom}}:round`]);
+    console.log("PASS same-instance rooms skip the relay and late remote spectators still join the round");
+
+    // Ratings, not win counts, rank players, so farming a second account
+    // stops paying: Elo shrinks the gain, and only three results per pair per
+    // day - and only rounds of real length - move the rating at all.
+    const ns = `neon-snake:qa:${handoverRoom}`;
+    const ratingKey = `${ns}:rating`;
+    const main = "300000000000000001";
+    const alt = "300000000000000002";
+    const match = async (index, { longEnough = true, winner = main } = {}) => redis.command([
+      "EVAL", MATCH_SCRIPT, 5, `${ns}:match:${index}`, ratingKey,
+      `${ns}:stats:${winner}`, `${ns}:stats:${winner === main ? alt : main}`, `${ns}:pair`,
+      "0", winner, winner === main ? alt : main, longEnough ? "1" : "0",
+    ]);
+    assert.equal(await match(1, { longEnough: false }), 1, "A short round counts toward the record only");
+    assert.equal(Number(await redis.command(["ZSCORE", ratingKey, main])), 1000);
+    assert.equal(await match(1), 0, "A duplicate result is ignored");
+    assert.equal(await match(2), 2);
+    const afterFirst = Number(await redis.command(["ZSCORE", ratingKey, main]));
+    assert.equal(afterFirst, 1016, "An even match moves the rating by K/2");
+    assert.equal(await match(3), 2);
+    const gain = Number(await redis.command(["ZSCORE", ratingKey, main])) - afterFirst;
+    assert.ok(gain > 0 && gain < 16, "Beating the same weaker account pays less each time");
+    assert.equal(await match(4), 1, "Past three results per pair per day, the rating stops moving");
+    assert.equal(await match(5), 1);
+    const wins = Number(await redis.command(["HGET", `${ns}:stats:${main}`, "wins"]));
+    assert.equal(wins, 5, "Every result still counts toward the public record");
+    await redis.command(["ZADD", `${ns}:legacy`, "7", "300000000000000003"]);
+    const rows = await redis.command(["EVAL", LEADERBOARD_SCRIPT, 3, `${ns}:fresh-rating`, `${ns}:active`, `${ns}:legacy`, "0", "0"]);
+    assert.equal(rows[0], "300000000000000003", "A player ranked under the old win count keeps a place");
+    assert.equal(Number(rows[6]), 1000);
+    await redis.command(["DEL", ratingKey, `${ns}:pair`, `${ns}:stats:${main}`, `${ns}:stats:${alt}`, `${ns}:legacy`, `${ns}:fresh-rating`,
+      ...[1, 2, 3, 4, 5].map((index) => `${ns}:match:${index}`)]);
+    console.log("PASS real Lua ratings resist farming while every result stays on the record");
   } finally {
     promotedTransport?.close();
     clients.forEach((client) => client.socket.close());

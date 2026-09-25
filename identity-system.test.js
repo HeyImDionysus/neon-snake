@@ -20,7 +20,7 @@ const tests = [
       assert.match(html, /src="signal-field\.js(?:\?v=[0-9a-z]+)?"/);
       assert.match(html, /assets\/signal-mark\.svg/);
     });
-    assert.match(serviceWorker, /"\/signal-field\.js"/);
+    assert.match(serviceWorker, /"\/signal-field\.js\?v=[0-9a-z]+"/);
     assert.match(serviceWorker, /"\/assets\/signal-mark\.svg"/);
   }],
   ["the field seed is deterministic and mode-sensitive", () => {

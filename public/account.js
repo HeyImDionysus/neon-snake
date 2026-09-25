@@ -110,7 +110,7 @@
     if (!leaderboard) return;
     leaderboard.replaceChildren();
     if (!entries.length) {
-      leaderboard.append(element("li", "empty-run", "No verified live wins yet."));
+      leaderboard.append(element("li", "empty-run", "No rated live matches yet."));
       return;
     }
     entries.forEach((entry) => {
@@ -148,9 +148,10 @@
       if (entry.online) player.append(element("i", "online-now", "LIVE"));
       const record = entry.record || { wins: entry.wins || 0, losses: 0, draws: 0 };
       const result = element("span", "online-record");
+      // Ranked by rating; the win/loss record is shown beneath it.
       result.append(
-        element("strong", "", `${String(record.wins || 0).padStart(2, "0")}W`),
-        element("small", "", `${record.losses || 0}L · ${record.draws || 0}D`),
+        element("strong", "", Number.isFinite(entry.rating) ? String(entry.rating) : "—"),
+        element("small", "", `${record.wins || 0}W · ${record.losses || 0}L · ${record.draws || 0}D`),
       );
       item.append(rank, player, result);
       leaderboard.append(item);
@@ -222,7 +223,7 @@
       const entries = Array.isArray(payload.entries) ? payload.entries : [];
       renderLeaderboard(entries);
       renderLivePlayers(entries);
-      if (status) status.textContent = "SERVER-VERIFIED LIVE WINS";
+      if (status) status.textContent = "RATED SERVER-RUN MATCHES";
     } catch {
       renderLeaderboard([]);
       renderLivePlayers([]);
@@ -230,11 +231,56 @@
     }
   }
 
+  // Today's Daily Signal board: scores the server got by replaying each run.
+  const dailyBoard = document.querySelector("#dailyLeaderboard");
+  const dailyBoardCode = document.querySelector("#dailyBoardCode");
+  const dailyBoardStatus = document.querySelector("#dailyBoardStatus");
+
+  function renderDaily(payload) {
+    if (!dailyBoard) return;
+    if (dailyBoardCode) dailyBoardCode.textContent = payload?.signal || "";
+    const entries = Array.isArray(payload?.entries) ? payload.entries : [];
+    dailyBoard.replaceChildren();
+    if (!entries.length) {
+      dailyBoard.append(element("li", "empty-run", "No verified runs today yet. Press DAILY by the Signal Code to play it."));
+    }
+    const yourName = root.NeonSnakeAccount?.profile?.username;
+    entries.forEach((entry) => {
+      const item = element("li", `daily-entry${yourName && entry.username === yourName ? " is-you" : ""}`);
+      const link = element("a", "", entry.callsign || entry.displayName || "Discord Player");
+      link.href = `/profile.html?user=${encodeURIComponent(entry.username || "")}`;
+      link.append(element("small", "", `@${entry.username || "player"}`));
+      item.append(
+        element("span", "run-position", String(entry.rank).padStart(2, "0")),
+        link,
+        element("strong", "", String(entry.score)),
+      );
+      dailyBoard.append(item);
+    });
+    if (dailyBoardStatus) {
+      dailyBoardStatus.textContent = payload?.you
+        ? `YOU · #${payload.you.rank} · ${payload.you.score}`
+        : "SERVER-REPLAYED RUNS";
+    }
+  }
+
+  async function loadDaily() {
+    if (!dailyBoard) return;
+    try {
+      const response = await fetch("/api/daily", { credentials: "same-origin" });
+      if (!response.ok) throw new Error("Daily board unavailable");
+      renderDaily(await response.json());
+    } catch {
+      if (dailyBoardStatus) dailyBoardStatus.textContent = "DAILY BOARD OFFLINE";
+    }
+  }
+  root.addEventListener("neon-daily-updated", () => void loadDaily());
+
   root.NeonSnakeAccount = {
     profile: null,
     refresh: () => embeddedActivity
       ? loadAccount()
-      : Promise.all([loadAccount(), loadLeaderboard()]),
+      : Promise.all([loadAccount(), loadLeaderboard()]).then(loadDaily),
   };
   root.addEventListener("neon-activity-ready", () => {
     void root.NeonSnakeAccount.refresh();

@@ -6,42 +6,24 @@ Its Autopilot and multiplayer opponent are deterministic decision systems writte
 
 ## Run it
 
-Open `public/index.html` in a modern browser. The browser shell remains dependency-free: solo play, Autopilot runs, Autopilot duels, Canvas export, the live wallpaper preview, and offline installation require no package manager or account. Public Live Rooms use a native same-origin Vercel WebSocket with the project’s existing Redis resource for cross-instance relay. Discord profiles and the verified leaderboard stay inside isolated Vercel Functions plus Redis.
+Open `public/index.html` in a modern browser. The browser shell remains dependency-free: solo play, Autopilot runs, Autopilot duels, Canvas export, and the live wallpaper preview need no package manager or account. Offline installation needs the site served over HTTPS or from `localhost`, because service workers do not run from `file://`. Public Live Rooms use a native same-origin Vercel WebSocket with the project’s existing Redis resource for cross-instance relay. Discord profiles and the verified leaderboard stay inside isolated Vercel Functions plus Redis.
 
-To run the deterministic rules and control-flow suites:
+### Develop and test
 
-```powershell
-node asset-stamp.test.js
-node game-logic.test.js
-node ai-quality.test.js
-node canvas-performance.test.js
-node canvas-browser-performance.test.js
-node control-flow.test.js
-node duel-control-flow.test.js
-node duel-quality.test.js
-node duel-authority-consistency.test.js
-node room-transport.test.js
-node room-api.test.js
-node identity-system.test.js
-node accessibility.test.js
-node service-worker.test.js
-node deployment-contract.test.js
-node realtime-worker.test.js
-node platform-security.test.js
-node account-persistence.test.js
-node activity-system.test.js
-node activity-lifecycle.test.js
-node activity-navigation-browser.test.js
-node terminal-room-ui.test.js
-node realtime-integration.test.js
-node profile-system.test.js
-node profile-interaction.test.js
-node profile-browser.test.js
-node product-browser.test.js
-node product-experience.test.js
-node touch-controls.test.js
-node wallpaper-system.test.js
+Node 22 or newer runs the tooling and the tests; the game itself needs none of it.
+
+```sh
+npm ci                       # esbuild, the Discord SDK, Playwright and ws
+npx playwright install chromium
+docker run -d -p 16379:6379 redis:7   # the realtime integration suite's isolated Redis
+
+npm run check      # parse every JavaScript file, verify the asset stamp and the Discord SDK bundle
+npm run test:unit  # every test that needs neither Chromium nor Redis (about a minute)
+npm test           # everything; test files run in parallel, performance gates last and alone
+node scripts/verify.cjs ai-   # only the files whose names contain a filter
 ```
+
+Every `*.test.js` file in the repository root is discovered automatically, so a new test file runs locally and in CI without editing any list. After changing a file under `public/`, run `npm run stamp` so browsers pick up the new content; after changing `activity/entry.js`, run `npm run build:activity` and commit the bundle. `node realtime-fixture-server.cjs` serves two Vercel-shaped realtime hubs against that Redis for manual multiplayer testing.
 
 ## The methodology
 
@@ -85,9 +67,9 @@ Signal Codes make challenge generation equally inspectable. A six-character code
 
 That code also drives the site's Signal Cartography identity. A separate deterministic renderer turns the current Signal and protocol into flowing currents, contour fields, and orbiting nodes behind the interface. It is capped at 24 frames per second, pauses drawing in hidden tabs, becomes static when reduced motion is requested, and never participates in game state. The custom signal-serpent mark, protocol glyphs, and curved run trace carry the same visual grammar through solo and Duel surfaces without adding a framework or image payload.
 
-Signal Codes also name duel rooms. `PUBLIC LIVE ROOM` has two server-assigned active seats and an ordered waiting line in one Vercel WebSocket room. The winner keeps their seat, a loser rotates to the back when someone is waiting, and the queue head is promoted atomically when a seat opens. Waiting participants can watch but are never auto-ready or auto-started. Both seated players publish bounded direction inputs over WebSocket; the browser never publishes authoritative state. The Player 1 Vercel Function owns the 138 ms simulation, applies both players' inputs in sequence, resolves both snakes once, and broadcasts one verified snapshot through the existing Redis event relay to every Function instance and screen. Countdown requires a healthy room link plus two server-roster-confirmed Ready players. A disconnect, missed heartbeat, replaced connection, or revoked Ready state cancels the round immediately.
+Signal Codes also name duel rooms. `PUBLIC LIVE ROOM` has two server-assigned active seats and an ordered waiting line in one Vercel WebSocket room. The winner keeps their seat, a loser rotates to the back when someone is waiting, and the queue head is promoted atomically when a seat opens. Waiting participants can watch but are never auto-ready or auto-started. Both seated players publish bounded direction inputs over WebSocket; the browser never publishes authoritative state. The Player 1 Vercel Function owns the 138 ms simulation, applies both players' inputs in sequence, resolves both snakes once, and broadcasts one snapshot to every screen, relaying through Redis only when someone is attached to another Function instance. The server starts the countdown itself the moment both seated players are Ready, and issues each round's id and food seed. Each browser predicts its own snake between snapshots; every turn is stamped with the tick it can still reach the server in time for (from the measured ping), drawn on that tick, and never applied by the server earlier, so the local snake does not have to snap back. Before the start, a disconnect or revoked Ready cancels the round; after the start, leaving, un-readying or dropping out concedes it as a recorded forfeit. A link that goes silent for 45 seconds is treated as cut, and a seated player who will not Ready up for 60 seconds while others wait moves to the back of the line.
 
-Discord sign-in is optional for play and required only for a verified profile or leaderboard result. The authorization-code flow requests the `identify` scope, validates a one-time state record, exchanges the code only on the server, and retains no Discord access or refresh token. Session cookies are `Secure`, `HttpOnly`, `SameSite=Lax`, and `__Host-` scoped. The same-origin WebSocket reads that protected session server-side; no identity token or shared realtime secret enters browser code. The authoritative room writes a completed two-account result directly through the private account module, and Redis atomically deduplicates it before changing the leaderboard. Two clients signed into the same Discord account can play, but cannot record a result.
+Discord sign-in is optional for play and required only for a verified profile or leaderboard result. The authorization-code flow requests the `identify` scope, validates a one-time state record, exchanges the code only on the server, and retains no Discord access or refresh token. Session cookies are `Secure`, `HttpOnly`, `SameSite=Lax`, and `__Host-` scoped. The same-origin WebSocket reads that protected session server-side; no identity token or shared realtime secret enters browser code. The authoritative room writes a completed two-account result directly through the private account module, and Redis atomically deduplicates it before updating the players' records and Elo ratings. Rankings are by rating: only the first three results per pair of players per day, and only rounds of at least ten seconds, move it. Two clients signed into the same Discord account can play, but cannot record a result.
 
 ## Current rule set
 
@@ -112,7 +94,8 @@ Discord sign-in is optional for play and required only for a verified profile or
 - **Public Live Room:** a six-character room Signal connects two active players across different devices and orders additional visitors in a waiting line; both seated players must be connected and Ready before countdown, and a disconnect cancels or stops play.
 - **Discord Activity:** one Discord Activity instance becomes one shared live-room Signal, derived from the instance id every participant already has, so the shared board is reachable even while Discord's handshake is still connecting or has been refused. The official Embedded App SDK then authenticates each participant for verified results, opens Discord's native invite dialog, respects mobile safe areas, and keeps Activity sessions in a partitioned HttpOnly cookie.
 - **Verified profiles:** optional Discord identity anchors a dedicated public profile with a visible username, custom callsign, bio, color, favorite mode, snake style, avatar, verified record, and live-room presence. OAuth tokens never enter game code, and the flow requests no email, guild, or social permissions.
-- **Online leaderboard:** public rows link to profiles, show callsigns plus verified Discord usernames and current live-room activity, and can change only through outcomes written privately by the server-authoritative live simulation.
+- **Daily Signal:** one Classic board at Arcade pace per UTC day, the same for every player (**DAILY** beside the Signal Code). The browser records only the steps on which the player turned; for a signed-in player, a finished run's turns go to `/api/daily`, where `SnakeRules.replaySoloRun` plays the run again with the browser's own rules and step clock (combos, Cores, mutations and Overdrive run on scheduled step time, so pauses change nothing). The board records the score the replay earns, and a run that does not end on the reported step is refused. Boards expire after nine days.
+- **Online leaderboard:** public rows link to profiles, show callsigns plus verified Discord usernames and current live-room activity, are ranked by an Elo rating, and can change only through outcomes written privately by the server-authoritative live simulation.
 - **Autonomous wallpapers:** the real eat, grow, score, Core, and pickup-feedback loop runs without controls as a configurable Lively wallpaper on Windows and as a battery-aware native `WallpaperService` on Android.
 
 ## Source map
@@ -126,7 +109,7 @@ Discord sign-in is optional for play and required only for a verified profile or
 - `public/duel.html` — focused Autopilot/live multiplayer interface.
 - `public/duel.css` — responsive duel arena and room-state presentation.
 - `public/duel.js` — autonomous duel and room-state orchestration.
-- `public/room-transport.js` — same-origin Vercel WebSocket transport with bounded reconnect/heartbeat handling plus the legacy HTTP fallback.
+- `public/room-transport.js` — same-origin Vercel WebSocket transport with handover, heartbeat and bounded reconnect handling.
 - `activity/entry.js`, `public/activity-sdk.js` — official Discord Embedded App SDK source and its pinned, reproducible browser bundle.
 - `api/activity/token.mjs` — origin-bound Activity code exchange and partitioned session entry point.
 - `public/account.js` — safe Discord profile and verified-leaderboard rendering.
@@ -138,16 +121,18 @@ Discord sign-in is optional for play and required only for a verified profile or
 - `server/realtime-core.cjs` — authoritative duel simulation, atomic Redis presence, and cross-instance event relay.
 - `api/auth/discord/*`, `api/me.mjs`, `api/profile.mjs`, `api/logout.mjs` — Discord authorization, public profile, customization, and session endpoints.
 - `api/leaderboard.mjs` — public read-only verified leaderboard endpoint.
-- `server/account-core.cjs` — OAuth, cookie, HMAC, profile, and atomic leaderboard logic.
-- `api/room.mjs` — the isolated Vercel Function entry point.
-- `server/room-core.cjs` — request validation, Redis REST client, and atomic two-slot room protocol.
+- `server/account-core.cjs` — OAuth, hashed sessions, cookies, profiles, deletion, and atomic rating logic.
+- `server/redis-rest.cjs` — the server-only Upstash Redis REST client shared by the account API and realtime hub.
 - `wallpaper/windows` — Lively metadata and user-configurable properties.
 - `wallpaper/android` — native, offline Android live-wallpaper project with no network permission.
 - `scripts/build-wallpapers.mjs` — reproducible Windows Lively archive builder.
 - `scripts/stamp-assets.mjs` — derives the cache-busting asset stamp from the content it protects and writes it into the pages and offline shell.
 - `asset-stamp.test.js` — executable proof that the committed stamp matches current asset content, that the stamp moves when content or names move, and that every stamped reference agrees with the offline shell.
 - `game-logic.test.js` — executable rule regressions using Node's built-in assertions.
-- `ai-quality.test.js` — three-seed full-board completion plus eight-seed, all-pace timing, routing-efficiency, safety-cycle, adversarial multiplayer, route-diversity, and loop-recovery checks.
+- `ai-quality.test.js` — eight-seed, all-pace timing, routing-efficiency, safety-cycle, adversarial multiplayer, route-diversity, and loop-recovery checks.
+- `ai-completion.test.js` — Classic full-board completion on three seeds and Portal completion on the seed that once looped forever, each in its own worker thread.
+- `test-support/ai-simulation.cjs` — the headless Autopilot and duel harness the AI suites share.
+- `scripts/verify.cjs`, `scripts/check.mjs` — the test runner behind `npm test` and the static checks behind `npm run check`.
 - `canvas-performance.test.js` — executable late-run gate for accumulated raster strokes, 2× compositing, effect retirement, and worst-shaped Autopilot planning.
 - `canvas-browser-performance.test.js` — real Chromium late-run gate that combines 1,400 rasterized glow strokes, 2× compositing, peak overlapping effects, and a worst-shaped planner decision inside the 44 ms Overdrive movement budget.
 - `control-flow.test.js` — executable ownership and explicit-start regressions.
@@ -155,19 +140,23 @@ Discord sign-in is optional for play and required only for a verified profile or
 - `duel-quality.test.js` — executable 1,200-state simultaneous-resolution symmetry gate plus a 36-run, both-spawn adversarial planner matrix.
 - `duel-authority-consistency.test.js` — tick-for-tick equivalence between the browser duel rules and the authoritative live-room simulation, including terminal rounds, plus input acknowledgement monotonicity.
 - `room-transport.test.js` — executable transport lifecycle and envelope regressions.
-- `room-api.test.js` — executable origin, validation, role, rate, expiry, and configuration regressions.
+- `redis-client.test.js` — executable script-digest caching and Redis-outage classification regressions.
 - `identity-system.test.js` — executable identity, deterministic field, protocol-glyph, cache, and motion-budget regressions.
 - `accessibility.test.js` — executable semantics, focus, touch-target, canvas-fallback, and reduced-motion regressions.
 - `service-worker.test.js` — executable install, upgrade, runtime-cache, and route-aware offline regressions.
-- `deployment-contract.test.js` — executable public-boundary, manifest, cache-shell, and hosted-verification regressions.
+- `deployment-contract.test.js` — executable public-boundary, manifest, and cache-shell regressions.
 - `realtime-worker.test.js` — executable Vercel connection, Redis relay, input authority, and verified-result regressions.
-- `platform-security.test.js` — executable Discord data-minimization, state, cookie, HMAC, and leaderboard-write regressions.
+- `platform-security.test.js` — executable Discord data-minimization, state, cookie, session, and leaderboard-write regressions.
 - `account-persistence.test.js` — executable proof that an unreadable profile record is never overwritten by a failed sign-in.
 - `realtime-integration.test.js`, `realtime-fixture-server.cjs` — two real Vercel-shaped hubs, real WebSockets and a real Redis 7 exercising seat ownership, spectator departure, queue promotion and stale-seat expiry.
 - `activity-lifecycle.test.js` — executable Activity handshake lifecycle: orientation hangs, token timeouts, duplicate retries, and a retry that must never close the Activity.
 - `activity-navigation-browser.test.js` — real Chromium proof that the Embedded App SDK still reaches its cross-origin parent after Solo → Multiplayer → Solo navigation.
+- `activity-layout-browser.test.js` — real Chromium viewport matrix proving the board and its controls fit every Discord Activity size, including picture-in-picture and grid tiles.
 - `terminal-room-ui.test.js` — executable proof that a replaced or conflicting room session stops reconnecting and explains the recovery.
 - `profile-system.test.js` — executable profile customization, public identity, live activity, and origin-bound write regressions.
+- `profile-interaction.test.js`, `profile-browser.test.js` — profile drafts, previews, resets and publishing, in Node and in real Chromium.
+- `product-browser.test.js` — real Chromium proof that mobile site and embedded Activity controls, policy links and download feedback work.
+- `touch-controls.test.js` — swipe thresholds, chained turns in one drag, and direction pads that never double-fire.
 - `activity-system.test.js` — executable Discord iframe, SDK, instance-room, origin, token, and partitioned-cookie regressions.
 - `product-experience.test.js` — executable navigation, download routing, copy, responsive-header, profile, and leaderboard regressions.
 - `wallpaper-system.test.js` — executable eat/grow behavior plus Windows/Android packaging, pause, frame-budget, visual, and permission regressions.
@@ -180,11 +169,11 @@ The wallpaper is not a browser tab left open in the background. Both packages st
 
 ### Windows
 
-`node scripts/build-wallpapers.mjs` creates `dist/wallpapers/Neon-Snake-Lively.zip`. Import that archive with Lively Wallpaper's `Add Wallpaper` flow. The package is fully offline, visibly eats nearby Signals and Cores, grows, scores, and exposes frame rate, snake pace, glow, palette, Classic/Portal boundary, and mark visibility through Lively's wallpaper settings. Lively's pause event and document visibility both stop animation work.
+`node scripts/build-wallpapers.mjs` creates `dist/wallpapers/Neon-Snake-Lively.zip`; the archive is byte-for-byte reproducible from the same source. Import that archive with Lively Wallpaper's `Add Wallpaper` flow. The package is fully offline, visibly eats nearby Signals and Cores, grows, scores, and exposes frame rate, snake pace, glow, palette, Classic/Portal boundary, and mark visibility through Lively's wallpaper settings. Lively's pause event and document visibility both stop animation work.
 
 ### Android
 
-`wallpaper/android` is a native Android live wallpaper for Android 8.0 and newer. Its offline autonomous engine uses the same guaranteed eat/grow rhythm and renders the same layered snake, face, Signals, Cores, pickup burst, and score HUD as the browser surface. Opening the installed app launches the system live-wallpaper chooser. The service has no `INTERNET` permission, stops its frame callbacks whenever the wallpaper is hidden, and lowers rendering from roughly 24 fps to 15 fps in system power-save mode. CI builds a release APK signed with one stable keystore supplied through the `ANDROID_KEYSTORE`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` repository secrets, so players update in place instead of having to uninstall first. Without those secrets the job still builds a debug APK, but that artifact is for verification only: Android refuses to update a package whose signing certificate has changed, and every debug build carries a fresh throwaway certificate.
+`wallpaper/android` is a native Android live wallpaper for Android 8.0 and newer. It runs a lightweight native engine rather than the game's rules: the snake follows a fixed serpentine route and eats what it passes, rendered with the same layered snake, face, Signals, Cores, pickup burst, and score HUD as the browser surface. Opening the installed app launches the system live-wallpaper chooser. The service has no `INTERNET` permission, stops its frame callbacks whenever the wallpaper is hidden, and lowers rendering from roughly 24 fps to 15 fps in system power-save mode. Every push builds a debug APK to prove the project compiles. Releases are built by `.github/workflows/release.yml` when a `v*` tag matching the `package.json` version is pushed, and published with a `SHA256SUMS` file as a GitHub Release. No secrets are involved: Android installs only signed APKs, and release APKs are signed with the build machine's throwaway debug key. Each release therefore carries a new certificate, and players must uninstall the previous version before installing the next one.
 
 ## Production deployment
 
@@ -204,9 +193,18 @@ The Activity reuses the same Vercel deployment and Discord application; it does 
 1. In **Activities → URL Mappings**, map prefix `/` to `neon-snake-green-tau.vercel.app` (no protocol).
 2. In **Activities → Settings**, enable Activities and enable Web, iOS, and Android support.
 3. Keep the default `Launch` Entry Point command. Set phone/tablet orientation to unlocked; the app requests landscape only for picture-in-picture and grid tiles.
-4. In **OAuth2**, retain the existing production callback. Activity authorization requests only `identify`; the existing client secret stays in Vercel and never enters the browser bundle.
-5. In **General Information**, use `/terms` and `/privacy` from the production host. The exact-size portal artwork is versioned under `public/assets/discord/`.
+4. In **OAuth2**, retain the existing production callback. Activity authorization requests `identify` and `rpc.activities.write` (the player's Discord status); the existing client secret stays in Vercel and never enters the browser bundle.
+5. In **General Information**, use `/terms` and `/privacy` from the production host. The exact-size portal artwork is versioned under `brand/discord/`; it is uploaded to the portal and not deployed with the site.
 6. Install the application to the intended server and leave Discovery disabled if the Activity should not be publicly listed.
+
+Inside Discord the Activity also:
+
+- sets each player's Discord status to what they are doing (mode, Signal Code and score, or room and round), at most once every five seconds;
+- lists the people in the same Activity instance under the Activity banner;
+- shares a Signal Code through Discord's own share dialog as a link that launches the Activity on the same map, mode and pace (`?custom_id=SIGNAL.mode.pace`);
+- drops the board to 1× resolution while a phone reports that it is overheating.
+
+Players who authorized before `rpc.activities.write` was requested are asked once more; declining keeps Discord's default "Playing" status and changes nothing else.
 
 Discord currently limits unverified Activities to servers with fewer than 25 members. A 40-member server therefore requires Discord app verification even when Discovery remains disabled. Until verification is approved, the same build can be tested in a smaller private server by the owner or invited App Testers.
 
@@ -233,9 +231,9 @@ Before attaching a custom domain, update the metadata in `index.html` and regist
 
 ### Multiplayer transport boundary
 
-The production live-room adapter opens one secure same-origin WebSocket to Vercel. Direction inputs are sent immediately instead of waiting for a browser → HTTP polling → browser cycle. Local delivery is immediate; the existing Redis resource relays events only when the two players land on different Vercel Function instances. One server-side simulation broadcasts a single authoritative snapshot after every 138 ms tick. The adapter sends active heartbeats every five seconds, closes stale links, times out a silent connection after eight seconds, and reconnects with exponential backoff capped at four seconds. A legacy HTTP transport remains only as a local recovery path; it is not the production latency path.
+The production live-room adapter opens one secure same-origin WebSocket to Vercel. Direction inputs are sent immediately instead of waiting for a browser → HTTP polling → browser cycle. Local delivery is immediate; the existing Redis resource relays events only when the two players land on different Vercel Function instances. One server-side simulation broadcasts a single authoritative snapshot after every 138 ms tick. The adapter sends heartbeats every five seconds during a round (fifteen otherwise), closes a link that has not answered for 20 seconds during a round (45 otherwise), gives up on a connection attempt after eight seconds, and reconnects with jittered exponential backoff capped at four seconds.
 
-Vercel closes a WebSocket when the Function invocation reaches its maximum duration, so every `welcome` declares when that link expires. The client opens a replacement 45 seconds ahead of the deadline, hands the seat over using the same private credential, and only then retires the old link, so a seat never becomes vacant and a round is never cut short by the platform. If a link is cut anyway - a dropped network, a crashed tab - the seat is held for a short reclaim window instead of being handed straight to the waiting line, while a link the player closes deliberately frees its seat at once.
+Vercel closes a WebSocket when the Function invocation reaches its maximum duration, so every `welcome` declares when that link should be replaced and when the platform will cut it. A replacement joins with the same private credential and keeps the seat, Ready state, and place in the waiting line; only once it is welcomed does the old link close. Because a round's simulation lives on the server instance that started it, links are handed over between rounds - halfway through their life while idle - and only a round that is still running ten seconds before the platform cut is interrupted. If a link is cut anyway - a dropped network, a crashed tab - the seat is held for a short reclaim window instead of being handed straight to the waiting line, while a link the player closes deliberately frees its seat at once. Moving rooms to a stateful per-room server removes this constraint entirely.
 
 The server boundary enforces:
 
@@ -243,8 +241,8 @@ The server boundary enforces:
 - a private per-connection resume credential, issued by the server and stored only as a SHA-256 digest, so a seat cannot be claimed by copying the client identifier that every roster broadcasts;
 - a 32 KiB message ceiling and per-connection rate limit;
 - exactly two live player slots, with later visitors restricted to spectator reads;
-- Player 1-only countdowns, player-only direction inputs, and rejection of every browser state snapshot;
-- server-owned movement, collision, food, scores, and result signatures;
+- server-started countdowns, player-only tick-stamped direction inputs, and rejection of every browser state snapshot;
+- server-owned rounds, seeds, movement, collision, food, and scores;
 - server-side session-cookie profile lookup without a browser-readable identity ticket;
 - private, direct verified-result writes and generic failures that never expose credentials.
 

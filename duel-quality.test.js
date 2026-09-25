@@ -1,6 +1,8 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const os = require("node:os");
+const { Worker, isMainThread, parentPort, workerData } = require("node:worker_threads");
 const rules = require("./public/game-logic.js");
 
 const GRID = 30;
@@ -324,16 +326,7 @@ const tests = [
     }
     assert.equal(checked, 1_200);
   }],
-  ["Duel Autopilot stays competitive from both spawns across adversarial policies", () => {
-    const codes = Array.from({ length: 6 }, (_, index) => codeFromIndex(index + 96));
-    const runs = [];
-    for (const code of codes) {
-      for (const aiRole of ["player", "opponent"]) {
-        for (const policy of ["greedy", "hunter", "evader"]) {
-          runs.push(simulateDuel(code, aiRole, policy));
-        }
-      }
-    }
+  ["Duel Autopilot stays competitive from both spawns across adversarial policies", (runs) => {
     assert.equal(runs.length, 36);
     assert.equal(
       runs.reduce((sum, run) => sum + run.avoidableImmediateLosses, 0),
@@ -365,9 +358,46 @@ const tests = [
   }],
 ];
 
-for (const [name, test] of tests) {
-  test();
-  process.stdout.write(`PASS ${name}\n`);
+// The 36-game matrix is the slow part, so its games are shared across worker
+// threads; the assertions run on the combined results in their usual order.
+function matrixJobs() {
+  const codes = Array.from({ length: 6 }, (_, index) => codeFromIndex(index + 96));
+  const jobs = [];
+  for (const code of codes) {
+    for (const aiRole of ["player", "opponent"]) {
+      for (const policy of ["greedy", "hunter", "evader"]) jobs.push({ code, aiRole, policy });
+    }
+  }
+  return jobs;
 }
 
-process.stdout.write(`\n${tests.length} deterministic Duel quality tests passed.\n`);
+async function playMatrix() {
+  const jobs = matrixJobs().map((job, index) => ({ ...job, index }));
+  const workers = Math.max(1, Math.min(4, (os.availableParallelism?.() ?? os.cpus().length)));
+  const shares = Array.from({ length: workers }, (_, worker) => jobs.filter((job) => job.index % workers === worker));
+  const results = await Promise.all(shares.map((share) => new Promise((resolve, reject) => {
+    const worker = new Worker(__filename, { workerData: share });
+    worker.once("message", resolve);
+    worker.once("error", reject);
+  })));
+  return results.flat().sort((first, second) => first.index - second.index).map(({ run }) => run);
+}
+
+if (!isMainThread) {
+  parentPort.postMessage(workerData.map((job) => ({
+    index: job.index,
+    run: simulateDuel(job.code, job.aiRole, job.policy),
+  })));
+} else {
+  (async () => {
+    const matrix = await playMatrix();
+    for (const [name, test] of tests) {
+      test(matrix);
+      process.stdout.write(`PASS ${name}\n`);
+    }
+    process.stdout.write(`\n${tests.length} deterministic Duel quality tests passed.\n`);
+  })().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}

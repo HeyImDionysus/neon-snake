@@ -1,6 +1,8 @@
 "use strict";
 
 const Rules = window.SnakeRules;
+// The ?v= stamp this script was loaded with, reused for the Decision DNA worker.
+const SCRIPT_SEARCH = document.currentScript ? new URL(document.currentScript.src).search : "";
 const activityQuery = new URLSearchParams(location.search);
 const activityEmbedded = activityQuery.has("frame_id");
 const ACTIVITY_PIXEL_RATIO_CAP = 1.25;
@@ -43,6 +45,8 @@ const mobilePause = $("#mobilePause");
 const soundButton = $("#soundButton");
 const difficultySelect = $("#difficulty");
 const signalButton = $("#signalButton");
+const dailyButton = $("#dailyButton");
+const dailyCode = $("#dailyCode");
 const signalCode = $("#signalCode");
 const lensButton = $("#lensButton");
 const lensState = $("#lensState");
@@ -86,9 +90,9 @@ const topRunsEl = $("#topRuns");
 
 const GRID = 20;
 let TILE = canvas.width / GRID;
-const COMBO_WINDOW = 3600;
-const OVERDRIVE_DURATION = 5200;
 const {
+  comboWindow: COMBO_WINDOW,
+  overdriveDuration: OVERDRIVE_DURATION,
   coreDuration: CORE_DURATION,
   mutationDuration: MUTATION_DURATION,
   rushDuration: RUSH_DURATION,
@@ -175,15 +179,25 @@ let lastFrame = performance.now();
 let renderFrame = 0;
 let lastActivityIdleFrame = -ACTIVITY_IDLE_FRAME_INTERVAL;
 let resizeFrame = 0;
-let lastGamepadPoll = 0;
 let gamepadDirection = "";
 let gamepadPausePressed = false;
 let soundEnabled = getStored("neon-snake-sound", "true") !== "false";
 let lensEnabled = getStored("neon-snake-lens", "false") === "true";
 let profile = loadProfile();
 let runSignal = "";
+// Every step's turn, so a Daily Signal run can be replayed by the server.
+let runSteps = 0;
+let runTurns = [];
+const DAILY_MODE = "classic";
+const DAILY_PACE = "arcade";
+let presenceStartedAt = 0;
+const MODE_NAMES = { classic: "Classic", portal: "Portal", rush: "Rush", canvas: "Canvas" };
 let signalRandomState = 0;
-let decisionStats = { decisions: 0, matches: 0, spaceRatioTotal: 0, riskTurns: 0 };
+const decisionAnalyst = createDecisionAnalyst();
+// The first run of a visit counts down from three; retries count one beat.
+// Snake runs end often, and a two-second wait before every retry was the
+// slowest part of trying again.
+let runsThisVisit = 0;
 let lastDecisionProfile = Rules.decisionProfile();
 
 function getStored(key, fallback) {
@@ -204,15 +218,17 @@ function setStored(key, value) {
 
 function loadProfile() {
   const legacyBest = Number(getStored("neon-snake-best", "0")) || 0;
-  const fallback = { best: legacyBest, runs: 0, longest: 3, topRuns: [], replays: {} };
+  const fallback = { best: legacyBest, bests: {}, runs: 0, longest: 3, topRuns: [], replays: {} };
   try {
     const saved = JSON.parse(localStorage.getItem("neon-snake-profile") || "null");
     if (!saved) return fallback;
+    const topRuns = Rules.sortedTopRuns(Array.isArray(saved?.topRuns) ? saved.topRuns : []);
     return {
       best: Math.max(legacyBest, Number(saved.best) || 0),
+      bests: bestsFrom(saved.bests, topRuns),
       runs: Number(saved?.runs) || 0,
       longest: Math.max(3, Number(saved?.longest) || 3),
-      topRuns: Rules.sortedTopRuns(Array.isArray(saved?.topRuns) ? saved.topRuns : []),
+      topRuns,
       replays: {
         classic: Rules.normalizeReplay(saved?.replays?.classic, GRID),
         portal: Rules.normalizeReplay(saved?.replays?.portal, GRID),
@@ -224,12 +240,45 @@ function loadProfile() {
   }
 }
 
+// Bests are kept per mode: one number shared by Classic, Portal and Rush
+// compared runs with different rules, and endless Canvas runs, where nothing
+// can end the run, inflated it. Profiles saved before this seed each mode's
+// best from the top-run history, which records the mode of every run.
+const SCORED_MODES = ["classic", "portal", "rush"];
+
+function bestsFrom(saved, topRuns) {
+  const bests = {};
+  SCORED_MODES.forEach((mode) => {
+    const fromHistory = topRuns.filter((run) => run.mode === mode).reduce((best, run) => Math.max(best, Number(run.score) || 0), 0);
+    bests[mode] = Math.max(Number(saved?.[mode]) || 0, fromHistory);
+  });
+  return bests;
+}
+
+function bestFor(mode) {
+  return SCORED_MODES.includes(mode) ? Number(profile.bests?.[mode]) || 0 : null;
+}
+
+function renderBest() {
+  const best = bestFor(activeMode);
+  bestEl.textContent = best === null ? "—" : formatScore(best);
+  bestEl.previousElementSibling.textContent = best === null ? "BEST" : `BEST · ${activeMode.toUpperCase()}`;
+}
+
 function saveProfile() {
   setStored("neon-snake-profile", JSON.stringify(profile));
 }
 
 function formatScore(value) {
   return String(value).padStart(5, "0");
+}
+
+// Bring the whole console on screen when play starts. "nearest" leaves the
+// page alone when it already is, and the Activity layout never scrolls.
+function revealConsole() {
+  if (document.body.classList.contains("activity-mode")) return;
+  const smooth = !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  gameConsole.scrollIntoView?.({ block: "nearest", behavior: smooth ? "smooth" : "auto" });
 }
 
 function focusWithoutScroll(element) {
@@ -270,11 +319,23 @@ function createSignalCode() {
   return [...values].map((value) => SIGNAL_ALPHABET[value % SIGNAL_ALPHABET.length]).join("");
 }
 
+// A Discord share link launches the Activity with ?custom_id=SIGNAL.mode.pace
+// (see shareGame), so whoever opens it starts on the same challenge.
+function activityChallengeId() {
+  return `${runSignal}.${activeMode}.${difficultySelect.value}`;
+}
+
+function parseActivityChallengeId(value) {
+  const [signal = "", mode = "", pace = ""] = String(value || "").split(".");
+  return { signal: Rules.normalizeSignalCode(signal), mode, pace };
+}
+
 function hydrateChallengeFromUrl() {
   const params = new URLSearchParams(window.location.search);
-  const requestedMode = params.get("mode");
-  const requestedPace = params.get("pace");
-  const requestedSignal = Rules.normalizeSignalCode(params.get("signal"));
+  const shared = activityEmbedded ? parseActivityChallengeId(params.get("custom_id")) : {};
+  const requestedMode = params.get("mode") || shared.mode;
+  const requestedPace = params.get("pace") || shared.pace;
+  const requestedSignal = Rules.normalizeSignalCode(params.get("signal")) || shared.signal;
 
   if (["classic", "portal", "rush", "canvas"].includes(requestedMode)) {
     const input = modeInputs.find((option) => option.value === requestedMode);
@@ -343,6 +404,8 @@ function resetRun() {
   particles = [];
   ripples = [];
   runPath = [{ ...snake[0] }];
+  runSteps = 0;
+  runTurns = [];
   ghostStep = 0;
   echoBeaten = false;
   aiEvaluations = [];
@@ -354,7 +417,7 @@ function resetRun() {
   autopilotPlan = [];
   autopilotPlanMode = "";
   autopilotPlanTarget = "";
-  decisionStats = { decisions: 0, matches: 0, spaceRatioTotal: 0, riskTurns: 0 };
+  decisionAnalyst.reset();
   lastDecisionProfile = Rules.decisionProfile();
   decisionReport.hidden = true;
   canvasMarks = [];
@@ -458,7 +521,10 @@ function buildBoardBackdrop() {
 
 function resizeCanvas() {
   const cssSize = Math.max(1, boardWrap.getBoundingClientRect().width);
-  const pixelRatioCap = activityEmbedded ? ACTIVITY_PIXEL_RATIO_CAP : 2;
+  // An overheating phone (reported by Discord) renders at 1x until it cools.
+  const pixelRatioCap = document.documentElement.dataset.thermal
+    ? 1
+    : activityEmbedded ? ACTIVITY_PIXEL_RATIO_CAP : 2;
   const pixelRatio = Math.min(pixelRatioCap, Math.max(1, window.devicePixelRatio || 1));
   const backingSize = Math.max(1, Math.round(cssSize * pixelRatio));
   if (canvas.width === backingSize && canvas.height === backingSize) return;
@@ -1122,6 +1188,12 @@ function tick(now = performance.now()) {
   }
   const effectiveMode = Rules.effectiveMode(activeMode, mutation.type);
   if (!demoMode) recordDecision(effectiveMode);
+  if (!demoMode) {
+    runSteps += 1;
+    if (!Rules.sameDirection(queuedDirection, direction)) {
+      runTurns.push({ step: runSteps, direction: { ...queuedDirection } });
+    }
+  }
   direction = { ...queuedDirection };
   const head = Rules.nextHead(snake[0], direction, effectiveMode, GRID);
 
@@ -1169,14 +1241,102 @@ function tick(now = performance.now()) {
   ) planAiMove();
 }
 
+// Decision DNA compares every player step with the Autopilot planner. The
+// planner used to run here on every tick whether or not anyone looked, which
+// made fast late-game runs skip cells on phones. Steps now go to a worker;
+// only when the Decision Lens is showing (and has evaluated the planner for
+// display anyway) is a step scored on the main thread.
+function renderDecisionReport() {
+  decisionStyle.textContent = lastDecisionProfile.style;
+  decisionMatch.textContent = `${lastDecisionProfile.alignment}%`;
+  decisionSpace.textContent = `${lastDecisionProfile.spaceKept}%`;
+  decisionRisk.textContent = String(lastDecisionProfile.riskTurns).padStart(2, "0");
+  decisionSummary.textContent = lastDecisionProfile.summary;
+  decisionReport.hidden = false;
+}
+
 function recordDecision(effectiveMode) {
-  evaluatePlannerState(effectiveMode);
-  const comparison = Rules.compareDecision(aiEvaluations, queuedDirection);
-  if (!comparison) return;
-  decisionStats.decisions += 1;
-  decisionStats.matches += comparison.matched ? 1 : 0;
-  decisionStats.spaceRatioTotal += comparison.spaceRatio;
-  decisionStats.riskTurns += comparison.risk ? 1 : 0;
+  if (lensVisible()) {
+    evaluatePlannerState(effectiveMode);
+    decisionAnalyst.score(aiEvaluations, queuedDirection);
+    return;
+  }
+  decisionAnalyst.record({ snake, direction, food, mode: effectiveMode, choice: queuedDirection });
+}
+
+function createDecisionAnalyst() {
+  const empty = () => ({ decisions: 0, matches: 0, spaceRatioTotal: 0, riskTurns: 0 });
+  let run = 0;
+  let local = empty();
+  let worker = null;
+  const waiting = new Map();
+  try {
+    worker = new Worker(`decision-worker.js${SCRIPT_SEARCH}`);
+    worker.addEventListener("message", ({ data }) => {
+      if (data?.type !== "report") return;
+      waiting.get(data.run)?.(data.stats);
+      waiting.delete(data.run);
+    });
+    // If the worker cannot start, steps are scored inline from then on and any
+    // report still waiting settles with what the main thread counted.
+    worker.addEventListener("error", () => {
+      worker = null;
+      waiting.forEach((resolve) => resolve(empty()));
+      waiting.clear();
+    });
+  } catch {
+    worker = null;
+  }
+
+  function score(evaluations, choice) {
+    const comparison = Rules.compareDecision(evaluations, choice);
+    if (!comparison) return;
+    local.decisions += 1;
+    local.matches += comparison.matched ? 1 : 0;
+    local.spaceRatioTotal += comparison.spaceRatio;
+    local.riskTurns += comparison.risk ? 1 : 0;
+  }
+
+  return {
+    reset() {
+      run += 1;
+      local = empty();
+      worker?.postMessage({ type: "reset", run, candidates: DIRECTION_OPTIONS, gridSize: GRID });
+    },
+    score,
+    record(step) {
+      if (worker) {
+        worker.postMessage({ type: "step", run, ...step });
+        return;
+      }
+      score(Rules.evaluateMoves({
+        snake: step.snake,
+        direction: step.direction,
+        food: step.food,
+        mode: step.mode,
+        gridSize: GRID,
+        candidates: DIRECTION_OPTIONS,
+        recentHeads: [],
+      }), step.choice);
+    },
+    // Resolves with this run's totals once the worker has scored every step,
+    // or null if a newer run has started by then.
+    report() {
+      const reportedRun = run;
+      const counted = { ...local };
+      const combine = (remote) => (reportedRun === run ? {
+        decisions: counted.decisions + remote.decisions,
+        matches: counted.matches + remote.matches,
+        spaceRatioTotal: counted.spaceRatioTotal + remote.spaceRatioTotal,
+        riskTurns: counted.riskTurns + remote.riskTurns,
+      } : null);
+      if (!worker) return Promise.resolve(combine(empty()));
+      return new Promise((resolve) => {
+        waiting.set(reportedRun, (stats) => resolve(combine(stats)));
+        worker.postMessage({ type: "report", run: reportedRun });
+      });
+    },
+  };
 }
 
 function collectFood(now) {
@@ -1207,9 +1367,9 @@ function collectFood(now) {
   haptic(kind === "core" ? [18, 20, 30] : 14);
   if (kind === "core") activateMutation(now);
 
-  if (!demoMode && score > profile.best) {
-    profile.best = score;
-    bestEl.textContent = formatScore(profile.best);
+  if (!demoMode && bestFor(activeMode) !== null && score > bestFor(activeMode)) {
+    profile.bests = { ...profile.bests, [activeMode]: score };
+    renderBest();
     saveProfile();
   }
   if (!demoMode && activeMode !== "canvas" && snake.length > profile.longest) {
@@ -1297,10 +1457,12 @@ function updateHud() {
   scoreEl.textContent = formatScore(score);
   levelEl.textContent = String(level).padStart(2, "0");
   comboEl.textContent = `×${combo}`;
-  bestEl.textContent = formatScore(profile.best);
+  renderBest();
   totalRunsEl.textContent = String(profile.runs).padStart(3, "0");
   longestEl.textContent = String(profile.longest).padStart(3, "0");
-  modeChip.textContent = demoMode ? `${activeMode.toUpperCase()} · AUTO` : activeMode.toUpperCase();
+  modeChip.textContent = demoMode
+    ? `${activeMode.toUpperCase()} · AUTO`
+    : isDailyRun() ? `${activeMode.toUpperCase()} · DAILY` : activeMode.toUpperCase();
   timerStat.hidden = activeMode !== "rush";
   mutationStat.hidden = !mutation.type;
   if (mutation.type) mutationName.textContent = mutation.type.toUpperCase();
@@ -1315,6 +1477,7 @@ function updateHud() {
   if (lensVisible()) updateAiTelemetry();
   updateObjective();
   renderLeaderboard();
+  reportPresence();
 }
 
 function updateObjective() {
@@ -1475,13 +1638,14 @@ function updateAiTelemetry() {
   const insight = aiPlanInsight || Rules.decisionInsight(aiEvaluations, aiChoice);
   aiPlan.textContent = `${demoMode ? "TURN" : "SAFEST"} ${aiChoice.name.toUpperCase()}`;
   aiReason.textContent = `${insight.confidence} · ${insight.reason}`;
-  const commitment = autopilotPlan.length ? ` · LOCK ${autopilotPlan.length}` : "";
-  if (demoMode && commitment && aiEvaluations.length === 1) {
-    aiEvidence.textContent = `PROVEN ROUTE · ${aiChoice.horizon} TURN FORECAST${commitment} · PLANNED ${aiPlanDuration.toFixed(1)}MS`;
+  // Plain language for players. The raw score margin and planning time this
+  // line used to show ("Δ380354 · 0.1MS") meant nothing to anyone watching.
+  const lookahead = `LOOKS ${aiChoice.horizon} MOVES AHEAD`;
+  if (demoMode && autopilotPlan.length && aiEvaluations.length === 1) {
+    aiEvidence.textContent = `FOLLOWING A PROVEN SAFE ROUTE · ${lookahead}`;
   } else {
-    const margin = Number.isFinite(insight.margin) ? `Δ${Math.round(insight.margin)}` : "NO ALTERNATE";
-    const runnerUp = insight.runnerUp ? `VS ${insight.runnerUp.toUpperCase()}` : "FORCED LINE";
-    aiEvidence.textContent = `${runnerUp} · ${margin} · ${aiChoice.horizon} TURN FORECAST${commitment} · ${aiPlanDuration.toFixed(1)}MS`;
+    const choice = insight.runnerUp ? `PREFERRED OVER ${insight.runnerUp.toUpperCase()}` : "ONLY SAFE MOVE";
+    aiEvidence.textContent = `${choice} · ${lookahead}`;
   }
 }
 
@@ -1499,6 +1663,7 @@ function prepareDemo() {
   overlay.hidden = true;
   pauseButton.disabled = false;
   setSetupDisabled(true);
+  revealConsole();
   setState("running", `${activeMode.toUpperCase()} AUTOPILOT`);
   updateHud();
   updateActionLabels();
@@ -1584,8 +1749,9 @@ function prepareRun(initialDirection = DIRECTIONS.right) {
   setSetupDisabled(true);
   pauseButton.disabled = true;
   updateActionLabels();
-  beginCountdown(3);
+  beginCountdown(runsThisVisit > 0 ? 1 : 3);
   focusWithoutScroll(canvas);
+  revealConsole();
 }
 
 function beginCountdown(number) {
@@ -1621,6 +1787,7 @@ function suspendCountdown() {
 
 function startRun() {
   countdownTimer = null;
+  runsThisVisit += 1;
   countdownStep = 0;
   countdownSuspended = false;
   runState = "running";
@@ -1653,12 +1820,28 @@ function endGame(reason) {
   clearTimeout(countdownTimer);
   runState = "over";
   pauseButton.disabled = true;
-  profile.best = Math.max(profile.best, score);
+  if (bestFor(activeMode) !== null) {
+    profile.bests = { ...profile.bests, [activeMode]: Math.max(bestFor(activeMode), score) };
+  }
   profile.longest = Math.max(profile.longest, snake.length);
   profile.replays = profile.replays || {};
   profile.replays[activeMode] = Rules.normalizeReplay(runPath, GRID);
   const rank = Rules.rankForScore(score, activeMode);
-  lastDecisionProfile = Rules.decisionProfile(decisionStats);
+  lastDecisionProfile = {
+    alignment: 0,
+    spaceKept: 0,
+    riskTurns: 0,
+    style: "READING…",
+    summary: "Comparing your moves with the planner.",
+  };
+  void decisionAnalyst.report().then((stats) => {
+    if (!stats || runState !== "over") return;
+    lastDecisionProfile = Rules.decisionProfile(stats);
+    renderDecisionReport();
+    if (stats.decisions) {
+      announcement.textContent = `Decision DNA: ${lastDecisionProfile.style}, ${lastDecisionProfile.alignment} percent engine match.`;
+    }
+  });
   profile.topRuns = Rules.sortedTopRuns([
     ...(profile.topRuns || []),
     { score, mode: activeMode, rank, at: new Date().toISOString() },
@@ -1666,7 +1849,7 @@ function endGame(reason) {
   saveProfile();
   updateHud();
   setSetupDisabled(false);
-  setState("over", reason === "time" ? "TIME EXPIRED" : reason === "clear" ? "BOARD CLEARED" : "SIGNAL LOST");
+  setState("over", reason === "time" ? "TIME EXPIRED" : reason === "clear" ? "BOARD CLEARED" : "RUN OVER");
 
   gameConsole.classList.remove("crash");
   void gameConsole.offsetWidth;
@@ -1682,16 +1865,83 @@ function endGame(reason) {
   demoButtonLabel.textContent = "Watch Autopilot";
   rankValue.textContent = rank;
   runRank.hidden = false;
-  decisionStyle.textContent = lastDecisionProfile.style;
-  decisionMatch.textContent = `${lastDecisionProfile.alignment}%`;
-  decisionSpace.textContent = `${lastDecisionProfile.spaceKept}%`;
-  decisionRisk.textContent = String(lastDecisionProfile.riskTurns).padStart(2, "0");
-  decisionSummary.textContent = lastDecisionProfile.summary;
-  decisionReport.hidden = false;
+  renderDecisionReport();
   updateActionLabels();
-  announcement.textContent = `${title} Final score ${score}. Decision DNA: ${lastDecisionProfile.style}, ${lastDecisionProfile.alignment} percent engine match.`;
+  announcement.textContent = `${title} Final score ${score}.`;
   focusWithoutScroll(startButton);
   playCrashSound();
+  if (reason !== "time" && isDailyRun()) void submitDailyRun();
+}
+
+// Daily Signal: the same Classic board for everyone today. A finished run's
+// turns go to the server, which replays them and ranks the score they earn.
+function dailyDate() {
+  return Rules.utcDay();
+}
+
+function isDailyRun() {
+  return !demoMode
+    && activeMode === DAILY_MODE
+    && difficultySelect.value === DAILY_PACE
+    && runSignal === Rules.dailySignal(dailyDate());
+}
+
+function renderDailyButton() {
+  dailyCode.textContent = Rules.dailySignal(dailyDate());
+}
+
+function selectDailySignal() {
+  if (runState !== "ready" && runState !== "over") return;
+  const input = modeInputs.find((option) => option.value === DAILY_MODE);
+  if (input) input.checked = true;
+  difficultySelect.value = DAILY_PACE;
+  runSignal = Rules.dailySignal(dailyDate());
+  signalCode.textContent = runSignal;
+  activeMode = selectedMode();
+  document.body.dataset.mode = activeMode;
+  runState = "ready";
+  resetRun();
+  ghostPath = Rules.normalizeReplay(profile.replays?.[activeMode], GRID);
+  timerStat.hidden = true;
+  pauseButton.disabled = true;
+  setState("ready", "DAILY SIGNAL READY");
+  updateHud();
+  updateActionLabels();
+  updateReadyOverlay();
+  syncChallengeUrl();
+  renderDailyButton();
+  showPickup("DAILY SIGNAL", runSignal);
+  announcement.textContent = `Daily Signal ${runSignal} loaded: Classic at Arcade pace, the same board for every player today.`;
+}
+
+async function submitDailyRun() {
+  const date = dailyDate();
+  if (!globalThis.NeonSnakeAccount?.profile) {
+    showPickup("DAILY SIGNAL", "SIGN IN TO RANK");
+    return;
+  }
+  try {
+    const response = await fetch("/api/daily", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date, steps: runSteps, turns: Rules.encodeTurns(runTurns) }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    const rank = result.rank ? `#${result.rank}` : "RANKED";
+    showPickup(`DAILY ${rank}`, `${result.score} VERIFIED`);
+    if (runState === "over") {
+      overlayMessage.textContent = `${overlayMessage.textContent} · Daily ${rank}, verified by the server`;
+    }
+    announcement.textContent = result.score === result.best
+      ? `Daily Signal run verified: ${result.score} points, rank ${result.rank}.`
+      : `Daily Signal run verified at ${result.score} points. Your best today is ${result.best}, rank ${result.rank}.`;
+    globalThis.dispatchEvent(new CustomEvent("neon-daily-updated"));
+  } catch (error) {
+    showPickup("DAILY SIGNAL", "NOT RECORDED");
+    announcement.textContent = `The Daily Signal run was not recorded (${error.message}).`;
+  }
 }
 
 function togglePause() {
@@ -1755,12 +2005,40 @@ function showOverlay(kicker, title, message, buttonLabel, countdown = false) {
 function setState(state, label) {
   document.body.dataset.gameState = state;
   statusText.textContent = label;
+  reportPresence();
+}
+
+// Inside Discord, the player's status says what they are doing. The Activity
+// bridge keeps only the latest description and rate-limits the calls.
+function describePresence() {
+  const modeName = MODE_NAMES[activeMode] || "Classic";
+  const scoreText = activeMode === "canvas" ? "Painting" : `Score ${score}`;
+  const live = runState === "running" || runState === "paused";
+  if (demoMode && live) return { details: `Watching Autopilot · ${modeName}`, state: scoreText };
+  const details = `Solo · ${modeName} · Signal ${runSignal}`;
+  if (runState === "running") return { details, state: scoreText };
+  if (runState === "paused") return { details, state: `Paused · ${scoreText}` };
+  if (runState === "countdown") return { details, state: "Starting a run" };
+  if (runState === "over") {
+    return { details, state: activeMode === "canvas" ? "Finished a painting" : `Run over · Score ${score}` };
+  }
+  return { details: "Solo · Choosing a run", state: `${modeName} · Signal ${runSignal}` };
+}
+
+function reportPresence() {
+  const activity = globalThis.NeonSnakeActivity;
+  if (!activityEmbedded || !activity?.setPresence) return;
+  const live = runState === "running" || runState === "paused";
+  if (!live) presenceStartedAt = 0;
+  else if (!presenceStartedAt) presenceStartedAt = Date.now();
+  activity.setPresence({ ...describePresence(), startedAt: presenceStartedAt || undefined });
 }
 
 function setSetupDisabled(disabled) {
   modeInputs.forEach((input) => { input.disabled = disabled; });
   difficultySelect.disabled = disabled;
   signalButton.disabled = disabled;
+  dailyButton.disabled = disabled;
 }
 
 function updateActionLabels() {
@@ -1932,7 +2210,8 @@ function toggleLens() {
 
 async function shareGame() {
   const url = publicChallengeUrl();
-  const dna = runState === "over"
+  const dnaRead = !["UNREAD", "TOO SHORT", "READING…"].includes(lastDecisionProfile.style);
+  const dna = runState === "over" && dnaRead
     ? ` Decision DNA: ${lastDecisionProfile.style} (${lastDecisionProfile.alignment}% engine match).`
     : "";
   const text = score > 0
@@ -1943,6 +2222,22 @@ async function shareGame() {
     text,
     url: url.toString(),
   };
+
+  // Inside Discord, share a link that launches this Activity on the same
+  // challenge; the browser share sheet and clipboard are blocked in the frame.
+  const activity = globalThis.NeonSnakeActivity;
+  if (activityEmbedded && activity?.connected && activity.share) {
+    try {
+      const result = await activity.share({ message: text, customId: activityChallengeId() });
+      if (result?.success) {
+        showPickup("SHARED", `SIGNAL ${runSignal}`);
+        announcement.textContent = `Signal ${runSignal} shared in Discord.`;
+      }
+      return;
+    } catch {
+      // Fall through to the browser share paths below.
+    }
+  }
 
   try {
     if (navigator.share) {
@@ -2060,7 +2355,12 @@ function updateReadyOverlay() {
 
 function handleKeyboard(event) {
   if (event.defaultPrevented || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
-  if (event.target?.isContentEditable || event.target?.closest?.("button, select, input, textarea, a[href], [role='button'], [role='tab']")) return;
+  // Only text entry owns the keyboard. Starting a run or Autopilot focuses a
+  // button, and ignoring every key aimed at a button meant Escape, R, L and the
+  // arrows silently stopped working after any click.
+  const target = event.target;
+  if (target?.isContentEditable || target?.closest?.("input, textarea, select, [contenteditable=''], [contenteditable='true']")) return;
+  const onActivatable = Boolean(target?.closest?.("button, a[href], [role='button'], [role='tab']"));
   const key = event.key.toLowerCase();
   const keyDirections = {
     arrowup: DIRECTIONS.up,
@@ -2089,7 +2389,8 @@ function handleKeyboard(event) {
     return;
   }
   if (event.code === "Space") {
-    if (runState !== "running" && runState !== "paused") return;
+    // Space on a focused button is that button's own activation.
+    if (onActivatable || (runState !== "running" && runState !== "paused")) return;
     event.preventDefault();
     togglePause();
   } else if (key === "r") {
@@ -2122,8 +2423,9 @@ function handleVisibilityChange() {
 }
 
 function pollGamepad(now) {
-  if (now - lastGamepadPoll < 80 || !navigator.getGamepads) return;
-  lastGamepadPoll = now;
+  // Polled every frame: turns are edge-triggered below, and an 80 ms throttle
+  // added up to a whole step of latency at the faster paces.
+  if (!navigator.getGamepads) return;
   const pad = [...navigator.getGamepads()].find(Boolean);
   if (!pad) return;
 
@@ -2196,6 +2498,8 @@ exportButton.addEventListener("click", exportCanvasArtwork);
 soundButton.addEventListener("click", toggleSound);
 lensButton.addEventListener("click", toggleLens);
 signalButton.addEventListener("click", generateNewSignal);
+dailyButton.addEventListener("click", selectDailySignal);
+renderDailyButton();
 difficultySelect.addEventListener("change", () => {
   syncChallengeUrl();
   scheduleMove();
@@ -2223,6 +2527,7 @@ function scheduleResizeCanvas() {
     resizeCanvas();
   });
 }
+window.addEventListener("neon-activity-thermal", scheduleResizeCanvas);
 if ("ResizeObserver" in window) {
   new ResizeObserver(scheduleResizeCanvas).observe(boardWrap);
 } else {

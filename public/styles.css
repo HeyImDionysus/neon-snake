@@ -151,7 +151,7 @@ button, a, label, select { -webkit-tap-highlight-color: transparent; }
   position: relative;
   padding: 30px 0 27px;
   color: var(--dim);
-  font: 700 9px var(--mono);
+  font: 700 11px var(--mono);
   letter-spacing: .13em;
   text-decoration: none;
   transition: color .16s ease;
@@ -211,7 +211,7 @@ button, a, label, select { -webkit-tap-highlight-color: transparent; }
 
 .site-menu-toggle small {
   color: var(--dim);
-  font: 700 6px var(--mono);
+  font: 700 10px var(--mono);
   letter-spacing: .13em;
 }
 
@@ -333,7 +333,7 @@ button, a, label, select { -webkit-tap-highlight-color: transparent; }
   max-width: 140px;
   overflow: hidden;
   color: var(--dim);
-  font: 600 8px/1 var(--mono);
+  font: 600 10px/1 var(--mono);
   letter-spacing: .03em;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -386,7 +386,7 @@ button, a, label, select { -webkit-tap-highlight-color: transparent; }
 
 .online-player-copy small {
   color: var(--dim);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .online-now {
@@ -394,7 +394,7 @@ button, a, label, select { -webkit-tap-highlight-color: transparent; }
   padding: 4px 6px;
   border: 1px solid rgba(173,255,102,.42);
   color: var(--acid);
-  font: normal 700 7px var(--mono);
+  font: normal 700 10px var(--mono);
   letter-spacing: .1em;
   box-shadow: 0 0 12px rgba(173,255,102,.12);
 }
@@ -406,7 +406,7 @@ button, a, label, select { -webkit-tap-highlight-color: transparent; }
 }
 
 .online-record strong { color: var(--acid); }
-.online-record small { color: var(--dim); font-size: 8px; }
+.online-record small { color: var(--dim); font-size: 10px; }
 
 .brand {
   display: inline-flex;
@@ -444,7 +444,7 @@ button, a, label, select { -webkit-tap-highlight-color: transparent; }
   align-items: center;
   gap: 9px;
   color: var(--muted);
-  font: 700 9px var(--mono);
+  font: 700 11px var(--mono);
   letter-spacing: .16em;
 }
 
@@ -508,7 +508,7 @@ body[data-game-state="countdown"] .status-light { animation: blink .5s steps(1) 
 
 .hud-primary { min-width: 142px; }
 .hud-primary strong { display: block; color: var(--acid); font: 500 27px var(--mono); letter-spacing: .04em; }
-.hud-label { display: block; margin-bottom: 5px; color: var(--dim); font: 700 8px var(--mono); letter-spacing: .18em; }
+.hud-label { display: block; margin-bottom: 5px; color: var(--dim); font: 700 10px var(--mono); letter-spacing: .18em; }
 
 .hud-stat {
   min-width: 76px;
@@ -528,7 +528,7 @@ body[data-game-state="countdown"] .status-light { animation: blink .5s steps(1) 
   padding: 8px 10px;
   border: 1px solid var(--line-bright);
   color: var(--muted);
-  font: 700 8px var(--mono);
+  font: 700 10px var(--mono);
   letter-spacing: .15em;
 }
 
@@ -603,7 +603,7 @@ body[data-game-state="running"] .board-wrap { touch-action: none; }
 .section-kicker {
   margin: 0 0 14px;
   color: var(--acid);
-  font: 700 9px var(--mono);
+  font: 700 11px var(--mono);
   letter-spacing: .19em;
 }
 
@@ -617,7 +617,7 @@ body[data-game-state="running"] .board-wrap { touch-action: none; }
 .overlay h1 em { color: var(--acid); font-style: normal; }
 .overlay h1.countdown-number { font: 500 clamp(6rem, 16vw, 11rem)/1 var(--mono); color: var(--acid); letter-spacing: -.08em; }
 .overlay p:not(.overlay-kicker):not(.overlay-hint) { max-width: 350px; margin: 28px auto 24px; color: var(--muted); line-height: 1.55; }
-.overlay-hint { margin: 17px 0 0; color: var(--dim); font: 700 8px var(--mono); letter-spacing: .18em; }
+.overlay-hint { margin: 17px 0 0; color: var(--dim); font: 700 10px var(--mono); letter-spacing: .18em; }
 
 .run-rank {
   display: inline-flex;
@@ -628,7 +628,7 @@ body[data-game-state="running"] .board-wrap { touch-action: none; }
   border: 1px solid var(--line-bright);
   color: var(--muted);
   background: #0c1510;
-  font: 700 8px var(--mono);
+  font: 700 10px var(--mono);
   letter-spacing: .15em;
 }
 
@@ -650,7 +650,7 @@ body[data-game-state="running"] .board-wrap { touch-action: none; }
   justify-content: space-between;
   margin-bottom: 9px;
   color: var(--dim);
-  font: 700 7px var(--mono);
+  font: 700 10px var(--mono);
   letter-spacing: .16em;
 }
 
@@ -661,7 +661,7 @@ body[data-game-state="running"] .board-wrap { touch-action: none; }
 .decision-metrics strong,
 .decision-metrics span { display: block; }
 .decision-metrics strong { margin-bottom: 3px; color: var(--paper); font: 600 13px var(--mono); }
-.decision-metrics span { color: var(--dim); font: 700 6px var(--mono); letter-spacing: .1em; }
+.decision-metrics span { color: var(--dim); font: 700 10px var(--mono); letter-spacing: .1em; }
 .decision-report > p {
   margin: 9px 0 0 !important;
   color: var(--muted) !important;
@@ -726,7 +726,7 @@ body[data-game-state="over"] .overlay:has(.decision-report:not([hidden])) #overl
   border: 1px solid var(--gold);
   color: var(--gold);
   background: #151309e8;
-  font: 700 9px var(--mono);
+  font: 700 11px var(--mono);
   letter-spacing: .13em;
   opacity: 0;
   transform: translate(-50%, -12px);
@@ -765,7 +765,7 @@ body[data-game-state="over"] .overlay:has(.decision-report:not([hidden])) #overl
   align-items: center;
   justify-content: space-between;
   margin-bottom: 10px;
-  font: 700 8px var(--mono);
+  font: 700 10px var(--mono);
   letter-spacing: .18em;
 }
 
@@ -786,7 +786,7 @@ body[data-game-state="over"] .overlay:has(.decision-report:not([hidden])) #overl
 }
 
 .ai-lens strong { color: var(--paper); font: 700 13px var(--mono); letter-spacing: .06em; }
-.ai-lens small { margin-top: 6px; color: var(--muted); font: 700 8px var(--mono); letter-spacing: .08em; }
+.ai-lens small { margin-top: 6px; color: var(--muted); font: 700 10px var(--mono); letter-spacing: .08em; }
 
 .ai-evidence {
   position: relative;
@@ -796,7 +796,7 @@ body[data-game-state="over"] .overlay:has(.decision-report:not([hidden])) #overl
   padding-top: 7px;
   border-top: 1px solid #ffffff12;
   color: var(--dim);
-  font: 700 6px/1.45 var(--mono);
+  font: 700 10px/1.45 var(--mono);
   letter-spacing: .08em;
 }
 
@@ -822,7 +822,7 @@ body[data-game-state="over"] .overlay:has(.decision-report:not([hidden])) #overl
 }
 
 .objective { flex: 1; }
-.objective-copy { display: flex; justify-content: space-between; margin-bottom: 9px; font: 700 8px var(--mono); letter-spacing: .12em; }
+.objective-copy { display: flex; justify-content: space-between; margin-bottom: 9px; font: 700 10px var(--mono); letter-spacing: .12em; }
 .objective-copy span { color: var(--dim); }
 .objective-copy strong { color: var(--muted); font-weight: 500; }
 .progress-track { height: 2px; overflow: hidden; background: var(--line); }
@@ -868,7 +868,7 @@ body[data-game-state="over"] .overlay:has(.decision-report:not([hidden])) #overl
 .duel-launch small {
   margin-top: 4px;
   color: var(--dim);
-  font: 700 7px var(--mono);
+  font: 700 10px var(--mono);
   letter-spacing: .1em;
 }
 
@@ -917,7 +917,7 @@ body[data-game-state="over"] .overlay:has(.decision-report:not([hidden])) #overl
 .mode-option:hover { background: var(--panel); }
 .mode-option:has(input:checked) { background: #142018; }
 .mode-option input { position: absolute; opacity: 0; pointer-events: none; }
-.mode-number { color: var(--dim); font: 700 9px var(--mono); }
+.mode-number { color: var(--dim); font: 700 11px var(--mono); }
 .mode-copy strong, .mode-copy small { display: block; }
 .mode-copy strong { margin-bottom: 3px; font-size: 14px; }
 .mode-copy small { color: var(--muted); font-size: 11px; }
@@ -1049,7 +1049,7 @@ body[data-game-state="over"] .overlay:has(.decision-report:not([hidden])) #overl
 }
 
 .pace-row { margin-bottom: 9px; }
-.pace-row label { color: var(--dim); font: 700 9px var(--mono); letter-spacing: .16em; }
+.pace-row label { color: var(--dim); font: 700 11px var(--mono); letter-spacing: .16em; }
 .pace-row select {
   min-height: 44px;
   padding: 0 10px;
@@ -1069,8 +1069,44 @@ body[data-game-state="over"] .overlay:has(.decision-report:not([hidden])) #overl
 
 .signal-copy span,
 .signal-copy small { display: block; }
-.signal-copy span { color: var(--dim); font: 700 9px var(--mono); letter-spacing: .16em; }
+.signal-copy span { color: var(--dim); font: 700 11px var(--mono); letter-spacing: .16em; }
 .signal-copy small { margin-top: 4px; color: var(--muted); font-size: 10px; }
+.daily-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  margin-top: 5px;
+  padding: 0 8px;
+  border: 1px solid #ffd16655;
+  color: var(--gold);
+  background: #ffd1660d;
+  font: 700 10px var(--mono);
+  letter-spacing: .12em;
+  cursor: pointer;
+}
+.daily-button strong { color: var(--paper); letter-spacing: .16em; }
+.daily-button:hover:not(:disabled) { border-color: var(--gold); }
+.daily-button:disabled { opacity: .55; cursor: not-allowed; }
+.daily-button:focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; }
+.daily-board { border-color: #ffd16638; background: #ffd16608; }
+.daily-board > header { border-bottom-color: #ffd16624; }
+.daily-board h3 strong { color: var(--gold); font-family: var(--mono); letter-spacing: .16em; }
+.daily-board-note { margin: 0; padding: 10px 16px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.daily-board ol { margin: 0; padding: 0 16px 6px; list-style: none; }
+.daily-entry {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  border-top: 1px solid #ffffff0a;
+}
+.daily-entry .run-position { color: var(--dim); font: 700 11px var(--mono); }
+.daily-entry a { color: var(--paper); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.daily-entry a small { margin-left: 8px; color: var(--muted); font-size: 11px; }
+.daily-entry > strong { color: var(--gold); font: 700 14px var(--mono); }
+.daily-entry.is-you { background: #ffd16610; }
 .signal-button {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -1083,7 +1119,7 @@ body[data-game-state="over"] .overlay:has(.decision-report:not([hidden])) #overl
   cursor: pointer;
 }
 .signal-button strong { font: 700 13px var(--mono); letter-spacing: .11em; }
-.signal-button span { color: var(--dim); font: 700 7px var(--mono); letter-spacing: .08em; }
+.signal-button span { color: var(--dim); font: 700 10px var(--mono); letter-spacing: .08em; }
 .signal-button:hover:not(:disabled) { color: var(--acid-soft); background: var(--panel-hover); }
 .signal-button:disabled { opacity: .55; cursor: not-allowed; }
 
@@ -1125,16 +1161,16 @@ body[data-game-state="over"] .overlay:has(.decision-report:not([hidden])) #overl
 .career-card { margin-top: 28px; padding: 18px; border: 1px solid var(--line); background: #0b110ecc; }
 .career-heading { display: flex; justify-content: space-between; align-items: start; margin-bottom: 18px; }
 .career-heading .section-kicker { margin: 0; }
-.career-heading > span { color: var(--dim); font: 700 8px var(--mono); letter-spacing: .12em; }
+.career-heading > span { color: var(--dim); font: 700 10px var(--mono); letter-spacing: .12em; }
 .career-stats { display: grid; grid-template-columns: repeat(3, 1fr); }
 .career-stats > div { padding-left: 13px; border-left: 1px solid var(--line); }
 .career-stats > div:first-child { padding-left: 0; border-left: 0; }
 .career-stats span, .career-stats strong { display: block; }
-.career-stats span { margin-bottom: 6px; color: var(--dim); font: 700 8px var(--mono); letter-spacing: .13em; }
+.career-stats span { margin-bottom: 6px; color: var(--dim); font: 700 10px var(--mono); letter-spacing: .13em; }
 .career-stats strong { color: var(--acid); font: 500 16px var(--mono); }
 
 .run-history { margin-top: 18px; padding-top: 15px; border-top: 1px solid var(--line); }
-.run-history-heading { display: flex; justify-content: space-between; margin-bottom: 8px; color: var(--dim); font: 700 7px var(--mono); letter-spacing: .12em; }
+.run-history-heading { display: flex; justify-content: space-between; margin-bottom: 8px; color: var(--dim); font: 700 10px var(--mono); letter-spacing: .12em; }
 .run-history ol { margin: 0; padding: 0; list-style: none; }
 .run-history li {
   display: grid;
@@ -1144,7 +1180,7 @@ body[data-game-state="over"] .overlay:has(.decision-report:not([hidden])) #overl
   min-height: 27px;
   border-top: 1px solid #ffffff08;
   color: var(--muted);
-  font: 500 9px var(--mono);
+  font: 500 11px var(--mono);
 }
 .run-history li:first-child { border-top: 0; }
 .run-history .run-position { color: var(--dim); }
@@ -1153,7 +1189,7 @@ body[data-game-state="over"] .overlay:has(.decision-report:not([hidden])) #overl
 .run-history .run-grade { display: grid; place-items: center; width: 19px; height: 19px; color: var(--ink); background: var(--acid); font-weight: 800; }
 .run-history li.empty-run { display: block; min-height: auto; padding-top: 5px; color: var(--dim); line-height: 1.5; }
 
-.instructions { display: flex; flex-wrap: wrap; gap: 9px 14px; margin-top: 20px; color: var(--dim); font: 8px var(--mono); }
+.instructions { display: flex; flex-wrap: wrap; gap: 9px 14px; margin-top: 20px; color: var(--dim); font: 10px var(--mono); }
 .instructions span { white-space: nowrap; }
 kbd { padding: 2px 4px; border: 1px solid var(--line-bright); color: var(--muted); background: var(--panel); font: inherit; }
 
@@ -1164,7 +1200,7 @@ kbd { padding: 2px 4px; border: 1px solid var(--line-bright); color: var(--muted
   padding-top: 15px;
   border-top: 1px solid var(--line);
   color: var(--paper);
-  font: 700 9px var(--mono);
+  font: 700 11px var(--mono);
   letter-spacing: .06em;
   text-decoration: none;
 }
@@ -1224,7 +1260,7 @@ kbd { padding: 2px 4px; border: 1px solid var(--line-bright); color: var(--muted
 .live-now-panel h3,
 .live-now-panel > header span {
   margin: 0;
-  font: 700 9px var(--mono);
+  font: 700 11px var(--mono);
   letter-spacing: .13em;
   text-transform: uppercase;
 }
@@ -1252,7 +1288,7 @@ kbd { padding: 2px 4px; border: 1px solid var(--line-bright); color: var(--muted
   align-self: center;
   padding: 0 4px;
   color: var(--dim);
-  font: 500 9px var(--mono);
+  font: 500 11px var(--mono);
 }
 .live-player a {
   display: flex;
@@ -1269,8 +1305,8 @@ kbd { padding: 2px 4px; border: 1px solid var(--line-bright); color: var(--muted
 .live-player img { width: 30px; height: 30px; object-fit: cover; border-radius: 50%; }
 .live-player span { display: grid; gap: 2px; }
 .live-player strong { font: 700 10px var(--mono); }
-.live-player small { color: var(--dim); font: 500 8px var(--mono); }
-.live-player i { margin-left: 6px; color: var(--acid); font: normal 700 7px var(--mono); letter-spacing: .1em; }
+.live-player small { color: var(--dim); font: 500 10px var(--mono); }
+.live-player i { margin-left: 6px; color: var(--acid); font: normal 700 10px var(--mono); letter-spacing: .1em; }
 .live-player .player-signature { display: flex; flex: 0 0 auto; margin-right: 2px; }
 .online-player .player-signature { flex: 0 0 auto; }
 .player-preference { color: #668173 !important; letter-spacing: .08em; }
@@ -1319,7 +1355,7 @@ kbd { padding: 2px 4px; border: 1px solid var(--line-bright); color: var(--muted
 .public-board-columns {
   min-height: 46px;
   color: var(--dim);
-  font: 700 8px var(--mono);
+  font: 700 10px var(--mono);
   letter-spacing: .15em;
 }
 
@@ -1359,7 +1395,7 @@ kbd { padding: 2px 4px; border: 1px solid var(--line-bright); color: var(--muted
   padding: 20px clamp(18px, 4vw, 46px);
   border-top: 1px solid var(--line);
   color: var(--dim);
-  font: 700 8px var(--mono);
+  font: 700 10px var(--mono);
   letter-spacing: .12em;
 }
 .public-board-footer a { color: var(--paper); text-decoration: none; }
@@ -1415,7 +1451,7 @@ kbd { padding: 2px 4px; border: 1px solid var(--line-bright); color: var(--muted
 .next-moves-list a > span:nth-child(2) { display: grid; gap: 6px; }
 .next-moves-list strong { font-size: clamp(1.15rem, 2vw, 1.7rem); }
 .next-moves-list small { color: var(--muted); font-size: 13px; line-height: 1.5; }
-.next-move-number { color: var(--dim); font: 700 9px var(--mono); letter-spacing: .12em; }
+.next-move-number { color: var(--dim); font: 700 11px var(--mono); letter-spacing: .12em; }
 .next-moves-list i { font: normal 500 22px var(--mono); }
 
 .mobile-controls {
@@ -1447,12 +1483,12 @@ kbd { padding: 2px 4px; border: 1px solid var(--line-bright); color: var(--muted
   opacity: .42;
   cursor: not-allowed;
 }
-.center-control { color: var(--coral); font-size: 9px; }
+.center-control { color: var(--coral); font-size: 11px; }
 .center-control.stop-ai {
   border-color: #ff765788;
   color: var(--coral);
   background: #25100d;
-  font: 700 8px var(--mono);
+  font: 700 10px var(--mono);
   letter-spacing: .08em;
 }
 
@@ -1462,7 +1498,7 @@ kbd { padding: 2px 4px; border: 1px solid var(--line-bright); color: var(--muted
   padding: 24px 0 34px;
   border-top: 1px solid var(--line);
   color: var(--dim);
-  font: 700 8px var(--mono);
+  font: 700 10px var(--mono);
   letter-spacing: .15em;
 }
 
@@ -1543,7 +1579,7 @@ body[data-mode="canvas"] .mode-chip { color: #74e1ff; border-color: #74e1ff66; }
   .overlay-kicker { margin-bottom: 8px; }
   .overlay h1 { font-size: clamp(2.8rem, 15vw, 4.5rem); }
   .overlay p:not(.overlay-kicker):not(.overlay-hint) { margin: 12px auto 13px; font-size: 12px; line-height: 1.35; }
-  .overlay-hint { margin-top: 9px; font-size: 7px; letter-spacing: .12em; }
+  .overlay-hint { margin-top: 9px; font-size: 10px; letter-spacing: .12em; }
   .console-hud { min-height: 66px; padding: 10px 13px; }
   .hud-primary { min-width: 112px; }
   .hud-primary strong { font-size: 21px; }
@@ -1596,7 +1632,7 @@ body[data-mode="canvas"] .mode-chip { color: #74e1ff; border-color: #74e1ff66; }
   .game-console.ai-active .pickup-toast { top: auto; bottom: 10px; }
   .decision-report { margin-bottom: 12px; padding: 9px 10px; }
   .decision-metrics strong { font-size: 11px; }
-  .decision-report > p { font-size: 9px; }
+  .decision-report > p { font-size: 11px; }
   body[data-game-state="over"] .overlay:has(.decision-report:not([hidden])) { padding: 10px 18px; }
   body[data-game-state="over"] .overlay:has(.decision-report:not([hidden])) .overlay-kicker { margin-bottom: 6px; }
   body[data-game-state="over"] .overlay:has(.decision-report:not([hidden])) h1 {
@@ -1626,7 +1662,7 @@ body[data-mode="canvas"] .mode-chip { color: #74e1ff; border-color: #74e1ff66; }
   body[data-game-state="over"] .decision-metrics strong { margin-bottom: 1px; font-size: 10px; }
   body[data-game-state="over"] .decision-report > p {
     margin-top: 5px !important;
-    font-size: 8px;
+    font-size: 10px;
     line-height: 1.2;
   }
   body[data-game-state="over"] .start-actions {
@@ -1804,7 +1840,7 @@ body[data-mode="canvas"] .mode-chip { color: #74e1ff; border-color: #74e1ff66; }
   align-items: center;
   gap: 7px;
   color: var(--acid);
-  font: 700 8px var(--mono);
+  font: 700 10px var(--mono);
   letter-spacing: .19em;
 }
 
@@ -1827,6 +1863,7 @@ body[data-mode="canvas"] .mode-chip { color: #74e1ff; border-color: #74e1ff66; }
 .activity-dock[data-state="error"] .activity-dock-mark { color: var(--coral); }
 .activity-dock-copy strong { font: 700 12px var(--mono); letter-spacing: .08em; }
 .activity-dock-copy small { color: var(--muted); font-size: 11px; line-height: 1.35; }
+.activity-dock-copy .activity-participants { color: #aab2ff; }
 
 .activity-dock-nav {
   position: relative;
@@ -1843,7 +1880,7 @@ body[data-mode="canvas"] .mode-chip { color: #74e1ff; border-color: #74e1ff66; }
   padding: 0 14px;
   color: var(--muted);
   background: rgba(6, 10, 8, .76);
-  font: 700 9px var(--mono);
+  font: 700 11px var(--mono);
   letter-spacing: .12em;
   text-decoration: none;
 }
@@ -1868,7 +1905,7 @@ body[data-mode="canvas"] .mode-chip { color: #74e1ff; border-color: #74e1ff66; }
   border: 1px solid var(--acid);
   color: var(--ink);
   background: var(--acid);
-  font: 800 8px var(--mono);
+  font: 800 10px var(--mono);
   letter-spacing: .12em;
   cursor: pointer;
 }
@@ -1903,7 +1940,7 @@ body[data-mode="canvas"] .mode-chip { color: #74e1ff; border-color: #74e1ff66; }
 .activity-dock-explore a,
 .activity-dock-legal a {
   color: var(--dim);
-  font: 700 7px var(--mono);
+  font: 700 10px var(--mono);
   letter-spacing: .12em;
   text-decoration: none;
 }
@@ -1963,49 +2000,6 @@ body.activity-mode .arcade-shell {
 
 body.activity-mode .game-console { box-shadow: 0 22px 62px #0009; }
 
-/* Discord gives the Activity a fixed viewport, so the board has to be bounded by
-   height as well as width or the play surface runs off the bottom. Above the
-   single-column breakpoint the page itself stops scrolling and the control deck
-   scrolls in its own column instead, which keeps the board on screen. The
-   reserve covers the header, the HUD strip and the dock. */
-body.activity-mode {
-  --activity-chrome: 330px;
-}
-
-body.activity-mode .board-wrap {
-  width: auto;
-  max-width: 100%;
-  height: auto;
-  max-height: calc(100dvh - var(--activity-chrome));
-  margin-inline: auto;
-}
-
-/* Below the two-column breakpoint the dock stacks onto a second row, so more
-   height is spoken for before the board starts. */
-@media (max-width: 960px) {
-  body.activity-mode {
-    --activity-chrome: 360px;
-  }
-}
-
-@media (min-width: 961px) {
-  body.activity-mode {
-    height: 100dvh;
-    overflow: hidden;
-  }
-
-  body.activity-mode .arcade-shell {
-    height: calc(100dvh - 58px);
-    align-items: start;
-    overflow: hidden;
-  }
-
-  body.activity-mode .control-deck {
-    max-height: 100%;
-    overflow-y: auto;
-    scrollbar-width: thin;
-  }
-}
 body.activity-mode .control-deck { padding-top: 0; }
 body.activity-mode .wallpaper-launch,
 body.activity-mode .career-card,
@@ -2067,4 +2061,265 @@ body.activity-mode .control-deck .instructions { display: none; }
     animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
   }
+}
+
+/* ------------------------------------------------------------------------
+   Board fitting.
+   The board is a size container, so everything drawn over it (the start and
+   run-report overlay) scales with the board itself instead of the window. On
+   small boards the fixed-size headline and buttons used to overflow and clip,
+   which hid the Play button inside Discord. The overlay also scrolls as a last
+   resort, so its actions can never be unreachable. */
+.board-wrap { container: board / inline-size; }
+.overlay { padding: clamp(10px, 3.5cqi, 28px); overflow-y: auto; }
+.overlay h1 { font-size: clamp(1.7rem, 13cqi, 6.7rem); }
+.overlay h1.countdown-number { font-size: clamp(3rem, 22cqi, 11rem); }
+.overlay p:not(.overlay-kicker):not(.overlay-hint) {
+  margin-block: clamp(8px, 3.4cqi, 28px) clamp(8px, 3cqi, 24px);
+}
+.overlay .snake-mark { margin-bottom: clamp(8px, 2.8cqi, 23px); }
+
+@container board (max-width: 480px) {
+  .overlay .snake-mark,
+  .overlay .overlay-hint { display: none; }
+  .overlay p:not(.overlay-kicker):not(.overlay-hint) { font-size: 12px; line-height: 1.4; }
+  .overlay .start-actions { grid-template-columns: 1fr; gap: 6px; width: min(100%, 260px); margin-inline: auto; }
+  .overlay .start-actions .primary-button,
+  .overlay .start-actions .demo-button { min-height: 44px; }
+  .overlay .decision-report { padding: 8px 10px; }
+  .overlay .decision-report #decisionSummary { display: none; }
+}
+
+@container board (max-width: 340px) {
+  .overlay #overlayMessage,
+  .overlay .decision-report,
+  .overlay .run-rank { display: none; }
+  .overlay .overlay-kicker { margin-bottom: 6px; }
+}
+
+/* On the website the console is the largest size that fits below the sticky
+   header, so a run is never partly off-screen: at 1366x768 a third of the
+   board used to start below the fold, with nothing scrolling it into view. */
+.game-console { scroll-margin: 90px 0 12px; }
+@media (min-width: 681px) and (min-height: 560px) {
+  body:not(.activity-mode) .game-console {
+    width: min(100%, calc(100dvh - 300px));
+    margin-inline: auto;
+  }
+}
+
+/* ------------------------------------------------------------------------
+   Discord Activity layout.
+   Discord hands the Activity a fixed viewport. The page is a full-height grid:
+   the dock takes what it needs and the game column gets exactly the rest. The
+   column is a size container, so the console - HUD, board and footer - is the
+   largest square-board console that fits, whatever the panel size, instead
+   of reserving a guessed number of pixels for chrome. */
+body.activity-mode {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+body.activity-mode .product-header { display: none; }
+
+body.activity-mode .arcade-shell {
+  box-sizing: border-box;
+  height: 100dvh;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-items: stretch;
+  gap: 10px clamp(14px, 2.4vw, 32px);
+  padding-block:
+    max(8px, var(--discord-safe-area-inset-top, 0px))
+    max(8px, var(--discord-safe-area-inset-bottom, 0px));
+  overflow: hidden;
+}
+
+body.activity-mode .game-column {
+  container: activity-column / size;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 0;
+}
+
+body.activity-mode .game-console {
+  --hud-h: 52px;
+  --foot-h: 40px;
+  flex: none;
+  width: min(100cqw, calc(100cqh - var(--hud-h) - var(--foot-h) - var(--pad-h, 0px) - 2px));
+}
+
+body.activity-mode .console-hud { min-height: 0; height: var(--hud-h); padding-block: 4px; overflow: hidden; }
+body.activity-mode .hud-primary strong { font-size: 22px; }
+body.activity-mode .console-footer { min-height: 0; height: var(--foot-h); padding-block: 6px; }
+body.activity-mode .board-wrap { width: 100%; max-height: none; }
+body.activity-mode .control-deck { min-height: 0; max-height: 100%; overflow-y: auto; scrollbar-width: thin; }
+
+/* A one- or two-line dock instead of a banner. The explanatory line only shows
+   when there is height to spare. */
+body.activity-mode .activity-dock {
+  min-height: 0;
+  gap: 8px 14px;
+  padding: 7px 10px 7px 14px;
+}
+body.activity-mode .activity-dock::after { display: none; }
+body.activity-mode .activity-dock-copy strong {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+body.activity-mode .activity-dock-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px 12px;
+}
+body.activity-mode .activity-dock-explore,
+body.activity-mode .activity-dock-legal { gap: 10px; }
+/* Short Activity frames keep one line under the title: who is here. */
+@media (max-height: 820px) {
+  body.activity-mode .activity-dock-copy small:not(.activity-participants) { display: none; }
+}
+
+/* Portrait phones: one column. The page scrolls to reach the mode list, while
+   the dock is compact enough that the board and controls start near the top. */
+@media (max-width: 620px) {
+  body.activity-mode {
+    height: auto;
+    overflow: visible;
+  }
+  body.activity-mode .arcade-shell {
+    height: auto;
+    grid-template-rows: auto auto auto;
+    overflow: visible;
+  }
+  body.activity-mode .game-column {
+    container-type: normal;
+    display: block;
+  }
+  body.activity-mode .game-console { width: 100%; }
+  body.activity-mode .activity-dock {
+    grid-template-columns: 1fr;
+    gap: 6px;
+    padding: 8px 10px;
+  }
+  body.activity-mode .activity-dock-copy .activity-dock-mark { display: none; }
+  body.activity-mode .activity-dock-nav,
+  body.activity-mode .activity-dock-actions { grid-column: 1; grid-row: auto; justify-self: stretch; }
+  body.activity-mode .activity-dock-actions { justify-content: space-between; }
+  body.activity-mode .activity-dock-tab,
+  body.activity-mode .activity-dock-actions button { min-height: 40px; }
+}
+
+/* Picture-in-picture and grid tiles: only the board, so people who pop the
+   Activity out can still follow the game. Discord's layout-mode event sets
+   data-activity-layout; the height query covers clients that never send it. */
+:root[data-activity-layout="pip"] body.activity-mode .activity-dock,
+:root[data-activity-layout="pip"] body.activity-mode .control-deck,
+:root[data-activity-layout="pip"] body.activity-mode .console-footer,
+:root[data-activity-layout="pip"] body.activity-mode .mobile-controls,
+:root[data-activity-layout="grid"] body.activity-mode .activity-dock,
+:root[data-activity-layout="grid"] body.activity-mode .control-deck,
+:root[data-activity-layout="grid"] body.activity-mode .console-footer,
+:root[data-activity-layout="grid"] body.activity-mode .mobile-controls { display: none; }
+:root:is([data-activity-layout="pip"], [data-activity-layout="grid"]) body.activity-mode .arcade-shell {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  padding: 4px;
+  gap: 0;
+}
+:root:is([data-activity-layout="pip"], [data-activity-layout="grid"]) body.activity-mode .game-console {
+  --hud-h: 26px;
+  --foot-h: 0px;
+}
+:root:is([data-activity-layout="pip"], [data-activity-layout="grid"]) body.activity-mode .console-hud .hud-label,
+:root:is([data-activity-layout="pip"], [data-activity-layout="grid"]) body.activity-mode .hud-stat,
+:root:is([data-activity-layout="pip"], [data-activity-layout="grid"]) body.activity-mode .mode-chip { display: none; }
+:root:is([data-activity-layout="pip"], [data-activity-layout="grid"]) body.activity-mode .hud-primary strong { font-size: 16px; }
+
+@media (max-height: 300px) {
+  /* A short panel is PiP or a grid tile even when it is also narrow, so the
+     portrait-phone rules above must not apply. */
+  body.activity-mode { height: 100dvh; overflow: hidden; }
+  body.activity-mode .arcade-shell { height: 100dvh; overflow: hidden; }
+  body.activity-mode .game-column {
+    container: activity-column / size;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  body.activity-mode .game-console {
+    width: min(100cqw, calc(100cqh - var(--hud-h) - var(--foot-h) - 2px));
+  }
+  body.activity-mode .activity-dock,
+  body.activity-mode .control-deck,
+  body.activity-mode .console-footer,
+  body.activity-mode .mobile-controls,
+  body.activity-mode .console-hud .hud-label,
+  body.activity-mode .hud-stat,
+  body.activity-mode .mode-chip { display: none; }
+  body.activity-mode .arcade-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    padding: 4px;
+    gap: 0;
+  }
+  body.activity-mode .game-console { --hud-h: 26px; --foot-h: 0px; }
+  body.activity-mode .hud-primary strong { font-size: 16px; }
+}
+
+/* Landscape panels narrower than the desktop breakpoint keep two columns: the
+   board is bounded by height there, so stacking the controls under it would
+   only push them out of the fixed viewport. Swipes on the board steer, so the
+   direction pad is reserved for portrait phones. */
+@media (min-width: 621px) and (max-width: 960px) {
+  body.activity-mode .arcade-shell {
+    grid-template-columns: minmax(0, 1fr) minmax(220px, .75fr);
+    justify-content: stretch;
+  }
+}
+@media (min-width: 621px) {
+  body.activity-mode .mobile-controls { display: none; }
+}
+
+/* A thumbnail-sized board keeps only the title and the two actions. */
+@container board (max-width: 240px) {
+  .overlay h1 { font-size: 1.35rem; }
+  .overlay .overlay-kicker { display: none; }
+  .overlay .start-actions { gap: 4px; }
+  .overlay .start-actions .primary-button,
+  .overlay .start-actions .demo-button {
+    min-height: 30px;
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+  .overlay .start-actions .demo-button span:first-child { font-size: 11px; }
+}
+
+/* Shown when a new version of the site takes over an open tab. */
+.update-notice {
+  position: fixed;
+  z-index: 50;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px 10px 16px;
+  border: 1px solid var(--line-bright);
+  background: var(--ink-raised);
+  color: var(--paper);
+  font: 600 13px var(--sans, system-ui);
+  box-shadow: 0 18px 50px #000a;
+}
+.update-notice button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--acid);
+  background: transparent;
+  color: var(--acid);
+  font: 700 12px var(--mono);
+  letter-spacing: .08em;
+  cursor: pointer;
 }

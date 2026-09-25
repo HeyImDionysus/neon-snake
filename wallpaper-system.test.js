@@ -72,33 +72,28 @@ const androidService = read(
   "wallpaper",
   "NeonWallpaperService.java",
 );
-const permanentWindowsReadme = read("downloads", "v1.1.2", "README.md");
-const permanentAndroidReadme = read("downloads", "v1.1.1", "README.md");
-const permanentWindows = readBytes(
-  "downloads",
-  "v1.1.2",
-  "Neon-Snake-Lively-v1.1.2.zip",
-);
-const permanentAndroid = readBytes(
-  "downloads",
-  "v1.1.1",
-  "Neon-Snake-Android-v1.1.1.apk",
-);
-const shippedLivelyProperties = JSON.parse(readArchiveText(
-  ["downloads", "v1.1.2", "Neon-Snake-Lively-v1.1.2.zip"],
-  "LivelyProperties.json",
-));
-const shippedWallpaperScript = readArchiveText(
-  ["downloads", "v1.1.2", "Neon-Snake-Lively-v1.1.2.zip"],
-  "wallpaper.js",
-);
+// The files players actually download are whatever the downloads page links to.
+function linkedDownload(platform) {
+  const href = downloadsHtml.match(new RegExp(`href="(/downloads/[^"]+)" data-wallpaper-download="${platform}"`))?.[1];
+  assert.ok(href, `The downloads page must link a ${platform} build`);
+  return ["public", ...href.split("/").filter(Boolean)];
+}
+function publishedHash(platform) {
+  const article = downloadsHtml.split('<article class="download-platform')
+    .find((section) => section.includes(`data-wallpaper-download="${platform}"`));
+  return article?.match(/SHA-256 <code>([a-f0-9]{64})<\/code>/)?.[1];
+}
+const shippedWindowsPath = linkedDownload("Windows");
+const shippedAndroidPath = linkedDownload("Android");
+const permanentWindows = readBytes(...shippedWindowsPath);
+const permanentAndroid = readBytes(...shippedAndroidPath);
+const shippedLivelyProperties = JSON.parse(readArchiveText(shippedWindowsPath, "LivelyProperties.json"));
+const shippedWallpaperScript = readArchiveText(shippedWindowsPath, "wallpaper.js");
 
 assert.match(wallpaperHtml, /wallpaperCanvas/);
 assert.match(homeHtml, /href="downloads\.html"/);
 assert.doesNotMatch(homeHtml, /href="wallpaper\.html"/);
 assert.match(homeHtml, /WINDOWS LIVELY · ANDROID LIVE WALLPAPER/);
-assert.match(downloadsHtml, /Neon-Snake-Android-v1\.1\.1\.apk/);
-assert.match(downloadsHtml, /Neon-Snake-Lively-v1\.1\.2\.zip/);
 assert.equal((downloadsHtml.match(/<a class="download-button"[^>]*\bdownload="/g) || []).length, 2);
 assert.match(downloadsHtml, /Download for Android/);
 assert.match(downloadsHtml, /Download for Windows/);
@@ -217,8 +212,19 @@ const androidSnake = read("wallpaper", "android", "app", "src", "main", "java", 
 assert.match(androidSnake, /shortestFoodMove/);
 assert.match(androidSnake, /DISPLAY_LENGTH_LIMIT = 42/);
 assert.match(androidService, /snake\.lastPickup\(\)/);
-assert.match(permanentWindowsReadme, new RegExp(sha256(permanentWindows)));
-assert.match(permanentAndroidReadme, new RegExp(sha256(permanentAndroid)));
+assert.equal(publishedHash("Windows"), sha256(permanentWindows), "The page must print the Windows file's real SHA-256");
+assert.equal(publishedHash("Android"), sha256(permanentAndroid), "The page must print the Android file's real SHA-256");
+// The shipped Windows build must actually pause. The source was fixed while the
+// archive on the downloads page kept the NaN bug, and a test that only read the
+// source could not see it, so the shipped reader is executed here.
+{
+  const start = shippedWallpaperScript.indexOf("function playbackIsPlaying");
+  assert.ok(start >= 0, "The shipped wallpaper must contain the Lively playback reader");
+  const end = shippedWallpaperScript.indexOf("root.NeonSnakeWallpaperPreview", start);
+  const shippedPlayback = new Function(`${shippedWallpaperScript.slice(start, end)}; return playbackIsPlaying;`)();
+  assert.equal(shippedPlayback('{"IsPaused":true}'), false, "The downloadable wallpaper must pause when Lively pauses it");
+  assert.equal(shippedPlayback('{"IsPaused":false}'), true);
+}
 assert.equal(permanentWindows.subarray(0, 2).toString("ascii"), "PK");
 assert.equal(permanentAndroid.subarray(0, 2).toString("ascii"), "PK");
 assert.ok(permanentWindows.length > 25_000);

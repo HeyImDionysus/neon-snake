@@ -2,6 +2,8 @@ name: Verify
 
 on:
   push:
+  # Pushes already cover branches in this repository; pull requests only add
+  # coverage for forks (the job below skips same-repository PR runs).
   pull_request:
 
 permissions:
@@ -13,6 +15,7 @@ concurrency:
 
 jobs:
   deterministic-browser-rules:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -35,73 +38,47 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
 
-      - name: Install server runtime
+      - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Install browser for Activity protocol verification
-        run: npx playwright install --with-deps chromium
+      - name: Cache Chromium
+        id: chromium-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
-      - name: Verify syntax
-        run: |
-          npm run build:activity
-          git diff --exit-code -- public/activity-sdk.js
-          npm run check:stamp
-          node --check public/activity-redirect.js
-          node --check public/activity-sdk.js
-          node --check public/game.js
-          node --check public/game-logic.js
-          node --check public/room-transport.js
-          node --check public/signal-field.js
-          node --check public/duel.js
-          node --check public/account.js
-          node --check public/profile-config.js
-          node --check public/profile.js
-          node --check public/touch-controls.js
-          node --check public/wallpaper-engine.js
-          node --check public/wallpaper.js
-          node --check public/downloads.js
-          node --check public/sw.js
-          node --check server/room-core.cjs
-          node --check server/account-core.cjs
-          node --check server/realtime-core.cjs
-          for file in api/*.mjs api/activity/*.mjs api/auth/discord/*.mjs; do node --check "$file"; done
+      - name: Install Chromium
+        if: steps.chromium-cache.outputs.cache-hit != 'true'
+        run: npx playwright install chromium
 
-      - name: Verify deterministic behavior
-        run: |
-          node asset-stamp.test.js
-          node game-logic.test.js
-          node ai-quality.test.js
-          node canvas-performance.test.js
-          CANVAS_BROWSER_REQUIRED=1 node canvas-browser-performance.test.js
-          node control-flow.test.js
-          node duel-control-flow.test.js
-          node duel-quality.test.js
-          node duel-authority-consistency.test.js
-          node room-transport.test.js
-          node room-api.test.js
-          node identity-system.test.js
-          node accessibility.test.js
-          node service-worker.test.js
-          node deployment-contract.test.js
-          node realtime-worker.test.js
-          node platform-security.test.js
-          node account-persistence.test.js
-          node activity-system.test.js
-          node activity-lifecycle.test.js
-          ACTIVITY_BROWSER_REQUIRED=1 node activity-navigation-browser.test.js
-          node terminal-room-ui.test.js
-          REALTIME_REDIS_REQUIRED=1 node realtime-integration.test.js
-          node profile-system.test.js
-          node profile-interaction.test.js
-          PROFILE_BROWSER_REQUIRED=1 node profile-browser.test.js
-          PRODUCT_BROWSER_REQUIRED=1 node product-browser.test.js
-          node product-experience.test.js
-          node touch-controls.test.js
-          node wallpaper-system.test.js
+      - name: Install Chromium system libraries
+        run: npx playwright install-deps chromium
+
+      # Syntax of every JavaScript file, the asset stamp, and the committed
+      # Discord SDK bundle. Files are discovered, never listed by hand.
+      - name: Static checks
+        run: npm run check
+
+      # Every *.test.js file, found by the runner rather than listed here.
+      - name: Tests
+        run: npm test
+        env:
+          TEST_JUNIT_PATH: test-results.xml
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results.xml
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Build Windows wallpaper
-        run: node scripts/build-wallpapers.mjs
+        run: npm run build:wallpapers
 
       - name: Upload Windows wallpaper
         uses: actions/upload-artifact@v4
@@ -112,6 +89,7 @@ jobs:
           retention-days: 30
 
   android-wallpaper:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 12
 
@@ -130,52 +108,15 @@ jobs:
         with:
           gradle-version: "8.13"
 
-      # A release keystore keeps one signing certificate across versions, which
-      # is what lets players update in place. Without the secrets the job still
-      # builds a debug APK so the project keeps compiling on every push, but
-      # that build is for verification only and is not a publishable release.
-      # The secrets context is not available in a step condition, so the keystore
-      # step always runs and reports whether it found one.
-      - name: Restore release keystore
-        id: keystore
-        env:
-          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
-        run: |
-          if [ -n "$ANDROID_KEYSTORE" ]; then
-            printf '%s' "$ANDROID_KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.keystore"
-            echo "path=$RUNNER_TEMP/release.keystore" >> "$GITHUB_OUTPUT"
-          else
-            echo "No release keystore configured; building for verification only."
-            echo "path=" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Build signed Android wallpaper
-        if: ${{ steps.keystore.outputs.path != '' }}
-        env:
-          ANDROID_KEYSTORE_PATH: ${{ steps.keystore.outputs.path }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: gradle -p wallpaper/android :app:assembleRelease --stacktrace
-
-      - name: Build verification-only Android wallpaper
-        if: ${{ steps.keystore.outputs.path == '' }}
+      # Every push proves the Android project compiles; release.yml builds the
+      # published APK when a version tag is pushed.
+      - name: Build Android wallpaper
         run: gradle -p wallpaper/android :app:assembleDebug --stacktrace
 
-      - name: Upload signed Android wallpaper
-        if: ${{ steps.keystore.outputs.path != '' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: Neon-Snake-Android
-          path: wallpaper/android/app/build/outputs/apk/release/app-release.apk
-          if-no-files-found: error
-          retention-days: 30
-
       - name: Upload verification Android build
-        if: ${{ steps.keystore.outputs.path == '' }}
         uses: actions/upload-artifact@v4
         with:
-          name: Neon-Snake-Android-unsigned
+          name: Neon-Snake-Android-debug
           path: wallpaper/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 14

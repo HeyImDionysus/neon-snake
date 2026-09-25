@@ -94,22 +94,28 @@ const tests = [
     assert.equal(context.runState, "running");
   }],
   ["live duel results use the local seat and identify spectator winners", () => {
-    for (const [clientId, winner, expectedLabel, expectedAnnouncement] of [
-      ["seat-one", "player", "YOU WIN", "You won the duel."],
-      ["seat-two", "opponent", "YOU WIN", "You won the duel."],
-      ["seat-two", "player", "RIVAL WINS", "Your rival won the duel."],
-      ["viewer", "opponent", "PLAYER 2 WINS", "Player 2 won the duel."],
+    // The overlay says who crashed and into what, from each screen's side. It
+    // used to print only the cause ("First crash: opponent."), which read as
+    // if the rival had crashed when the player had run into the rival.
+    for (const [clientId, winner, crashes, expectedLabel, expectedAnnouncement, expectedMessage] of [
+      ["seat-one", "player", { opponent: "wall" }, "YOU WIN", "You won the duel.", "Your rival hit the wall."],
+      ["seat-two", "opponent", { player: "self" }, "YOU WIN", "You won the duel.", "Your rival ran into their own tail."],
+      ["seat-two", "player", { opponent: "opponent" }, "RIVAL WINS", "Your rival won the duel.", "You ran into your rival."],
+      ["viewer", "opponent", { player: "opponent" }, "PLAYER 2 WINS", "Player 2 won the duel.", "Player 1 ran into Player 2."],
+      ["seat-one", null, { player: "head-on", opponent: "head-on" }, "DRAW", "The duel ended in a draw.", "Head-on: both snakes hit each other on the same tick."],
     ]) {
       const context = {
         duelType: "live", clientId, roomPlayers: [{ id: "seat-one" }, { id: "seat-two" }],
         liveCountdownTimer: 9, liveCountdownActive: true, clearInterval() {},
         announcement: {}, setRunState(state, label) { context.runState = state; context.label = label; },
-        showOverlay() {}, setRoomReadyIntent() {}, postRoomMessage() {}, syncLiveRoom() {},
+        showOverlay(_kicker, _title, message) { context.message = message; },
+        setRoomReadyIntent() {}, postRoomMessage() {}, syncLiveRoom() {},
       };
-      const { endDuel } = installFunctions(["endDuel"], context);
-      endDuel(winner);
+      const { endDuel } = installFunctions(["endDuel", "describeCrash"], context);
+      endDuel(winner, crashes);
       assert.equal(context.label, expectedLabel);
       assert.equal(context.announcement.textContent, expectedAnnouncement);
+      assert.equal(context.message, expectedMessage);
       assert.equal(context.liveCountdownActive, false);
       assert.equal(context.liveCountdownTimer, null);
     }
@@ -144,9 +150,6 @@ const tests = [
     const base = () => ({
       roomConnected: true,
       roomConnectionState: "connected",
-      pendingCountdownRound: 0,
-      pendingCountdownExpiresAt: 0,
-      pendingCountdownAttempts: 0,
       liveCountdownActive: false,
       roomState: { textContent: "" },
       roomLatency: { textContent: "" },
@@ -170,16 +173,13 @@ const tests = [
       "a stray rejected frame must not degrade the room link");
     assert.equal(rotated.disconnected, undefined);
 
-    // A rejected countdown request is real information and does gate the room,
-    // but it must heal as soon as the server proves the link works.
-    const countdown = base();
-    countdown.pendingCountdownRound = 7;
-    const gate = installFunctions(["handleRoomStatus"], countdown);
-    gate.handleRoomStatus({ state: "rejected", code: "invalid_message" });
-    assert.equal(countdown.roomConnectionState, "degraded");
-    assert.equal(countdown.pendingCountdownRound, 0);
+    // Rounds are started by the server, so no rejected frame means the room
+    // cannot start. A degraded link still heals as soon as a pong proves it works.
+    const degraded = base();
+    degraded.roomConnectionState = "degraded";
+    const gate = installFunctions(["handleRoomStatus"], degraded);
     gate.handleRoomStatus({ state: "latency", latency: 42 });
-    assert.equal(countdown.roomConnectionState, "connected",
+    assert.equal(degraded.roomConnectionState, "connected",
       "a healthy pong must clear a degraded room");
   }],
   ["duel shortcuts preserve room typing, native controls, and browser commands", () => {
@@ -326,6 +326,7 @@ const tests = [
       arenaBackdropBuilt: false,
       board: { getBoundingClientRect: () => ({ width: 300 }) },
       window: { devicePixelRatio: 1 },
+      document: { documentElement: { dataset: {} } },
       tileSize: 0,
       buildCount: 0,
       buildArenaBackdrop() {
@@ -340,23 +341,52 @@ const tests = [
     assert.equal(context.arenaBackdrop.width, context.canvas.width);
     assert.equal(context.arenaBackdrop.height, context.canvas.height);
   }],
-  ["Autopilot and live duels preserve two rapid turns in order", () => {
-    const request = functionBody("requestDirection");
-    assert.match(request, /Rules\.bufferDirection\(playerInputBuffer, playerDirection, next\)/);
-    assert.match(request, /Rules\.bufferDirection\(opponentInputBuffer, opponentDirection, next\)/);
-    assert.match(functionBody("tickAi"), /Rules\.consumeDirectionBuffer\(playerInputBuffer, playerDirection\)/);
-    assert.match(functionBody("tickLiveHost"), /Rules\.consumeDirectionBuffer\(opponentInputBuffer, opponentDirection\)/);
-    assert.match(functionBody("requestDirection"), /sequence: localInputSequence/);
-    assert.match(functionBody("requestDirection"), /round: liveRoundId/);
-    assert.match(functionBody("broadcastSnapshot"), /guestInputAck/);
-    assert.match(functionBody("broadcastSnapshot"), /round: liveRoundId/);
-    assert.match(functionBody("applyRemoteSnapshot"), /state\.playerInputAck/);
-    assert.match(functionBody("applyRemoteSnapshot"), /localSequences\[0\] <= acknowledged/);
-    assert.match(functionBody("applyRemoteSnapshot"), /networkInterpolationOffset/);
-    assert.match(functionBody("advanceGame"), /tickPredictedLive/);
-    assert.match(functionBody("render"), /previewDirection/);
-    assert.match(functionBody("advanceGame"), /roomTransport\?\.authoritative/);
-    assert.match(functionBody("handleRoomMessage"), /round !== liveRoundId/);
+  ["live turns reach the server in order, stamped for a tick they can still make", () => {
+    const Rules = require("./public/game-logic.js");
+    const sent = [];
+    let clock = 1_000;
+    const context = {
+      Rules, Math, Date,
+      runState: "running", duelType: "live", clientId: "me", roomPlayers: [{ id: "me" }, { id: "rival" }],
+      playerDirection: { x: 1, y: 0 }, opponentDirection: { x: -1, y: 0 },
+      playerInputBuffer: [], opponentInputBuffer: [],
+      playerInputSequences: [], opponentInputSequences: [],
+      playerInputTicks: [], opponentInputTicks: [],
+      playerPredictionIndex: 0, opponentPredictionIndex: 0,
+      localInputSequence: 0, liveRoundId: 77, predictedTick: 10,
+      TICK_DURATION: 138, INPUT_TRANSIT_MARGIN_MS: 12, ASSUMED_ROUND_TRIP_MS: 100, liveLatencyMs: 80,
+      performance: { now: () => clock },
+      nextMoveAt: 1_100,
+      postRoomMessage(message) { sent.push(message); return true; },
+    };
+    const { requestDirection } = installFunctions(["requestDirection", "liveInputTick"], context);
+
+    // 100 ms before the next tick: a 40 ms trip makes it, so the turn is for tick 11.
+    requestDirection({ x: 0, y: -1 });
+    // A second rapid turn queues behind it, one tick later.
+    requestDirection({ x: -1, y: 0 });
+    assert.deepEqual(sent.map(({ type, round, direction, tick }) => ({ type, round, direction, tick })), [
+      { type: "input", round: 77, direction: { x: 0, y: -1 }, tick: 11 },
+      { type: "input", round: 77, direction: { x: -1, y: 0 }, tick: 12 },
+    ]);
+    assert.ok(sent[1].sequence > sent[0].sequence, "sequences increase");
+    assert.deepEqual(context.playerInputTicks, [11, 12]);
+    assert.equal(context.playerInputBuffer.length, 2);
+
+    // 20 ms before the next tick the turn cannot reach the server in time, so
+    // it is stamped (and drawn) one tick later instead of snapping back.
+    Object.assign(context, { playerInputBuffer: [], playerInputTicks: [], playerDirection: { x: 1, y: 0 } });
+    clock = 1_080;
+    sent.length = 0;
+    requestDirection({ x: 0, y: 1 });
+    assert.equal(sent[0].tick, 12);
+
+    // Before the first ping returns, a 100 ms round trip is assumed.
+    Object.assign(context, { playerInputBuffer: [], playerInputTicks: [], playerDirection: { x: 1, y: 0 }, liveLatencyMs: 0 });
+    clock = 1_040;
+    sent.length = 0;
+    requestDirection({ x: 0, y: 1 });
+    assert.equal(sent[0].tick, 12);
   }],
   ["queued viewers apply snapshots and receive results even during a delayed countdown", () => {
     const context = {
@@ -376,12 +406,15 @@ const tests = [
       opponentDirection: { x: -1, y: 0 },
       opponentInputBuffer: [],
       opponentInputSequences: [],
+      opponentInputTicks: [],
       opponentPredictionIndex: 0,
       opponentScore: 0,
       playerDirection: { x: 1, y: 0 },
       playerInputBuffer: [],
       playerInputSequences: [],
+      playerInputTicks: [],
       playerPredictionIndex: 0,
+      predictedTick: 0,
       playerScore: 0,
       roomPlayers: [
         { id: "seat-one", slot: 0 },
@@ -449,8 +482,6 @@ const tests = [
   }],
   ["authoritative rosters do not expire from a server clock timestamp", () => {
     const context = {
-      PEER_TIMEOUT: 6_000,
-      roomTransport: { authoritative: true },
       roomConnected: true,
       roomRole: "player",
       roomPeers: new Map([[
@@ -466,11 +497,6 @@ const tests = [
       Array.from(activeRoomRoster(), (player) => player.id).join(","),
       "local-player,remote-player",
     );
-    context.roomTransport = { kind: "broadcast-channel" };
-    assert.equal(
-      Array.from(activeRoomRoster(), (player) => player.id).join(","),
-      "local-player",
-    );
   }],
   ["live rooms remain waiting until two connected players are ready", () => {
     const body = functionBody("syncLiveRoom");
@@ -478,15 +504,10 @@ const tests = [
     assert.match(body, /phase === "waiting"/);
     assert.match(body, /phase === "ready"/);
     assert.match(body, /phase === "countdown"/);
-    assert.match(body, /beginLiveCountdown/);
     const countdown = functionBody("beginLiveCountdown");
     assert.match(countdown, /round < liveRoundId/);
     assert.match(countdown, /round === liveRoundId && runState !== "ready"/);
     assert.match(countdown, /clearInterval\(liveCountdownTimer\)/);
-    const sync = functionBody("syncLiveRoom");
-    assert.match(sync, /pendingCountdownRound/);
-    assert.match(sync, /pendingCountdownExpiresAt/);
-    assert.match(sync, /pendingCountdownAttempts >= 2/);
   }],
   ["an interrupted client can resume the authoritative countdown round", () => {
     const context = {
@@ -681,7 +702,7 @@ const tests = [
   ["live-room transport is explicitly identified as public cross-device play", () => {
     assert.match(html, /PUBLIC LIVE ROOM/);
     assert.match(html, /room-transport\.js/);
-    assert.match(script, /Transports\.createRemoteRoomTransport/);
+    assert.match(script, /Transports\.createWebSocketRoomTransport/);
     assert.match(script, /async function connectLiveRoom/);
     assert.ok(!script.includes("new BroadcastChannel"));
   }],
@@ -699,7 +720,6 @@ const tests = [
     const status = functionBody("handleRoomStatus");
     assert.match(status, /reconnecting/);
     assert.match(status, /ROOM LINK RECONNECTING/);
-    assert.match(status, /COUNTDOWN REQUEST REJECTED/);
     assert.match(status, /roomConnectionState/);
     assert.match(functionBody("applyAuthoritativeRoomRoster"), /roomPeers = new Map\(players/);
     assert.match(functionBody("applyAuthoritativeRoomRoster"), /roomPlayers = activeRoomRoster\(\)\.slice\(0, capacity\)/);
@@ -721,9 +741,8 @@ const tests = [
     assert.ok(branch, "Expected a presence/ready branch");
     assert.match(branch[1], /if \(roomTransport\) syncLiveRoom\(\)/);
     assert.match(functionBody("connectLiveRoom"), /Transports\.createWebSocketRoomTransport/);
-    assert.match(functionBody("connectLiveRoom"), /Transports\.createRemoteRoomTransport/);
     assert.ok(
-      functionBody("connectLiveRoom").indexOf("roomTransport = realtimeUrl")
+      functionBody("connectLiveRoom").indexOf("roomTransport = await Transports.createWebSocketRoomTransport")
         < functionBody("connectLiveRoom").lastIndexOf("syncLiveRoom()"),
     );
     assert.match(functionBody("connectLiveRoom"), /setRoomReadyIntent\(false\)/);
