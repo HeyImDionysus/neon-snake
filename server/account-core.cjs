@@ -5,10 +5,7 @@ const {
   randomBytes,
   timingSafeEqual,
 } = require("node:crypto");
-const {
-  executeRedisRest,
-  requestIsSameOrigin,
-} = require("./room-core.cjs");
+const { executeRedisRest } = require("./redis-rest.cjs");
 
 const DISCORD_API = "https://discord.com/api/v10";
 const SESSION_COOKIE = "__Host-neon_session";
@@ -109,6 +106,24 @@ return result
 function header(request, name) {
   const value = request.headers?.[name] ?? request.headers?.[name.toLowerCase()];
   return Array.isArray(value) ? value[0] : value;
+}
+
+// Account writes must come from this site's own pages.
+function requestIsSameOrigin(request) {
+  const origin = header(request, "origin");
+  const forwardedHost = header(request, "x-forwarded-host");
+  const host = String(forwardedHost || header(request, "host") || "").split(",")[0].trim();
+  const forwardedProtocol = header(request, "x-forwarded-proto");
+  const protocol = String(forwardedProtocol || (host.startsWith("localhost") ? "http" : "https"))
+    .split(",")[0]
+    .trim();
+  const fetchSite = header(request, "sec-fetch-site");
+  if (!origin || !host || (fetchSite && fetchSite !== "same-origin")) return false;
+  try {
+    return new URL(origin).origin === `${protocol}://${host}`;
+  } catch {
+    return false;
+  }
 }
 
 function requestUrl(request) {

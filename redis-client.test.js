@@ -2,7 +2,7 @@
 
 const assert = require("node:assert/strict");
 const { createHash } = require("node:crypto");
-const { executeRedisRest, RedisUnavailableError } = require("./server/room-core.cjs");
+const { executeRedisRest, RedisUnavailableError } = require("./server/redis-rest.cjs");
 const { createAccountHandler } = require("./server/account-core.cjs");
 
 const environment = {

@@ -62,7 +62,7 @@ jobs:
           node --check public/wallpaper.js
           node --check public/downloads.js
           node --check public/sw.js
-          node --check server/room-core.cjs
+          node --check server/redis-rest.cjs
           node --check server/account-core.cjs
           node --check server/realtime-core.cjs
           for file in api/*.mjs api/activity/*.mjs api/auth/discord/*.mjs; do node --check "$file"; done
@@ -79,7 +79,6 @@ jobs:
           node duel-quality.test.js
           node duel-authority-consistency.test.js
           node room-transport.test.js
-          node room-api.test.js
           node redis-client.test.js
           node identity-system.test.js
           node accessibility.test.js

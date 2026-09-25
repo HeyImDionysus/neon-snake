@@ -21,9 +21,8 @@ const ASSET_STAMP = (() => {
 
 const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
 const workflow = fs.readFileSync(path.join(root, ".github", "workflows", "verify.yml"), "utf8");
-const roomFunction = fs.readFileSync(path.join(root, "api", "room.mjs"), "utf8");
 const realtimeFunction = fs.readFileSync(path.join(root, "api", "realtime.mjs"), "utf8");
-const roomCore = fs.readFileSync(path.join(root, "server", "room-core.cjs"), "utf8");
+const redisClient = fs.readFileSync(path.join(root, "server", "redis-rest.cjs"), "utf8");
 const realtimeCore = fs.readFileSync(path.join(root, "server", "realtime-core.cjs"), "utf8");
 const publicStyles = fs.readFileSync(path.join(publicRoot, "styles.css"), "utf8");
 const packageManifest = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
@@ -60,10 +59,9 @@ const tests = [
     assert.equal(packageManifest.dependencies.ws, "8.21.1");
     assert.equal(fs.existsSync(path.join(publicRoot, "README.md")), false);
     assert.equal(fs.existsSync(path.join(publicRoot, "game-logic.test.js")), false);
-    assert.match(roomFunction, /createRoomHandler/);
-    assert.match(roomFunction, /maxDuration: 10/);
-    assert.match(roomCore, /STORAGE_KV_REST_API_URL/);
-    assert.match(roomCore, /STORAGE_KV_REST_API_TOKEN/);
+    assert.equal(fs.existsSync(path.join(root, "api", "room.mjs")), false, "The legacy HTTP room API is retired");
+    assert.match(redisClient, /STORAGE_KV_REST_API_URL/);
+    assert.match(redisClient, /STORAGE_KV_REST_API_TOKEN/);
     assert.match(realtimeFunction, /WebSocketServer/);
     assert.match(realtimeFunction, /maxDuration: 300/);
     assert.match(realtimeCore, /PRESENCE_SCRIPT/);
@@ -196,9 +194,7 @@ const tests = [
     const privacy = fs.readFileSync(path.join(publicRoot, "privacy.html"), "utf8");
     const terms = fs.readFileSync(path.join(publicRoot, "terms.html"), "utf8");
     assert.match(privacy, /Discord user ID/);
-    assert.match(privacy, /hashes the forwarded network address/);
-    assert.match(privacy, /rate limiting/);
-    assert.match(privacy, /expires from Upstash after one second/);
+    assert.match(privacy, /Delete my data/);
     assert.match(privacy, /does not sell player data/);
     assert.match(terms, /Fair play/);
     assert.match(terms, /privacy\.html/);
@@ -235,13 +231,11 @@ const tests = [
     assert.match(workflow, /node duel-authority-consistency\.test\.js/);
     assert.match(workflow, /node accessibility\.test\.js/);
     assert.match(workflow, /node service-worker\.test\.js/);
-    assert.match(workflow, /node room-api\.test\.js/);
     assert.match(readme, /ai-quality\.test\.js/);
     assert.match(readme, /duel-quality\.test\.js/);
     assert.match(readme, /duel-authority-consistency\.test\.js/);
     assert.match(readme, /accessibility\.test\.js/);
     assert.match(readme, /service-worker\.test\.js/);
-    assert.match(readme, /room-api\.test\.js/);
     assert.match(readme, /Hamiltonian safety arc/);
   }],
 ];

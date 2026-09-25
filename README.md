@@ -21,7 +21,6 @@ node duel-control-flow.test.js
 node duel-quality.test.js
 node duel-authority-consistency.test.js
 node room-transport.test.js
-node room-api.test.js
 node redis-client.test.js
 node identity-system.test.js
 node accessibility.test.js
@@ -128,7 +127,7 @@ Discord sign-in is optional for play and required only for a verified profile or
 - `public/duel.html` — focused Autopilot/live multiplayer interface.
 - `public/duel.css` — responsive duel arena and room-state presentation.
 - `public/duel.js` — autonomous duel and room-state orchestration.
-- `public/room-transport.js` — same-origin Vercel WebSocket transport with bounded reconnect/heartbeat handling plus the legacy HTTP fallback.
+- `public/room-transport.js` — same-origin Vercel WebSocket transport with handover, heartbeat and bounded reconnect handling.
 - `activity/entry.js`, `public/activity-sdk.js` — official Discord Embedded App SDK source and its pinned, reproducible browser bundle.
 - `api/activity/token.mjs` — origin-bound Activity code exchange and partitioned session entry point.
 - `public/account.js` — safe Discord profile and verified-leaderboard rendering.
@@ -141,8 +140,7 @@ Discord sign-in is optional for play and required only for a verified profile or
 - `api/auth/discord/*`, `api/me.mjs`, `api/profile.mjs`, `api/logout.mjs` — Discord authorization, public profile, customization, and session endpoints.
 - `api/leaderboard.mjs` — public read-only verified leaderboard endpoint.
 - `server/account-core.cjs` — OAuth, hashed sessions, cookies, profiles, deletion, and atomic rating logic.
-- `api/room.mjs` — the isolated Vercel Function entry point.
-- `server/room-core.cjs` — request validation, Redis REST client, and atomic two-slot room protocol.
+- `server/redis-rest.cjs` — the server-only Upstash Redis REST client shared by the account API and realtime hub.
 - `wallpaper/windows` — Lively metadata and user-configurable properties.
 - `wallpaper/android` — native, offline Android live-wallpaper project with no network permission.
 - `scripts/build-wallpapers.mjs` — reproducible Windows Lively archive builder.
@@ -157,7 +155,7 @@ Discord sign-in is optional for play and required only for a verified profile or
 - `duel-quality.test.js` — executable 1,200-state simultaneous-resolution symmetry gate plus a 36-run, both-spawn adversarial planner matrix.
 - `duel-authority-consistency.test.js` — tick-for-tick equivalence between the browser duel rules and the authoritative live-room simulation, including terminal rounds, plus input acknowledgement monotonicity.
 - `room-transport.test.js` — executable transport lifecycle and envelope regressions.
-- `room-api.test.js` — executable origin, validation, role, rate, expiry, and configuration regressions.
+- `redis-client.test.js` — executable script-digest caching and Redis-outage classification regressions.
 - `identity-system.test.js` — executable identity, deterministic field, protocol-glyph, cache, and motion-budget regressions.
 - `accessibility.test.js` — executable semantics, focus, touch-target, canvas-fallback, and reduced-motion regressions.
 - `service-worker.test.js` — executable install, upgrade, runtime-cache, and route-aware offline regressions.
@@ -235,7 +233,7 @@ Before attaching a custom domain, update the metadata in `index.html` and regist
 
 ### Multiplayer transport boundary
 
-The production live-room adapter opens one secure same-origin WebSocket to Vercel. Direction inputs are sent immediately instead of waiting for a browser → HTTP polling → browser cycle. Local delivery is immediate; the existing Redis resource relays events only when the two players land on different Vercel Function instances. One server-side simulation broadcasts a single authoritative snapshot after every 138 ms tick. The adapter sends heartbeats every five seconds during a round (fifteen otherwise), closes a link that has not answered for 20 seconds during a round (45 otherwise), gives up on a connection attempt after eight seconds, and reconnects with jittered exponential backoff capped at four seconds. A legacy HTTP transport remains only as a local recovery path; it is not the production latency path.
+The production live-room adapter opens one secure same-origin WebSocket to Vercel. Direction inputs are sent immediately instead of waiting for a browser → HTTP polling → browser cycle. Local delivery is immediate; the existing Redis resource relays events only when the two players land on different Vercel Function instances. One server-side simulation broadcasts a single authoritative snapshot after every 138 ms tick. The adapter sends heartbeats every five seconds during a round (fifteen otherwise), closes a link that has not answered for 20 seconds during a round (45 otherwise), gives up on a connection attempt after eight seconds, and reconnects with jittered exponential backoff capped at four seconds.
 
 Vercel closes a WebSocket when the Function invocation reaches its maximum duration, so every `welcome` declares when that link should be replaced and when the platform will cut it. A replacement joins with the same private credential and keeps the seat, Ready state, and place in the waiting line; only once it is welcomed does the old link close. Because a round's simulation lives on the server instance that started it, links are handed over between rounds - halfway through their life while idle - and only a round that is still running ten seconds before the platform cut is interrupted. If a link is cut anyway - a dropped network, a crashed tab - the seat is held for a short reclaim window instead of being handed straight to the waiting line, while a link the player closes deliberately frees its seat at once. Moving rooms to a stateful per-room server removes this constraint entirely.
 

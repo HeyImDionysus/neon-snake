@@ -10,7 +10,7 @@ const {
 const {
   executeRedisRest,
   redisConfig,
-} = require("./room-core.cjs");
+} = require("./redis-rest.cjs");
 
 const ROOM_PATTERN = /^[23456789A-HJ-NP-Z]{6}$/;
 const CLIENT_PATTERN = /^[A-Za-z0-9._:-]{8,96}$/;

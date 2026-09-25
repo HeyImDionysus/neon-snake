@@ -1252,7 +1252,7 @@ async function connectLiveRoom() {
     roomState.textContent = "ENTER A VALID 6-CHARACTER SIGNAL";
     return;
   }
-  if (!Transports?.remoteRoomSupported()) {
+  if (!Transports?.webSocketRoomSupported()) {
     roomState.textContent = "LIVE ROOM UNSUPPORTED IN THIS BROWSER";
     return;
   }
@@ -1271,21 +1271,13 @@ async function connectLiveRoom() {
   roomConnectionState = "connecting";
 
   try {
-    const realtimeUrl = globalThis.NEON_SNAKE_CONFIG?.realtimeUrl;
-    roomTransport = realtimeUrl
-      ? await Transports.createWebSocketRoomTransport({
-        code: normalized,
-        clientId,
-        endpoint: realtimeUrl,
-        onMessage: handleRoomMessage,
-        onStatus: handleRoomStatus,
-      })
-      : await Transports.createRemoteRoomTransport({
-        code: normalized,
-        clientId,
-        onMessage: handleRoomMessage,
-        onStatus: handleRoomStatus,
-      });
+    roomTransport = await Transports.createWebSocketRoomTransport({
+      code: normalized,
+      clientId,
+      endpoint: globalThis.NEON_SNAKE_CONFIG?.realtimeUrl || "/api/realtime",
+      onMessage: handleRoomMessage,
+      onStatus: handleRoomStatus,
+    });
     postRoomMessage({ type: "ready", ready: false });
   } catch (error) {
     roomTransport = null;

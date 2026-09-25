@@ -681,7 +681,7 @@ const tests = [
   ["live-room transport is explicitly identified as public cross-device play", () => {
     assert.match(html, /PUBLIC LIVE ROOM/);
     assert.match(html, /room-transport\.js/);
-    assert.match(script, /Transports\.createRemoteRoomTransport/);
+    assert.match(script, /Transports\.createWebSocketRoomTransport/);
     assert.match(script, /async function connectLiveRoom/);
     assert.ok(!script.includes("new BroadcastChannel"));
   }],
@@ -721,9 +721,8 @@ const tests = [
     assert.ok(branch, "Expected a presence/ready branch");
     assert.match(branch[1], /if \(roomTransport\) syncLiveRoom\(\)/);
     assert.match(functionBody("connectLiveRoom"), /Transports\.createWebSocketRoomTransport/);
-    assert.match(functionBody("connectLiveRoom"), /Transports\.createRemoteRoomTransport/);
     assert.ok(
-      functionBody("connectLiveRoom").indexOf("roomTransport = realtimeUrl")
+      functionBody("connectLiveRoom").indexOf("roomTransport = await Transports.createWebSocketRoomTransport")
         < functionBody("connectLiveRoom").lastIndexOf("syncLiveRoom()"),
     );
     assert.match(functionBody("connectLiveRoom"), /setRoomReadyIntent\(false\)/);
