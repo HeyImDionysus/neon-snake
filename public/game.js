@@ -183,6 +183,8 @@ let soundEnabled = getStored("neon-snake-sound", "true") !== "false";
 let lensEnabled = getStored("neon-snake-lens", "false") === "true";
 let profile = loadProfile();
 let runSignal = "";
+let presenceStartedAt = 0;
+const MODE_NAMES = { classic: "Classic", portal: "Portal", rush: "Rush", canvas: "Canvas" };
 let signalRandomState = 0;
 const decisionAnalyst = createDecisionAnalyst();
 // The first run of a visit counts down from three; retries count one beat.
@@ -310,11 +312,23 @@ function createSignalCode() {
   return [...values].map((value) => SIGNAL_ALPHABET[value % SIGNAL_ALPHABET.length]).join("");
 }
 
+// A Discord share link launches the Activity with ?custom_id=SIGNAL.mode.pace
+// (see shareGame), so whoever opens it starts on the same challenge.
+function activityChallengeId() {
+  return `${runSignal}.${activeMode}.${difficultySelect.value}`;
+}
+
+function parseActivityChallengeId(value) {
+  const [signal = "", mode = "", pace = ""] = String(value || "").split(".");
+  return { signal: Rules.normalizeSignalCode(signal), mode, pace };
+}
+
 function hydrateChallengeFromUrl() {
   const params = new URLSearchParams(window.location.search);
-  const requestedMode = params.get("mode");
-  const requestedPace = params.get("pace");
-  const requestedSignal = Rules.normalizeSignalCode(params.get("signal"));
+  const shared = activityEmbedded ? parseActivityChallengeId(params.get("custom_id")) : {};
+  const requestedMode = params.get("mode") || shared.mode;
+  const requestedPace = params.get("pace") || shared.pace;
+  const requestedSignal = Rules.normalizeSignalCode(params.get("signal")) || shared.signal;
 
   if (["classic", "portal", "rush", "canvas"].includes(requestedMode)) {
     const input = modeInputs.find((option) => option.value === requestedMode);
@@ -498,7 +512,10 @@ function buildBoardBackdrop() {
 
 function resizeCanvas() {
   const cssSize = Math.max(1, boardWrap.getBoundingClientRect().width);
-  const pixelRatioCap = activityEmbedded ? ACTIVITY_PIXEL_RATIO_CAP : 2;
+  // An overheating phone (reported by Discord) renders at 1x until it cools.
+  const pixelRatioCap = document.documentElement.dataset.thermal
+    ? 1
+    : activityEmbedded ? ACTIVITY_PIXEL_RATIO_CAP : 2;
   const pixelRatio = Math.min(pixelRatioCap, Math.max(1, window.devicePixelRatio || 1));
   const backingSize = Math.max(1, Math.round(cssSize * pixelRatio));
   if (canvas.width === backingSize && canvas.height === backingSize) return;
@@ -1443,6 +1460,7 @@ function updateHud() {
   if (lensVisible()) updateAiTelemetry();
   updateObjective();
   renderLeaderboard();
+  reportPresence();
 }
 
 function updateObjective() {
@@ -1898,6 +1916,33 @@ function showOverlay(kicker, title, message, buttonLabel, countdown = false) {
 function setState(state, label) {
   document.body.dataset.gameState = state;
   statusText.textContent = label;
+  reportPresence();
+}
+
+// Inside Discord, the player's status says what they are doing. The Activity
+// bridge keeps only the latest description and rate-limits the calls.
+function describePresence() {
+  const modeName = MODE_NAMES[activeMode] || "Classic";
+  const scoreText = activeMode === "canvas" ? "Painting" : `Score ${score}`;
+  const live = runState === "running" || runState === "paused";
+  if (demoMode && live) return { details: `Watching Autopilot · ${modeName}`, state: scoreText };
+  const details = `Solo · ${modeName} · Signal ${runSignal}`;
+  if (runState === "running") return { details, state: scoreText };
+  if (runState === "paused") return { details, state: `Paused · ${scoreText}` };
+  if (runState === "countdown") return { details, state: "Starting a run" };
+  if (runState === "over") {
+    return { details, state: activeMode === "canvas" ? "Finished a painting" : `Run over · Score ${score}` };
+  }
+  return { details: "Solo · Choosing a run", state: `${modeName} · Signal ${runSignal}` };
+}
+
+function reportPresence() {
+  const activity = globalThis.NeonSnakeActivity;
+  if (!activityEmbedded || !activity?.setPresence) return;
+  const live = runState === "running" || runState === "paused";
+  if (!live) presenceStartedAt = 0;
+  else if (!presenceStartedAt) presenceStartedAt = Date.now();
+  activity.setPresence({ ...describePresence(), startedAt: presenceStartedAt || undefined });
 }
 
 function setSetupDisabled(disabled) {
@@ -2087,6 +2132,22 @@ async function shareGame() {
     text,
     url: url.toString(),
   };
+
+  // Inside Discord, share a link that launches this Activity on the same
+  // challenge; the browser share sheet and clipboard are blocked in the frame.
+  const activity = globalThis.NeonSnakeActivity;
+  if (activityEmbedded && activity?.connected && activity.share) {
+    try {
+      const result = await activity.share({ message: text, customId: activityChallengeId() });
+      if (result?.success) {
+        showPickup("SHARED", `SIGNAL ${runSignal}`);
+        announcement.textContent = `Signal ${runSignal} shared in Discord.`;
+      }
+      return;
+    } catch {
+      // Fall through to the browser share paths below.
+    }
+  }
 
   try {
     if (navigator.share) {
@@ -2374,6 +2435,7 @@ function scheduleResizeCanvas() {
     resizeCanvas();
   });
 }
+window.addEventListener("neon-activity-thermal", scheduleResizeCanvas);
 if ("ResizeObserver" in window) {
   new ResizeObserver(scheduleResizeCanvas).observe(boardWrap);
 } else {

@@ -11,6 +11,12 @@ const COMMAND_TIMEOUT = 15_000;
 const TOKEN_TIMEOUT = 16_000;
 const EXTERNAL_LINK_TIMEOUT = 2_500;
 const ORIENTATION_TIMEOUT = 2_500;
+// The share dialog stays open while the player picks a destination.
+const SHARE_TIMEOUT = 120_000;
+// Discord rate-limits presence updates; a score that changes every second
+// still costs at most one call per interval, always carrying the latest text.
+const PRESENCE_INTERVAL = 5_000;
+const PRESENCE_TEXT_LIMIT = 128;
 function instanceSignal(value) {
   let hash = 2166136261;
   for (const character of String(value || "")) {
@@ -56,6 +62,131 @@ function applyLayoutMode(mode) {
   const layout = LAYOUT_NAMES.get(mode) || "focused";
   document.documentElement.dataset.activityLayout = layout;
   dispatch("neon-activity-layout", { layout });
+}
+
+const THERMAL_NAMES = new Map([
+  [Common.ThermalStateTypeObject.SERIOUS, "serious"],
+  [Common.ThermalStateTypeObject.CRITICAL, "critical"],
+]);
+
+// Mobile clients report when the phone is overheating. The game drops its
+// canvas resolution while it is hot (game.js, duel.js) rather than let the OS
+// throttle frames out from under the movement clock.
+function applyThermalState(state) {
+  const thermal = THERMAL_NAMES.get(state) || "";
+  if (thermal) document.documentElement.dataset.thermal = thermal;
+  else delete document.documentElement.dataset.thermal;
+  dispatch("neon-activity-thermal", { thermal });
+}
+
+async function subscribeThermalState(instance) {
+  try {
+    await withTimeout(
+      instance.subscribe(Events.THERMAL_STATE_UPDATE, ({ thermal_state: state }) => applyThermalState(state)),
+      COMMAND_TIMEOUT,
+      "Discord thermal updates did not answer in time.",
+    );
+  } catch {
+    // Desktop and older clients never report thermal state.
+  }
+}
+
+let participants = [];
+
+function participantName(participant) {
+  return participant.nickname || participant.global_name || participant.username || "Player";
+}
+
+function applyParticipants(instance, list) {
+  if (instance !== sdk) return;
+  participants = (Array.isArray(list) ? list : [])
+    .filter((participant) => participant && !participant.bot)
+    .map((participant) => ({ id: String(participant.id), name: participantName(participant) }));
+  dispatch("neon-activity-participants", { participants: participants.slice() });
+}
+
+async function followParticipants(instance) {
+  try {
+    await withTimeout(
+      instance.subscribe(
+        Events.ACTIVITY_INSTANCE_PARTICIPANTS_UPDATE,
+        ({ participants: list }) => applyParticipants(instance, list),
+      ),
+      COMMAND_TIMEOUT,
+      "Discord participant updates did not answer in time.",
+    );
+    const current = await withTimeout(
+      instance.commands.getInstanceConnectedParticipants(),
+      COMMAND_TIMEOUT,
+      "Discord did not list the Activity participants in time.",
+    );
+    applyParticipants(instance, current?.participants);
+  } catch {
+    // The participant list is decoration; the shared room works without it.
+  }
+}
+
+let presenceWanted = null;
+let presenceSentKey = "";
+let presenceLastSent = 0;
+let presenceTimer = null;
+let presenceBlocked = false;
+
+function clipPresence(value) {
+  const text = String(value || "").trim();
+  if (!text) return undefined;
+  return text.length > PRESENCE_TEXT_LIMIT ? `${text.slice(0, PRESENCE_TEXT_LIMIT - 1)}…` : text;
+}
+
+function presenceActivity({ details, state, startedAt }) {
+  const activity = { type: 0 };
+  const detailText = clipPresence(details);
+  const stateText = clipPresence(state);
+  if (detailText) activity.details = detailText;
+  if (stateText) activity.state = stateText;
+  if (Number.isFinite(startedAt) && startedAt > 0) activity.timestamps = { start: Math.floor(startedAt) };
+  return activity;
+}
+
+function schedulePresence() {
+  if (!sdk || !connected || presenceBlocked || presenceTimer || !presenceWanted) return;
+  const wait = Math.max(0, presenceLastSent + PRESENCE_INTERVAL - Date.now());
+  presenceTimer = setTimeout(sendPresence, wait);
+}
+
+async function sendPresence() {
+  presenceTimer = null;
+  if (!sdk || !connected || !presenceWanted) return;
+  const activity = presenceActivity(presenceWanted);
+  const key = JSON.stringify(activity);
+  if (key === presenceSentKey) return;
+  presenceLastSent = Date.now();
+  presenceSentKey = key;
+  try {
+    await withTimeout(
+      sdk.commands.setActivity({ activity }),
+      COMMAND_TIMEOUT,
+      "Discord did not accept the presence update in time.",
+    );
+  } catch {
+    // A player who declined the status permission, or an older client, keeps
+    // Discord's default "Playing Neon Snake". Asking again would only spam.
+    presenceBlocked = true;
+    return;
+  }
+  schedulePresence();
+}
+
+// Called by the game whenever what the player is doing changes. Only the
+// latest description is kept; it reaches Discord at most once per interval.
+function setPresence(presence) {
+  if (!embedded || !presence) return;
+  presenceWanted = {
+    details: presence.details,
+    state: presence.state,
+    startedAt: presence.startedAt,
+  };
+  schedulePresence();
 }
 
 async function subscribeLayoutMode(instance) {
@@ -112,6 +243,7 @@ async function initialize() {
   );
   sdkReady = true;
   void subscribeLayoutMode(sdk);
+  void subscribeThermalState(sdk);
   stage(
     "authorizing",
     "SOLO READY · IDENTIFYING PLAYER",
@@ -123,8 +255,9 @@ async function initialize() {
       response_type: "code",
       state: "",
       prompt: "none",
-      // identify is all the game uses; the privacy policy promises nothing more.
-      scope: ["identify"],
+      // identify names the player; rpc.activities.write lets the game say what
+      // they are playing in their Discord status. The privacy policy lists both.
+      scope: ["identify", "rpc.activities.write"],
     }),
     COMMAND_TIMEOUT,
     "Discord authorization timed out.",
@@ -195,6 +328,8 @@ async function initialize() {
     `Shared room ${roomCode} · authenticated as @${auth.user.username}`,
   );
   dispatch("neon-activity-ready", context);
+  void followParticipants(sdk);
+  schedulePresence();
   return context;
 }
 
@@ -202,6 +337,16 @@ async function invite() {
   if (!sdk || !connected) return false;
   await withTimeout(sdk.commands.openInviteDialog(), COMMAND_TIMEOUT, "Discord did not open the invite dialog in time.");
   return true;
+}
+
+// Opens Discord's share dialog for a link that launches this Activity. The
+// custom id travels in the launch URL as ?custom_id=, so whoever opens the
+// link starts on the same challenge.
+async function share({ message, customId } = {}) {
+  if (!sdk || !connected) return null;
+  const args = { message: String(message || "").slice(0, 1000) };
+  if (customId) args.custom_id = String(customId);
+  return withTimeout(sdk.commands.shareLink(args), SHARE_TIMEOUT, "Discord did not open the share dialog in time.");
 }
 
 async function openExternal(url) {
@@ -238,6 +383,8 @@ function retry() {
   if (initializing) return readyPromise;
   connected = false;
   sdkReady = false;
+  presenceBlocked = false;
+  presenceSentKey = "";
   return begin({ force: true });
 }
 
@@ -251,6 +398,14 @@ globalThis.NeonSnakeActivity = {
   invite,
   openExternal,
   retry,
+  setPresence,
+  share,
+  get connected() {
+    return connected;
+  },
+  get participants() {
+    return participants.slice();
+  },
   get ready() {
     return readyPromise;
   },

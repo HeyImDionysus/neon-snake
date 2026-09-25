@@ -192,9 +192,18 @@ The Activity reuses the same Vercel deployment and Discord application; it does 
 1. In **Activities → URL Mappings**, map prefix `/` to `neon-snake-green-tau.vercel.app` (no protocol).
 2. In **Activities → Settings**, enable Activities and enable Web, iOS, and Android support.
 3. Keep the default `Launch` Entry Point command. Set phone/tablet orientation to unlocked; the app requests landscape only for picture-in-picture and grid tiles.
-4. In **OAuth2**, retain the existing production callback. Activity authorization requests only `identify`; the existing client secret stays in Vercel and never enters the browser bundle.
+4. In **OAuth2**, retain the existing production callback. Activity authorization requests `identify` and `rpc.activities.write` (the player's Discord status); the existing client secret stays in Vercel and never enters the browser bundle.
 5. In **General Information**, use `/terms` and `/privacy` from the production host. The exact-size portal artwork is versioned under `brand/discord/`; it is uploaded to the portal and not deployed with the site.
 6. Install the application to the intended server and leave Discovery disabled if the Activity should not be publicly listed.
+
+Inside Discord the Activity also:
+
+- sets each player's Discord status to what they are doing (mode, Signal Code and score, or room and round), at most once every five seconds;
+- lists the people in the same Activity instance under the Activity banner;
+- shares a Signal Code through Discord's own share dialog as a link that launches the Activity on the same map, mode and pace (`?custom_id=SIGNAL.mode.pace`);
+- drops the board to 1× resolution while a phone reports that it is overheating.
+
+Players who authorized before `rpc.activities.write` was requested are asked once more; declining keeps Discord's default "Playing" status and changes nothing else.
 
 Discord currently limits unverified Activities to servers with fewer than 25 members. A 40-member server therefore requires Discord app verification even when Discovery remains disabled. Until verification is approved, the same build can be tested in a smaller private server by the owner or invited App Testers.
 

@@ -84,7 +84,7 @@ function request(url, {
   assert.match(activityTokenApi, /from "\.\.\/\.\.\/server\/account-core\.cjs"/);
   assert.match(activityTokenApi, /request\.url = "\/api\/activity\/token"/);
   assert.equal(fs.existsSync(path.join(root, "api", "activity-token.mjs")), false);
-  assert.match(entry, /scope: \["identify"\]/);
+  assert.match(entry, /scope: \["identify", "rpc\.activities\.write"\]/);
   assert.match(entry, /commands\.authenticate/);
   assert.match(entry, /commands\.openInviteDialog/);
   assert.match(entry, /commands\.openExternalLink\(\{ url \}\)/);

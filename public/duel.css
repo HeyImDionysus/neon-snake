@@ -64,6 +64,11 @@
   font: 600 10px var(--mono);
 }
 
+.activity-context .activity-participants {
+  grid-column: 2;
+  color: #aab2ff;
+}
+
 .activity-context-actions {
   grid-column: 3;
   grid-row: 1 / 3;
@@ -951,7 +956,7 @@ body.activity-mode .activity-context {
 body.activity-mode .activity-context-actions { flex-wrap: wrap; justify-content: flex-end; }
 body.activity-mode .activity-context-legal { border-color: transparent; background: none; color: var(--dim); }
 @media (max-height: 820px) {
-  body.activity-mode .activity-context small { display: none; }
+  body.activity-mode .activity-context small:not(.activity-participants) { display: none; }
 }
 body.activity-mode .duel-stage {
   container: activity-column / size;

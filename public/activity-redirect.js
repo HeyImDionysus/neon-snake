@@ -84,6 +84,29 @@
     renderStage();
   }
 
+  // Names of everyone in this Activity instance, so a player can see who is
+  // here before anyone joins the room. Names are text, never markup.
+  const PARTICIPANT_NAMES_SHOWN = 4;
+  function describeParticipants(participants) {
+    if (!participants.length) return "";
+    const names = participants.slice(0, PARTICIPANT_NAMES_SHOWN).map((participant) => participant.name);
+    const more = participants.length - names.length;
+    return `IN THIS ACTIVITY (${participants.length}) · ${names.join(", ")}${more > 0 ? ` +${more}` : ""}`;
+  }
+
+  let latestParticipants = [];
+  function renderParticipants() {
+    const text = describeParticipants(latestParticipants);
+    document.querySelectorAll("[data-activity-participants]").forEach((element) => {
+      element.textContent = text;
+      element.hidden = !text;
+    });
+  }
+
+  globalThis.addEventListener("neon-activity-participants", (event) => {
+    latestParticipants = Array.isArray(event.detail?.participants) ? event.detail.participants : [];
+    renderParticipants();
+  });
   globalThis.addEventListener("neon-activity-stage", setStage);
   globalThis.addEventListener("neon-activity-ready", setReady);
   globalThis.addEventListener("neon-activity-error", setError);
@@ -183,6 +206,7 @@
       }
     });
     renderStage();
+    renderParticipants();
     globalThis.NeonSnakeActivityBoot?.ready();
   }
 
@@ -193,6 +217,7 @@
   }
 
   globalThis.NeonSnakeActivityShell = {
+    describeParticipants,
     embedded,
     preserveActivityQuery,
     retireServiceWorkers,

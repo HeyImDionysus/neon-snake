@@ -1827,6 +1827,7 @@ body[data-mode="canvas"] .mode-chip { color: #74e1ff; border-color: #74e1ff66; }
 .activity-dock[data-state="error"] .activity-dock-mark { color: var(--coral); }
 .activity-dock-copy strong { font: 700 12px var(--mono); letter-spacing: .08em; }
 .activity-dock-copy small { color: var(--muted); font-size: 11px; line-height: 1.35; }
+.activity-dock-copy .activity-participants { color: #aab2ff; }
 
 .activity-dock-nav {
   position: relative;
@@ -2140,8 +2141,9 @@ body.activity-mode .activity-dock-actions {
 }
 body.activity-mode .activity-dock-explore,
 body.activity-mode .activity-dock-legal { gap: 10px; }
+/* Short Activity frames keep one line under the title: who is here. */
 @media (max-height: 820px) {
-  body.activity-mode .activity-dock-copy small { display: none; }
+  body.activity-mode .activity-dock-copy small:not(.activity-participants) { display: none; }
 }
 
 /* Portrait phones: one column. The page scrolls to reach the mode list, while

@@ -11,8 +11,8 @@
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/assets/icon-180.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="stylesheet" href="styles.css?v=8f5ccc2a8f" />
-    <link rel="stylesheet" href="legal.css?v=8f5ccc2a8f" />
+    <link rel="stylesheet" href="styles.css?v=0dbba60996" />
+    <link rel="stylesheet" href="legal.css?v=0dbba60996" />
   </head>
   <body class="legal-page">
     <canvas class="signal-field" id="signalField" aria-hidden="true"></canvas>
@@ -71,7 +71,8 @@
         <section class="legal-section">
           <div>
             <h2>Discord authentication</h2>
-            <p>Neon Snake requests Discord’s <strong>identify</strong> permission only. Discord access and refresh tokens are not retained after the server exchanges the one-time authorization code.</p>
+            <p>Signing in on the website requests Discord’s <strong>identify</strong> permission only. Inside the Discord Activity, Neon Snake also requests <strong>rpc.activities.write</strong>, which lets your Discord status show the mode, Signal Code, score or room you are playing; nothing else is posted for you. Discord access and refresh tokens are not retained after the server exchanges the one-time authorization code.</p>
+            <p>The Activity reads the display names of the people in the same Activity instance to show who is there. Those names stay in your Discord client and are never sent to the Neon Snake server.</p>
             <p>A secure, HTTP-only session cookie keeps you signed in. Activity sessions use a partitioned cookie because Discord loads the game inside an embedded frame. Signing in again ends the session your browser already held.</p>
           </div>
         </section>
@@ -124,7 +125,7 @@
       <span><a href="./">PLAY</a> · <a href="terms.html">TERMS</a> · <a href="privacy.html" aria-current="page">PRIVACY</a></span>
     </footer>
 
-    <script src="signal-field.js?v=8f5ccc2a8f"></script>
-    <script src="site-shell.js?v=8f5ccc2a8f"></script>
+    <script src="signal-field.js?v=0dbba60996"></script>
+    <script src="site-shell.js?v=0dbba60996"></script>
   </body>
 </html>

@@ -326,6 +326,7 @@ const tests = [
       arenaBackdropBuilt: false,
       board: { getBoundingClientRect: () => ({ width: 300 }) },
       window: { devicePixelRatio: 1 },
+      document: { documentElement: { dataset: {} } },
       tileSize: 0,
       buildCount: 0,
       buildArenaBackdrop() {

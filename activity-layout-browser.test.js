@@ -134,6 +134,45 @@ const activitySizes = [
     }
     process.stdout.write("PASS Discord's picture-in-picture layout shows only the board\n");
 
+    // A Discord share link launches the Activity with ?custom_id=SIGNAL.mode.pace:
+    // the player lands on the shared challenge, the participant line fits the
+    // short panel, and their status names the run.
+    {
+      const context = await browser.newContext({ viewport: { width: 1100, height: 620 } });
+      const page = await context.newPage();
+      await serve(page);
+      await page.goto(`${origin}/?${activityQuery}&custom_id=ABC234.portal.overdrive`, { waitUntil: "load" });
+      await page.waitForTimeout(300);
+      const challenge = await page.evaluate(() => ({
+        signal: document.querySelector("#signalCode").textContent,
+        mode: document.querySelector("input[name='mode']:checked")?.value,
+        pace: document.querySelector("#difficulty").value,
+      }));
+      assert.deepEqual(challenge, { signal: "ABC234", mode: "portal", pace: "overdrive" });
+      await page.evaluate(() => {
+        window.presenceLog = [];
+        globalThis.NeonSnakeActivity.setPresence = (presence) => window.presenceLog.push(presence);
+        dispatchEvent(new CustomEvent("neon-activity-participants", {
+          detail: { participants: ["Ada", "Grace", "Linus", "Margaret", "Barbara"].map((name, id) => ({ id: String(id), name })) },
+        }));
+      });
+      const participants = await page.evaluate(() => {
+        const line = document.querySelector("#activityDock [data-activity-participants]");
+        return { text: line.textContent, shown: line.getBoundingClientRect().height > 0 };
+      });
+      assert.deepEqual(participants, { text: "IN THIS ACTIVITY (5) · Ada, Grace, Linus, Margaret +1", shown: true });
+      const result = await measure(page, solo);
+      assert.ok(result.boardVisible && result.actionReachable, `The participant line keeps the board and Play on screen (${JSON.stringify(result)})`);
+      await page.click("#startButton");
+      await page.waitForTimeout(2600);
+      const latest = await page.evaluate(() => window.presenceLog.at(-1));
+      assert.equal(latest.details, "Solo · Portal · Signal ABC234");
+      assert.match(latest.state, /^Score \d+$/);
+      assert.ok(latest.startedAt > 0, "A live run carries its start time");
+      await context.close();
+    }
+    process.stdout.write("PASS Discord share links open the shared challenge; participants and presence follow the run\n");
+
     // On the website the solo console fits below the header on laptop screens,
     // and both consoles are brought fully on screen when play starts.
     for (const [width, height] of [[1366, 768], [1440, 900]]) {

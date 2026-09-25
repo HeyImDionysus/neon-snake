@@ -117,6 +117,7 @@ let roomRole = "disconnected";
 let roomSlot = -1;
 let roomConnectionState = "disconnected";
 let roomPlayers = [];
+let presenceStartedAt = 0;
 let roomWaitingPlayers = [];
 let roomQueuePosition = 0;
 let roomPeers = new Map();
@@ -269,7 +270,10 @@ function placeFood() {
 
 function resizeCanvas() {
   const cssSize = Math.max(1, board.getBoundingClientRect().width);
-  const pixelRatioCap = activityEmbedded ? ACTIVITY_PIXEL_RATIO_CAP : 2;
+  // An overheating phone (reported by Discord) renders at 1x until it cools.
+  const pixelRatioCap = document.documentElement.dataset.thermal
+    ? 1
+    : activityEmbedded ? ACTIVITY_PIXEL_RATIO_CAP : 2;
   const pixelRatio = Math.min(pixelRatioCap, Math.max(1, window.devicePixelRatio || 1));
   const backingSize = Math.max(1, Math.round(cssSize * pixelRatio));
   if (
@@ -676,6 +680,34 @@ function setRunState(state, label) {
     duelType === "live" && (state === "countdown" || state === "running"),
     liveRoundId,
   );
+  reportPresence();
+}
+
+// Inside Discord, the player's status says what they are doing. The Activity
+// bridge keeps only the latest description and rate-limits the calls.
+function describePresence() {
+  const tally = `${playerScore}–${opponentScore}`;
+  const live = runState === "running" || runState === "paused";
+  if (duelType !== "live") {
+    return { details: "Duel vs Autopilot", state: live ? tally : "Getting ready" };
+  }
+  const details = roomCode ? `Multiplayer · Room ${roomCode}` : "Multiplayer";
+  if (roomRole === "spectator") {
+    return { details, state: live ? `Watching a round · ${tally}` : "Watching the room" };
+  }
+  if (roomRole !== "player") return { details, state: "Joining the room" };
+  if (live) return { details, state: `Round live · ${tally}` };
+  if (runState === "countdown") return { details, state: "Round starting" };
+  return { details, state: roomPlayers.length < 2 ? "Waiting for a rival" : "In the lobby" };
+}
+
+function reportPresence() {
+  const activity = globalThis.NeonSnakeActivity;
+  if (!activityEmbedded || !activity?.setPresence) return;
+  const live = runState === "running" || runState === "paused";
+  if (!live) presenceStartedAt = 0;
+  else if (!presenceStartedAt) presenceStartedAt = Date.now();
+  activity.setPresence({ ...describePresence(), startedAt: presenceStartedAt || undefined });
 }
 
 function showOverlay(kicker, title, message, action = "") {
@@ -777,6 +809,7 @@ function updateHud() {
     rightLabel.textContent = "PLAYER 2";
     leftScore.textContent = String(playerScore).padStart(2, "0");
     rightScore.textContent = String(opponentScore).padStart(2, "0");
+    reportPresence();
     return;
   }
   const localIsOpponent = duelType === "live" && localIndex === 1;
@@ -784,6 +817,7 @@ function updateHud() {
   rightLabel.textContent = localIsOpponent ? "YOU" : duelType === "ai" ? "AUTOPILOT" : "RIVAL";
   leftScore.textContent = String(playerScore).padStart(2, "0");
   rightScore.textContent = String(opponentScore).padStart(2, "0");
+  reportPresence();
 }
 
 function requestDirection(next) {
@@ -1791,6 +1825,7 @@ function scheduleResizeCanvas() {
     resizeCanvas();
   });
 }
+window.addEventListener("neon-activity-thermal", scheduleResizeCanvas);
 if ("ResizeObserver" in window) new ResizeObserver(scheduleResizeCanvas).observe(board);
 else window.addEventListener("resize", scheduleResizeCanvas);
 
