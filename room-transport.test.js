@@ -280,6 +280,28 @@ const tests = [
     assert.deepEqual(replacement.messages.at(-1), { type: "ready", ready: true });
     transport.close();
   }],
+  ["a server that accepts and then refuses the link is retried with a growing backoff", async () => {
+    // Room-full and presence failures accept the socket and then close it, so
+    // a backoff that reset on open never grew past 250 ms.
+    const timers = createTimerHarness();
+    const statuses = [];
+    const transport = await transports.createWebSocketRoomTransport({
+      code: "ABC234", clientId: "refused-client", endpoint: "https://neon.example.test/api/realtime",
+      WebSocketImpl: FakeWebSocket, onMessage() {}, onStatus: (status) => statuses.push(status),
+      setTimeoutImpl: timers.setTimeout, clearTimeoutImpl: timers.clearTimeout, now: timers.now,
+      random: () => 1,
+    });
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const socket = FakeWebSocket.instances.at(-1);
+      socket.emit("open");
+      socket.emit("close", { code: 1013 });
+      const reconnectDelay = timers.nextDelay();
+      await timers.runDelay(timers.nextDelay() === 8_000 ? 8_000 : reconnectDelay);
+    }
+    const reconnects = statuses.filter((status) => status.state === "reconnecting").map((status) => status.failures);
+    assert.deepEqual(reconnects, [1, 2, 3, 4], "Each refusal counts as another failure");
+    transport.close();
+  }],
   ["a replacement link that never arrives leaves the live link untouched", async () => {
     const timers = createTimerHarness();
     const statuses = [];
@@ -521,6 +543,7 @@ const tests = [
       onStatus: (status) => statuses.push(status),
       WebSocketImpl: FakeWebSocket,
       fetchImpl: null,
+      random: () => 1,
       setTimeoutImpl: (callback, delay) => {
         timerId += 1;
         timers.set(timerId, { callback, delay });
@@ -636,6 +659,7 @@ const tests = [
       onMessage: () => {},
       onStatus: () => {},
       WebSocketImpl: FakeWebSocket,
+      random: () => 1,
       setTimeoutImpl: (callback, delay) => {
         timerId += 1;
         timers.set(timerId, { callback, delay });

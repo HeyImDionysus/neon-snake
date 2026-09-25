@@ -53,7 +53,14 @@ function request(room, clientId, resumeToken = "") {
 function createFakeRedis() {
   const roomState = new Map();
   const roomGeneration = new Map();
+  const values = new Map();
   return async function redisCommand(command) {
+    if (command[0] === "GET") return values.get(command[1]) ?? null;
+    if (command[0] === "SET") {
+      values.set(command[1], command[2]);
+      return "OK";
+    }
+    if (command[0] === "DEL") return values.delete(command[1]) ? 1 : 0;
     assert.equal(command[0], "EVAL");
     assert.equal(command[1], PRESENCE_SCRIPT);
     const room = String(command[3]).match(/realtime:([A-Z0-9]{6})/)?.[1];
@@ -917,6 +924,29 @@ async function flush() {
       assert.equal(recorded.length, 1, "A pre-start departure records nothing");
     } finally {
       integrityHub.close();
+    }
+  }
+
+  // Each Ready change costs a presence script run and a roster relay, so a
+  // client toggling it rapidly is capped.
+  {
+    const presence = createFakeRedis();
+    const readyCalls = [];
+    const spamHub = createRealtimeHub({
+      redisCommand: async (command) => {
+        if (command[0] === "EVAL" && command[8] === "ready") readyCalls.push(command[9]);
+        return presence(command);
+      },
+      bus: createFakeBus(), sessionReader: async () => null, now: () => 7_000_000, logger: { error() {} },
+    });
+    try {
+      const spammer = new FakeSocket();
+      await spamHub.connect(spammer, request("SPM234", "spam-client"));
+      for (let index = 0; index < 20; index += 1) spammer.message({ type: "ready", ready: index % 2 === 0 });
+      for (let index = 0; index < 10; index += 1) await flush();
+      assert.equal(readyCalls.length, 6, "Only six Ready changes per ten seconds reach Redis");
+    } finally {
+      spamHub.close();
     }
   }
 

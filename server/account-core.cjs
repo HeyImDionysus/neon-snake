@@ -164,8 +164,8 @@ function activityCookie(value, clientId, {
   ].join("; ");
 }
 
-function sendJson(response, status, payload) {
-  response.setHeader("Cache-Control", "no-store");
+function sendJson(response, status, payload, { cacheControl = "no-store" } = {}) {
+  response.setHeader("Cache-Control", cacheControl);
   response.setHeader("Content-Type", "application/json; charset=utf-8");
   response.setHeader("X-Content-Type-Options", "nosniff");
   response.statusCode = status;
@@ -790,7 +790,12 @@ function createAccountHandler({
             online: activeAt > 0 && now() - activeAt <= ACTIVITY_TTL_SECONDS * 1_000,
           };
         });
-        return sendJson(response, 200, { entries, verified: true, metric: "server-authoritative-rating" });
+        // The board is public and identical for everyone, so the CDN may serve
+        // it for a few seconds instead of every page view running a Redis
+        // script plus a 50-key MGET. No cookies are read on this route.
+        return sendJson(response, 200, { entries, verified: true, metric: "server-authoritative-rating" }, {
+          cacheControl: "public, max-age=0, s-maxage=10, stale-while-revalidate=30",
+        });
       }
 
       return sendJson(response, 404, { error: "not_found" });
@@ -801,6 +806,7 @@ function createAccountHandler({
       console.error("Account API request failed.", {
         route,
         name: typeof error?.name === "string" ? error.name : "Error",
+        message: typeof error?.message === "string" ? error.message.slice(0, 200) : "",
       });
       return sendJson(response, 503, { error: "account_service_unavailable" });
     }

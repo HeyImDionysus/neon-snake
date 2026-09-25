@@ -22,6 +22,7 @@ node duel-quality.test.js
 node duel-authority-consistency.test.js
 node room-transport.test.js
 node room-api.test.js
+node redis-client.test.js
 node identity-system.test.js
 node accessibility.test.js
 node service-worker.test.js

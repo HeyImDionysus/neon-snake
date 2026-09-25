@@ -422,6 +422,16 @@ function roomKeys(room) {
   return [`${tag}:presence`, `${tag}:metadata`, `${tag}:generation`];
 }
 
+// The live countdown, kept briefly in Redis so a player joining on another
+// instance can find a round that was never relayed (see roomHasRemoteMembers).
+function roundKey(room) {
+  return `{neon-snake:realtime:${room}}:round`;
+}
+const ROUND_RECORD_TTL_MS = 15_000;
+const ROUND_RECORD_REFRESH_TICKS = 40;
+const READY_CHANGES_PER_WINDOW = 6;
+const READY_WINDOW_MS = 10_000;
+
 function roomChannel(room) {
   return `neon-snake:realtime:${room}:events`;
 }
@@ -741,6 +751,11 @@ class RoomSimulation {
     const result = this.resolveTick();
     const game = this.game;
     game.sequence += 1;
+    if (game.sequence % ROUND_RECORD_REFRESH_TICKS === 0 && !game.over) {
+      void this.hub.refreshLiveRound?.(this.room, {
+        type: "countdown", round: game.round, startsAt: game.startsAt,
+      });
+    }
     const publishing = this.hub.publish(this.room, {
       kind: "state",
       payload: {
@@ -1054,6 +1069,43 @@ function createRealtimeHub({
     }
   }
 
+  function roomHasRemoteMembers(room) {
+    const state = stateFor(room);
+    const members = [...state.players, ...state.waiting];
+    if (!members.length) return true;
+    const local = new Set(localConnections(room).map((connection) => connection.connectionId));
+    return members.some((member) => !local.has(member.connectionId));
+  }
+
+  async function recordLiveRound(room, countdown) {
+    try {
+      await runRedis(["SET", roundKey(room), JSON.stringify(countdown), "PX", String(ROUND_RECORD_TTL_MS)]);
+    } catch (error) {
+      logger.error("Realtime round record failed.", describeError(error, { room }));
+    }
+  }
+
+  async function readLiveRound(room) {
+    const local = liveRoundFor(room);
+    if (local) return local;
+    let value;
+    try {
+      value = await runRedis(["GET", roundKey(room)]);
+    } catch (error) {
+      logger.error("Realtime round lookup failed.", describeError(error, { room }));
+      return null;
+    }
+    let countdown;
+    try {
+      countdown = typeof value === "string" ? JSON.parse(value) : value;
+    } catch {
+      return null;
+    }
+    if (!countdown || !Number.isSafeInteger(Number(countdown.round))) return null;
+    trackRound(room, { kind: "countdown", payload: countdown });
+    return liveRoundFor(room);
+  }
+
   function cancelMessage(event) {
     return {
       type: "countdown-cancel",
@@ -1118,8 +1170,10 @@ function createRealtimeHub({
         }
       }
     }
-    const departing = action === "leave" || action === "relinquish";
-    if (clean?.userId && !departing && payload.role === "player") {
+    // "Playing now" expires after 35 s, so refreshing it on join and on the
+    // 10 s heartbeat is enough; refreshing on every Ready toggle doubled the
+    // Redis commands a client could cause.
+    if (clean?.userId && (action === "join" || action === "touch") && payload.role === "player") {
       try {
         await runRedis([
           "SET",
@@ -1142,6 +1196,7 @@ function createRealtimeHub({
       origin: instanceId,
       sentAt: now(),
     };
+    const hadLiveRound = Boolean(stateFor(room).liveRound);
     trackRound(room, event);
     if (event.kind === "roster") setRoster(room, event.players, event.waiting);
     else if (event.kind === "input") {
@@ -1157,6 +1212,18 @@ function createRealtimeHub({
       state.simulation?.stop();
       state.simulation = null;
       broadcast(room, cancelMessage(event));
+    }
+    const roundEnded = hadLiveRound && (event.kind === "cancel" || (event.kind === "state" && event.payload?.state?.over));
+    if (roundEnded) {
+      runRedis(["DEL", roundKey(room)]).catch((error) => {
+        logger.error("Realtime round record cleanup failed.", describeError(error, { room }));
+      });
+    }
+    // Every Redis command is billed. Game events only need relaying when
+    // someone in the room is attached to another instance; rosters and
+    // cancels are rare and always relayed.
+    if ((event.kind === "state" || event.kind === "input" || event.kind === "countdown") && !roomHasRemoteMembers(room)) {
+      return;
     }
     await eventBus.publish(room, envelope);
   }
@@ -1343,6 +1410,14 @@ function createRealtimeHub({
     }
     if (message.type === "ready") {
       if (connection.slot < 0) return;
+      if (timestamp - connection.readyWindowStart > READY_WINDOW_MS) {
+        connection.readyWindowStart = timestamp;
+        connection.readyChanges = 0;
+      }
+      connection.readyChanges += 1;
+      // Each Ready change runs the presence script and relays a roster; a
+      // client toggling it tens of times a second cost ~90 Redis commands/s.
+      if (connection.readyChanges > READY_CHANGES_PER_WINDOW) return;
       const wasReady = stateFor(connection.room).players.some((player) => (
         player.connectionId === connection.connectionId && player.ready
       ));
@@ -1392,6 +1467,7 @@ function createRealtimeHub({
           roomAllReady,
           clientOwnsSlot,
           cancelRound,
+          refreshLiveRound: (room, countdown) => recordLiveRound(room, countdown),
           recordMatch: recordCompletedMatch,
           resetReady,
           rotateRound,
@@ -1400,6 +1476,7 @@ function createRealtimeHub({
         connection.clientId,
       );
       state.simulation.start({ ...authoritativeCountdown, seed: randomInt(1, 2 ** 32) });
+      await recordLiveRound(connection.room, { ...authoritativeCountdown, from: connection.clientId });
       await publish(connection.room, {
         kind: "countdown",
         payload: {
@@ -1439,6 +1516,11 @@ function createRealtimeHub({
     await publishRoster(connection.room, result.players || [], result.waiting || []);
   }
 
+  function rosterSignature(players, waiting) {
+    const shape = (member) => [member.id, member.slot, Boolean(member.ready), member.connectionId, member.userId || ""];
+    return JSON.stringify([players.map(shape), waiting.map(shape)]);
+  }
+
   function scheduleHeartbeat() {
     if (heartbeatTimer !== null || !connections.size) return;
     heartbeatTimer = setTimeout(async () => {
@@ -1473,6 +1555,12 @@ function createRealtimeHub({
         }
       }
       for (const [room, roster] of byRoom) {
+        const state = stateFor(room);
+        const signature = rosterSignature(roster.players, roster.waiting);
+        // An unchanged roster needs no relay; every instance refreshes its own
+        // presence and learns of real changes from the instance that made them.
+        if (state.heartbeatSignature === signature) continue;
+        state.heartbeatSignature = signature;
         try {
           await publishRoster(room, roster.players, roster.waiting);
         } catch {
@@ -1510,6 +1598,8 @@ function createRealtimeHub({
       openedAt: now(),
       lastSeenAt: now(),
       idleSeatSince: 0,
+      readyWindowStart: 0,
+      readyChanges: 0,
       initialized: false,
       rateWindow: 0,
       rateCount: 0,
@@ -1598,8 +1688,8 @@ function createRealtimeHub({
           }).profile,
         });
       }
-      const live = liveRoundFor(room);
-      if (live) {
+      const live = await readLiveRound(room);
+      if (live && connections.has(socket)) {
         // Someone arriving mid-round learns the round id here; otherwise every
         // snapshot is dropped as belonging to an unknown round.
         send(connection, { ...live.countdown, sentAt: now() });

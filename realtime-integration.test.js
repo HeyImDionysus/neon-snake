@@ -267,6 +267,40 @@ async function main() {
       "A handover must not send a waiting participant to the back of the line");
     console.log("PASS a waiting participant's handover keeps their place in line");
 
+    // Game events are relayed through Redis only when someone in the room is
+    // attached to another instance. Hubs alternate per connection, so a filler
+    // socket in another room puts both players on the same hub and the late
+    // spectator on the other one, which must find the round in Redis.
+    const localRoom = roomCode();
+    const fillerRoom = roomCode();
+    const localHost = await connectTo(localRoom, "qa-local-host");
+    await connectTo(fillerRoom, "qa-local-filler");
+    const localGuest = await connectTo(localRoom, "qa-local-guest");
+    for (const client of [localHost, localGuest]) send(client, { type: "ready", ready: true });
+    await waitFor(() => localHost.messages.filter((message) => message.type === "roster").at(-1)
+      ?.players.filter((player) => player.ready).length === 2, "local players ready");
+    const published = [];
+    const monitor = redisConnection((message) => published.push(message));
+    await monitor.command(["SUBSCRIBE", `neon-snake:qa:${localRoom}`]);
+    send(localHost, { type: "countdown", round: Date.now(), startsAt: Date.now() + 3_200 });
+    const localCountdown = await waitFor(() => localGuest.messages.find((message) => message.type === "countdown"), "local countdown");
+    await waitFor(() => localGuest.messages.filter((message) => message.type === "state").length >= 3, "local round ticks");
+    assert.equal(
+      published.some((message) => JSON.parse(message[2]).kind === "state"),
+      false,
+      "A room whose members share one instance relays no snapshots through Redis",
+    );
+    const lateWatcher = await connectTo(localRoom, "qa-local-watcher");
+    assert.ok(lateWatcher.messages.some((message) => (
+      message.type === "countdown" && message.round === localCountdown.round
+    )), "A spectator on another instance learns the live round from Redis");
+    await waitFor(() => lateWatcher.messages.some((message) => (
+      message.type === "state" && message.state.round === localCountdown.round
+    )), "the remote spectator receives snapshots once it is in the roster");
+    monitor.close();
+    await redis.command(["DEL", ...keys(localRoom), ...keys(fillerRoom), `{neon-snake:realtime:${localRoom}}:round`]);
+    console.log("PASS same-instance rooms skip the relay and late remote spectators still join the round");
+
     // Ratings, not win counts, rank players, so farming a second account
     // stops paying: Elo shrinks the gain, and only three results per pair per
     // day - and only rounds of real length - move the rating at all.

@@ -187,6 +187,8 @@ function redisHarness() {
   const leaderboardResponse = responseHarness();
   await handler(request("/api/leaderboard"), leaderboardResponse);
   assert.equal(leaderboardResponse.statusCode, 200);
+  assert.match(leaderboardResponse.headers["cache-control"], /s-maxage=10/,
+    "The public board is served from the CDN for a few seconds");
   const entry = JSON.parse(leaderboardResponse.body).entries[0];
   assert.equal(entry.username, "signal_player");
   assert.equal(entry.callsign, "Arc Runner");

@@ -32,6 +32,7 @@
     clearTimeoutImpl = root.clearTimeout,
     locationHref = root.location?.href || "https://neon-snake.invalid/",
     storage,
+    random = Math.random,
   } = {}) {
     if (typeof code !== "string" || !code.trim()) throw new TypeError("A room code is required.");
     if (typeof clientId !== "string" || !clientId.trim()) throw new TypeError("A client id is required.");
@@ -205,7 +206,9 @@
       if (closed || reconnectTimer !== null) return;
       clearSocketTimers();
       failures += 1;
-      const delay = Math.min(4_000, 250 * 2 ** Math.min(failures - 1, 4));
+      // Jittered so a room full of clients does not reconnect in lockstep.
+      const ceiling = Math.min(4_000, 250 * 2 ** Math.min(failures - 1, 4));
+      const delay = Math.round(ceiling / 2 + random() * ceiling / 2);
       onStatus({ state: "reconnecting", role, slot, failures, code: "socket_closed" });
       reconnectTimer = setTimeoutImpl(() => {
         reconnectTimer = null;
@@ -301,7 +304,9 @@
       nextSocket.addEventListener("open", () => {
         if (!isCurrentSocket(nextSocket) || closed) return;
         if (nextSocket === pendingSocket) return;
-        failures = 0;
+        // The backoff resets on welcome, not on open: every server-side refusal
+        // (room full, presence unavailable) accepts the socket and then closes
+        // it, so resetting here kept clients reconnecting every 250 ms forever.
         onStatus({ state: "socket-open", role, slot, players: roster, waiting, queuePosition });
         scheduleHeartbeat();
       });
@@ -355,6 +360,7 @@
           }
           if (connectionTimer !== null) clearTimeoutImpl(connectionTimer);
           connectionTimer = null;
+          failures = 0;
           lastPongAt = now();
           role = message.role === "player" ? "player" : "spectator";
           slot = role === "player" && Number.isInteger(message.slot) ? message.slot : -1;
@@ -437,8 +443,12 @@
           && Number(message.round) === activeRound
         ) {
           const startsAt = Number(message.startsAt);
+          // startsAt is server time. Comparing it with the raw local clock made a
+          // player whose clock ran 3 s fast time out every round before its
+          // first snapshot arrived.
+          const serverNow = now() + (typeof clockOffset === "number" ? clockOffset : 0);
           armStateWatchdog(Number.isFinite(startsAt)
-            ? Math.max(3_000, startsAt - now() + 3_000)
+            ? Math.max(3_000, startsAt - serverNow + 3_000)
             : 13_000);
         } else if (
           message.type === "state"
