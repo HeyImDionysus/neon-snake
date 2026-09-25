@@ -413,6 +413,7 @@ async function persistDiscordSession(discordUser, {
   now,
   random,
   runRedis,
+  previousToken = "",
 }) {
   const provisional = publicProfile(discordUser);
   const previousValue = await runRedis(["GET", `neon-snake:profile:${provisional.id}`]);
@@ -446,7 +447,30 @@ async function persistDiscordSession(discordUser, {
     "EX",
     SESSION_TTL_SECONDS,
   ]);
+  // Signing in again replaces the session this browser already held. Every
+  // Activity page switch signs in afresh, and each one used to leave another
+  // live 30-day session behind.
+  if (/^[A-Za-z0-9_-]{32,128}$/.test(previousToken) && previousToken !== sessionToken) {
+    await runRedis(["DEL", `neon-snake:session:${digest(previousToken)}`]);
+  }
   return { profile, sessionToken };
+}
+
+// Everything stored about a player. Match records hold no player data, and the
+// per-pair rating counters expire within two days.
+async function deletePlayerData(profile, { runRedis, sessionToken = "" }) {
+  const keys = [
+    `neon-snake:profile:${profile.id}`,
+    `neon-snake:stats:${profile.id}`,
+    `neon-snake:activity:${profile.id}`,
+  ];
+  const indexedUsername = usernameKey(profile.username);
+  if (indexedUsername) keys.push(`neon-snake:username:${indexedUsername}`);
+  if (sessionToken) keys.push(`neon-snake:session:${digest(sessionToken)}`);
+  await runRedis(["DEL", ...keys]);
+  await runRedis(["ZREM", RATING_KEY, profile.id]);
+  await runRedis(["ZREM", LEGACY_WINS_KEY, profile.id]);
+  await runRedis(["ZREM", "neon-snake:players:active", profile.id]);
 }
 
 async function recordMatchResult({
@@ -562,6 +586,7 @@ function createAccountHandler({
           now,
           random,
           runRedis,
+          previousToken: cookieMap(request).get(SESSION_COOKIE) || "",
         });
         return redirect(response, "/?auth=discord", [
           cookie(OAUTH_COOKIE, "", { maxAge: 0 }),
@@ -600,6 +625,7 @@ function createAccountHandler({
           now,
           random,
           runRedis,
+          previousToken: cookieMap(request).get(ACTIVITY_SESSION_COOKIE) || "",
         });
         response.setHeader("Set-Cookie", activityCookie(
           sessionToken,
@@ -736,6 +762,20 @@ function createAccountHandler({
               now: now(),
             }),
           });
+        }
+        if (request.method === "DELETE") {
+          // Self-serve deletion. The only route before was a public GitHub issue.
+          if (!requestIsAccountOrigin(request, environment)) {
+            return sendJson(response, 403, { error: "origin_not_allowed" });
+          }
+          const current = await sessionFor(request);
+          if (!current) return sendJson(response, 401, { error: "authentication_required" });
+          await deletePlayerData(current.profile, { runRedis, sessionToken: current.token });
+          const clearCookies = [cookie(SESSION_COOKIE, "", { maxAge: 0 })];
+          const clientId = String(environment.DISCORD_CLIENT_ID || "");
+          if (/^[0-9]{15,24}$/.test(clientId)) clearCookies.push(activityCookie("", clientId, { maxAge: 0 }));
+          response.setHeader("Set-Cookie", clearCookies);
+          return sendJson(response, 200, { deleted: true });
         }
         return sendJson(response, 405, { error: "method_not_allowed" });
       }

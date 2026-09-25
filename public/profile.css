@@ -620,3 +620,7 @@ body[data-snake-style="ember"] .signature-snake i { background: linear-gradient(
   .signature-snake,
   .signature-snake i { transition: none; }
 }
+
+.profile-actions .danger-button { color: var(--coral, #ff7657); }
+.profile-actions .danger-button:hover,
+.profile-actions .danger-button:focus-visible { color: #ffb3a1; }

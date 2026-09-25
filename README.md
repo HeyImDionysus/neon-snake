@@ -6,7 +6,7 @@ Its Autopilot and multiplayer opponent are deterministic decision systems writte
 
 ## Run it
 
-Open `public/index.html` in a modern browser. The browser shell remains dependency-free: solo play, Autopilot runs, Autopilot duels, Canvas export, the live wallpaper preview, and offline installation require no package manager or account. Public Live Rooms use a native same-origin Vercel WebSocket with the project’s existing Redis resource for cross-instance relay. Discord profiles and the verified leaderboard stay inside isolated Vercel Functions plus Redis.
+Open `public/index.html` in a modern browser. The browser shell remains dependency-free: solo play, Autopilot runs, Autopilot duels, Canvas export, and the live wallpaper preview need no package manager or account. Offline installation needs the site served over HTTPS or from `localhost`, because service workers do not run from `file://`. Public Live Rooms use a native same-origin Vercel WebSocket with the project’s existing Redis resource for cross-instance relay. Discord profiles and the verified leaderboard stay inside isolated Vercel Functions plus Redis.
 
 To run the deterministic rules and control-flow suites:
 
@@ -87,9 +87,9 @@ Signal Codes make challenge generation equally inspectable. A six-character code
 
 That code also drives the site's Signal Cartography identity. A separate deterministic renderer turns the current Signal and protocol into flowing currents, contour fields, and orbiting nodes behind the interface. It is capped at 24 frames per second, pauses drawing in hidden tabs, becomes static when reduced motion is requested, and never participates in game state. The custom signal-serpent mark, protocol glyphs, and curved run trace carry the same visual grammar through solo and Duel surfaces without adding a framework or image payload.
 
-Signal Codes also name duel rooms. `PUBLIC LIVE ROOM` has two server-assigned active seats and an ordered waiting line in one Vercel WebSocket room. The winner keeps their seat, a loser rotates to the back when someone is waiting, and the queue head is promoted atomically when a seat opens. Waiting participants can watch but are never auto-ready or auto-started. Both seated players publish bounded direction inputs over WebSocket; the browser never publishes authoritative state. The Player 1 Vercel Function owns the 138 ms simulation, applies both players' inputs in sequence, resolves both snakes once, and broadcasts one verified snapshot through the existing Redis event relay to every Function instance and screen. Countdown requires a healthy room link plus two server-roster-confirmed Ready players. A disconnect, missed heartbeat, replaced connection, or revoked Ready state cancels the round immediately.
+Signal Codes also name duel rooms. `PUBLIC LIVE ROOM` has two server-assigned active seats and an ordered waiting line in one Vercel WebSocket room. The winner keeps their seat, a loser rotates to the back when someone is waiting, and the queue head is promoted atomically when a seat opens. Waiting participants can watch but are never auto-ready or auto-started. Both seated players publish bounded direction inputs over WebSocket; the browser never publishes authoritative state. The Player 1 Vercel Function owns the 138 ms simulation, applies both players' inputs in sequence, resolves both snakes once, and broadcasts one snapshot to every screen, relaying through Redis only when someone is attached to another Function instance. The server issues each round's id and food seed; a countdown request during a live round is refused. Countdown requires a healthy room link plus two server-roster-confirmed Ready players. Before the start, a disconnect or revoked Ready cancels the round; after the start, leaving, un-readying or dropping out concedes it as a recorded forfeit. A link that goes silent for 45 seconds is treated as cut, and a seated player who will not Ready up for 60 seconds while others wait moves to the back of the line.
 
-Discord sign-in is optional for play and required only for a verified profile or leaderboard result. The authorization-code flow requests the `identify` scope, validates a one-time state record, exchanges the code only on the server, and retains no Discord access or refresh token. Session cookies are `Secure`, `HttpOnly`, `SameSite=Lax`, and `__Host-` scoped. The same-origin WebSocket reads that protected session server-side; no identity token or shared realtime secret enters browser code. The authoritative room writes a completed two-account result directly through the private account module, and Redis atomically deduplicates it before changing the leaderboard. Two clients signed into the same Discord account can play, but cannot record a result.
+Discord sign-in is optional for play and required only for a verified profile or leaderboard result. The authorization-code flow requests the `identify` scope, validates a one-time state record, exchanges the code only on the server, and retains no Discord access or refresh token. Session cookies are `Secure`, `HttpOnly`, `SameSite=Lax`, and `__Host-` scoped. The same-origin WebSocket reads that protected session server-side; no identity token or shared realtime secret enters browser code. The authoritative room writes a completed two-account result directly through the private account module, and Redis atomically deduplicates it before updating the players' records and Elo ratings. Rankings are by rating: only the first three results per pair of players per day, and only rounds of at least ten seconds, move it. Two clients signed into the same Discord account can play, but cannot record a result.
 
 ## Current rule set
 
@@ -114,7 +114,7 @@ Discord sign-in is optional for play and required only for a verified profile or
 - **Public Live Room:** a six-character room Signal connects two active players across different devices and orders additional visitors in a waiting line; both seated players must be connected and Ready before countdown, and a disconnect cancels or stops play.
 - **Discord Activity:** one Discord Activity instance becomes one shared live-room Signal, derived from the instance id every participant already has, so the shared board is reachable even while Discord's handshake is still connecting or has been refused. The official Embedded App SDK then authenticates each participant for verified results, opens Discord's native invite dialog, respects mobile safe areas, and keeps Activity sessions in a partitioned HttpOnly cookie.
 - **Verified profiles:** optional Discord identity anchors a dedicated public profile with a visible username, custom callsign, bio, color, favorite mode, snake style, avatar, verified record, and live-room presence. OAuth tokens never enter game code, and the flow requests no email, guild, or social permissions.
-- **Online leaderboard:** public rows link to profiles, show callsigns plus verified Discord usernames and current live-room activity, and can change only through outcomes written privately by the server-authoritative live simulation.
+- **Online leaderboard:** public rows link to profiles, show callsigns plus verified Discord usernames and current live-room activity, are ranked by an Elo rating, and can change only through outcomes written privately by the server-authoritative live simulation.
 - **Autonomous wallpapers:** the real eat, grow, score, Core, and pickup-feedback loop runs without controls as a configurable Lively wallpaper on Windows and as a battery-aware native `WallpaperService` on Android.
 
 ## Source map
@@ -140,7 +140,7 @@ Discord sign-in is optional for play and required only for a verified profile or
 - `server/realtime-core.cjs` — authoritative duel simulation, atomic Redis presence, and cross-instance event relay.
 - `api/auth/discord/*`, `api/me.mjs`, `api/profile.mjs`, `api/logout.mjs` — Discord authorization, public profile, customization, and session endpoints.
 - `api/leaderboard.mjs` — public read-only verified leaderboard endpoint.
-- `server/account-core.cjs` — OAuth, cookie, HMAC, profile, and atomic leaderboard logic.
+- `server/account-core.cjs` — OAuth, hashed sessions, cookies, profiles, deletion, and atomic rating logic.
 - `api/room.mjs` — the isolated Vercel Function entry point.
 - `server/room-core.cjs` — request validation, Redis REST client, and atomic two-slot room protocol.
 - `wallpaper/windows` — Lively metadata and user-configurable properties.
@@ -163,7 +163,7 @@ Discord sign-in is optional for play and required only for a verified profile or
 - `service-worker.test.js` — executable install, upgrade, runtime-cache, and route-aware offline regressions.
 - `deployment-contract.test.js` — executable public-boundary, manifest, cache-shell, and hosted-verification regressions.
 - `realtime-worker.test.js` — executable Vercel connection, Redis relay, input authority, and verified-result regressions.
-- `platform-security.test.js` — executable Discord data-minimization, state, cookie, HMAC, and leaderboard-write regressions.
+- `platform-security.test.js` — executable Discord data-minimization, state, cookie, session, and leaderboard-write regressions.
 - `account-persistence.test.js` — executable proof that an unreadable profile record is never overwritten by a failed sign-in.
 - `realtime-integration.test.js`, `realtime-fixture-server.cjs` — two real Vercel-shaped hubs, real WebSockets and a real Redis 7 exercising seat ownership, spectator departure, queue promotion and stale-seat expiry.
 - `activity-lifecycle.test.js` — executable Activity handshake lifecycle: orientation hangs, token timeouts, duplicate retries, and a retry that must never close the Activity.
@@ -235,7 +235,7 @@ Before attaching a custom domain, update the metadata in `index.html` and regist
 
 ### Multiplayer transport boundary
 
-The production live-room adapter opens one secure same-origin WebSocket to Vercel. Direction inputs are sent immediately instead of waiting for a browser → HTTP polling → browser cycle. Local delivery is immediate; the existing Redis resource relays events only when the two players land on different Vercel Function instances. One server-side simulation broadcasts a single authoritative snapshot after every 138 ms tick. The adapter sends active heartbeats every five seconds, closes stale links, times out a silent connection after eight seconds, and reconnects with exponential backoff capped at four seconds. A legacy HTTP transport remains only as a local recovery path; it is not the production latency path.
+The production live-room adapter opens one secure same-origin WebSocket to Vercel. Direction inputs are sent immediately instead of waiting for a browser → HTTP polling → browser cycle. Local delivery is immediate; the existing Redis resource relays events only when the two players land on different Vercel Function instances. One server-side simulation broadcasts a single authoritative snapshot after every 138 ms tick. The adapter sends heartbeats every five seconds during a round (fifteen otherwise), closes a link that has not answered for 20 seconds during a round (45 otherwise), gives up on a connection attempt after eight seconds, and reconnects with jittered exponential backoff capped at four seconds. A legacy HTTP transport remains only as a local recovery path; it is not the production latency path.
 
 Vercel closes a WebSocket when the Function invocation reaches its maximum duration, so every `welcome` declares when that link should be replaced and when the platform will cut it. A replacement joins with the same private credential and keeps the seat, Ready state, and place in the waiting line; only once it is welcomed does the old link close. Because a round's simulation lives on the server instance that started it, links are handed over between rounds - halfway through their life while idle - and only a round that is still running ten seconds before the platform cut is interrupted. If a link is cut anyway - a dropped network, a crashed tab - the seat is held for a short reclaim window instead of being handed straight to the waiting line, while a link the player closes deliberately frees its seat at once. Moving rooms to a stateful per-room server removes this constraint entirely.
 
@@ -246,7 +246,7 @@ The server boundary enforces:
 - a 32 KiB message ceiling and per-connection rate limit;
 - exactly two live player slots, with later visitors restricted to spectator reads;
 - Player 1-only countdowns, player-only direction inputs, and rejection of every browser state snapshot;
-- server-owned movement, collision, food, scores, and result signatures;
+- server-owned rounds, seeds, movement, collision, food, and scores;
 - server-side session-cookie profile lookup without a browser-readable identity ticket;
 - private, direct verified-result writes and generic failures that never expose credentials.
 

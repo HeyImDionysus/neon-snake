@@ -123,7 +123,8 @@ async function initialize() {
       response_type: "code",
       state: "",
       prompt: "none",
-      scope: ["identify", "applications.commands"],
+      // identify is all the game uses; the privacy policy promises nothing more.
+      scope: ["identify"],
     }),
     COMMAND_TIMEOUT,
     "Discord authorization timed out.",

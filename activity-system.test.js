@@ -85,7 +85,7 @@ function request(url, {
   assert.match(activityTokenApi, /from "\.\.\/\.\.\/server\/account-core\.cjs"/);
   assert.match(activityTokenApi, /request\.url = "\/api\/activity\/token"/);
   assert.equal(fs.existsSync(path.join(root, "api", "activity-token.mjs")), false);
-  assert.match(entry, /scope: \["identify", "applications\.commands"\]/);
+  assert.match(entry, /scope: \["identify"\]/);
   assert.match(entry, /commands\.authenticate/);
   assert.match(entry, /commands\.openInviteDialog/);
   assert.match(entry, /commands\.openExternalLink\(\{ url \}\)/);
@@ -255,6 +255,7 @@ function request(url, {
       values.set(command[1], command[2]);
       return "OK";
     }
+    if (command[0] === "DEL") return command.slice(1).filter((key) => values.delete(key)).length;
     throw new Error(`Unsupported command ${command[0]}`);
   };
   const fetchImpl = async (url, options = {}) => {
@@ -327,6 +328,26 @@ function request(url, {
     cookie: "__Secure-neon_activity=activity_session_token_32_characters",
   }));
   assert.equal(current.profile.username, "activity_player");
+
+  // Every Activity page load signs in again. The new session replaces the one
+  // this iframe already held instead of leaving another 30-day session alive.
+  const resignIn = createAccountHandler({
+    environment,
+    fetchImpl,
+    now: () => 1_785_184_000_000,
+    random: () => "second_activity_session_token_32chars",
+    redisCommand,
+  });
+  const second = responseHarness();
+  await resignIn(request("/api/activity/token", {
+    method: "POST",
+    body: { code: "valid_activity_code" },
+    cookie: "__Secure-neon_activity=activity_session_token_32_characters",
+  }), second);
+  assert.equal(second.statusCode, 200);
+  const sessions = [...values.keys()].filter((key) => key.startsWith("neon-snake:session:"));
+  assert.equal(sessions.length, 1, "Signing in again must end the previous session");
+  assert.notEqual(sessions[0], sessionKey);
   process.stdout.write("PASS Discord Activity uses official SDK auth, partitioned sessions, and instance rooms\n");
 })().catch((error) => {
   console.error(error);
