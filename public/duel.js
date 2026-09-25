@@ -51,7 +51,6 @@ const DUEL_GRID = Rules.duelGridSize(20);
 const SIGNAL_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const TICK_DURATION = 138;
 const LIVE_ROOM_CAPACITY = 2;
-const PEER_TIMEOUT = 6000;
 const DIRECTIONS = {
   up: { x: 0, y: -1 },
   right: { x: 1, y: 0 },
@@ -90,8 +89,6 @@ let opponentInputBuffer = [];
 let opponentInputSequences = [];
 let autopilotRecentHeads = [];
 let localInputSequence = Date.now();
-let lastGuestInputSequence = 0;
-let guestInputAck = 0;
 let playerScore = 0;
 let opponentScore = 0;
 let food = null;
@@ -124,11 +121,10 @@ let roomPeers = new Map();
 let authoritativeDeparturePending = false;
 let liveCountdownTimer = null;
 let liveCountdownActive = false;
-let pendingCountdownRound = 0;
-let pendingCountdownExpiresAt = 0;
-let pendingCountdownAttempts = 0;
 let liveRoundId = 0;
-let liveSequence = 0;
+// The server tick the screen currently shows: the last snapshot's tick plus
+// the ticks predicted since. Input stamps are derived from it.
+let predictedTick = 0;
 let lastRemoteSequence = -1;
 let liveLatencyMs = 0;
 let liveClockOffsetMs = null;
@@ -228,15 +224,13 @@ function resetDuel() {
   opponentInputBuffer = [];
   opponentInputSequences = [];
   autopilotRecentHeads = [];
-  lastGuestInputSequence = 0;
-  guestInputAck = 0;
   playerScore = 0;
   opponentScore = 0;
   signalCursor = Rules.signalState(roomCode);
   lastMoveAt = performance.now();
   nextMoveAt = 0;
   pausedMotion = 1;
-  liveSequence = 0;
+  predictedTick = 0;
   lastRemoteSequence = -1;
   playerPredictionIndex = 0;
   opponentPredictionIndex = 0;
@@ -456,10 +450,10 @@ function render(now) {
   const localIndex = duelType === "live"
     ? roomPlayers.findIndex((player) => player.id === clientId)
     : -1;
-  const firstDirection = roomTransport?.authoritative && localIndex === 0
+  const firstDirection = localIndex === 0
     ? previewDirection(playerDirection, playerInputBuffer, playerPredictionIndex)
     : playerDirection;
-  const secondDirection = roomTransport?.authoritative && localIndex === 1
+  const secondDirection = localIndex === 1
     ? previewDirection(opponentDirection, opponentInputBuffer, opponentPredictionIndex)
     : opponentDirection;
   drawFluidSnake(
@@ -551,39 +545,13 @@ function tickAi(now) {
   applyDuelResult(result, now);
 }
 
-function tickLiveHost(now) {
-  const playerTurn = Rules.consumeDirectionBuffer(playerInputBuffer, playerDirection);
-  const opponentTurn = Rules.consumeDirectionBuffer(opponentInputBuffer, opponentDirection);
-  const opponentTurnConsumed = opponentTurn.queue.length < opponentInputBuffer.length;
-  playerQueuedDirection = playerTurn.direction;
-  opponentQueuedDirection = opponentTurn.direction;
-  playerInputBuffer = playerTurn.queue;
-  opponentInputBuffer = opponentTurn.queue;
-  if (opponentTurnConsumed) {
-    const appliedSequence = opponentInputSequences.shift();
-    if (Number.isSafeInteger(appliedSequence)) guestInputAck = Math.max(guestInputAck, appliedSequence);
-  }
-  playerDirection = { ...playerQueuedDirection };
-  opponentDirection = { ...opponentQueuedDirection };
-  const result = Rules.resolveDuelTick({
-    players: {
-      player: { snake: playerSnake, direction: playerDirection, score: playerScore },
-      opponent: { snake: opponentSnake, direction: opponentDirection, score: opponentScore },
-    },
-    food,
-    mode: "classic",
-    gridSize: DUEL_GRID,
-  });
-  applyDuelResult(result, now);
-  broadcastSnapshot(result);
-}
-
 function tickPredictedLive(now) {
   const localIndex = roomPlayers.findIndex((player) => player.id === clientId);
   if (localIndex < 0) {
     nextMoveAt = 0;
     return;
   }
+  predictedTick += 1;
 
   let predictedPlayerDirection = playerDirection;
   let predictedOpponentDirection = opponentDirection;
@@ -631,7 +599,7 @@ function tickPredictedLive(now) {
 
 function advanceGame(now) {
   if (runState !== "running" || !nextMoveAt) return;
-  if (duelType === "live" && roomTransport?.authoritative) {
+  if (duelType === "live") {
     let predictedSteps = 0;
     while (runState === "running" && now >= nextMoveAt && predictedSteps < 2) {
       tickPredictedLive(nextMoveAt);
@@ -642,14 +610,10 @@ function advanceGame(now) {
     if (predictedSteps === 2 && now >= nextMoveAt) nextMoveAt = now + TICK_DURATION;
     return;
   }
-  const isLiveHost = duelType === "live" && roomPlayers[0]?.id === clientId;
-  if (duelType === "live" && !isLiveHost) return;
-
   let steps = 0;
   while (runState === "running" && now >= nextMoveAt && steps < 3) {
     const stepAt = nextMoveAt;
-    if (duelType === "ai") tickAi(stepAt);
-    else tickLiveHost(stepAt);
+    tickAi(stepAt);
     nextMoveAt += TICK_DURATION;
     steps += 1;
   }
@@ -825,41 +789,29 @@ function requestDirection(next) {
   if (duelType === "live") {
     const localIndex = roomPlayers.findIndex((player) => player.id === clientId);
     if (localIndex < 0) return;
-    if (roomTransport?.authoritative) {
-      const currentDirection = localIndex === 0 ? playerDirection : opponentDirection;
-      const currentBuffer = localIndex === 0 ? playerInputBuffer : opponentInputBuffer;
-      const buffered = Rules.bufferDirection(currentBuffer, currentDirection, next);
-      if (buffered.length > currentBuffer.length) {
-        localInputSequence = Math.max(localInputSequence + 1, Date.now());
-        const sent = postRoomMessage({
-          type: "input",
-          round: liveRoundId,
-          sequence: localInputSequence,
-          direction: next,
-        });
-        if (!sent) return;
-        if (localIndex === 0) {
-          playerInputBuffer = buffered;
-          playerInputSequences.push(localInputSequence);
-        } else {
-          opponentInputBuffer = buffered;
-          opponentInputSequences.push(localInputSequence);
-        }
-      }
-    } else if (localIndex === 0) {
-      playerInputBuffer = Rules.bufferDirection(playerInputBuffer, playerDirection, next);
-    } else {
-      const buffered = Rules.bufferDirection(opponentInputBuffer, opponentDirection, next);
-      if (buffered.length > opponentInputBuffer.length) {
-        localInputSequence = Math.max(localInputSequence + 1, Date.now());
+    const currentDirection = localIndex === 0 ? playerDirection : opponentDirection;
+    const currentBuffer = localIndex === 0 ? playerInputBuffer : opponentInputBuffer;
+    const buffered = Rules.bufferDirection(currentBuffer, currentDirection, next);
+    if (buffered.length > currentBuffer.length) {
+      localInputSequence = Math.max(localInputSequence + 1, Date.now());
+      const predictedTurns = localIndex === 0 ? playerPredictionIndex : opponentPredictionIndex;
+      const sent = postRoomMessage({
+        type: "input",
+        round: liveRoundId,
+        sequence: localInputSequence,
+        direction: next,
+        // The tick this turn appears on here: the next predicted tick, after
+        // any turns still waiting in the buffer. The server never applies it
+        // sooner, so a turn cannot land a cell earlier than the player saw.
+        tick: predictedTick + 1 + Math.max(0, currentBuffer.length - predictedTurns),
+      });
+      if (!sent) return;
+      if (localIndex === 0) {
+        playerInputBuffer = buffered;
+        playerInputSequences.push(localInputSequence);
+      } else {
         opponentInputBuffer = buffered;
         opponentInputSequences.push(localInputSequence);
-        postRoomMessage({
-          type: "input",
-          round: liveRoundId,
-          sequence: localInputSequence,
-          direction: next,
-        });
       }
     }
     return;
@@ -1043,15 +995,7 @@ function updateRosterSlot(element, player, index) {
 }
 
 function activeRoomRoster() {
-  const peers = [...roomPeers.values()].filter((peer) => (
-    roomTransport?.authoritative || Date.now() - peer.seenAt < PEER_TIMEOUT
-  ));
-  if (roomTransport?.kind === "broadcast-channel") {
-    const localPlayers = roomConnected ? [roomIdentity(), ...peers] : peers;
-    return localPlayers
-      .filter((player) => player.connected)
-      .sort((first, second) => first.id.localeCompare(second.id));
-  }
+  const peers = [...roomPeers.values()];
   const all = roomConnected && roomRole === "player"
     ? [roomIdentity(), ...peers]
     : peers;
@@ -1155,33 +1099,9 @@ function syncLiveRoom() {
       : runState === "running"
         ? "LIVE DUEL ACTIVE"
         : "BOTH READY · COUNTDOWN";
-    if (!gateOpen && liveCountdownActive) {
-      abortLiveCountdown();
-    } else if (
-      gateOpen
-      && runState !== "running"
-      && !liveCountdownActive
-      && roomPlayers[0]?.id === clientId
-    ) {
-      const now = Date.now();
-      const round = now;
-      if (pendingCountdownAttempts >= 2) {
-        roomState.textContent = "COUNTDOWN REQUEST FAILED · RETRY READY";
-        return;
-      }
-      if (pendingCountdownRound && now < pendingCountdownExpiresAt) return;
-      postRoomMessage({
-        type: "countdown",
-        round,
-        startsAt: now + 3_200,
-      });
-      pendingCountdownRound = round;
-      pendingCountdownExpiresAt = now + 1_500;
-      pendingCountdownAttempts += 1;
-      if (!roomTransport?.authoritative) {
-        beginLiveCountdown(Date.now() + 3_200, round);
-      }
-    }
+    // The server starts the round the moment both seats are ready; the
+    // countdown arrives as a message (handleRoomMessage).
+    if (!gateOpen && liveCountdownActive) abortLiveCountdown();
   }
   if (roomConnectionState === "reconnecting") {
     roomState.textContent = "ROOM LINK RECONNECTING";
@@ -1221,22 +1141,8 @@ function handleRoomStatus(status) {
       showOverlay("ROOM SESSION", "RECONNECT<br><em>WHEN READY</em>", message);
       return;
     }
-    const rejectedCountdown = pendingCountdownRound !== 0;
-    pendingCountdownRound = 0;
-    pendingCountdownExpiresAt = 0;
-    if (rejectedCountdown) {
-      // Only a countdown request tells us anything about the room's state. Any
-      // other rejected frame - most often a Ready sent by a player the server
-      // has already rotated out of their seat - says nothing about link health,
-      // and treating it as degradation used to close the countdown gate for the
-      // rest of the session.
-      roomConnectionState = "degraded";
-      if (liveCountdownActive) abortLiveCountdown();
-      roomState.textContent = pendingCountdownAttempts >= 2
-        ? "COUNTDOWN REQUEST FAILED · RETRY READY"
-        : "COUNTDOWN REQUEST REJECTED";
-      announcement.textContent = "The room service rejected the countdown request. Press Ready again when both players are connected.";
-    }
+    // A rejected frame - most often a Ready sent by a player the server has
+    // already rotated out of their seat - says nothing about link health.
     return;
   }
   if (status.state === "latency") {
@@ -1330,7 +1236,6 @@ async function connectLiveRoom() {
     return;
   }
 
-  if (!roomTransport.authoritative) roomConnected = true;
   connectRoomButton.disabled = false;
   roomSweep = setInterval(syncLiveRoom, 700);
   const url = new URL(window.location.href);
@@ -1363,9 +1268,6 @@ function disconnectLiveRoom() {
   roomConnectionState = "disconnected";
   liveLatencyMs = 0;
   liveClockOffsetMs = null;
-  pendingCountdownRound = 0;
-  pendingCountdownExpiresAt = 0;
-  pendingCountdownAttempts = 0;
   roomLatency.textContent = "REALTIME PING · NOT MEASURED";
   abortLiveCountdown();
   if (duelType === "live") {
@@ -1400,9 +1302,6 @@ function beginLiveCountdown(startsAt, round) {
     liveCountdownActive = false;
   }
   liveCountdownActive = true;
-  pendingCountdownRound = 0;
-  pendingCountdownExpiresAt = 0;
-  pendingCountdownAttempts = 0;
   resetDuel();
   liveRoundId = round;
   setRunState("countdown", "LIVE DUEL COUNTDOWN");
@@ -1441,8 +1340,6 @@ function abortLiveCountdown() {
   clearInterval(liveCountdownTimer);
   liveCountdownTimer = null;
   liveCountdownActive = false;
-  pendingCountdownRound = 0;
-  pendingCountdownExpiresAt = 0;
   if (runState === "countdown" && duelType === "live") {
     setRunState("ready", "LIVE ROOM WAITING");
     showOverlay(
@@ -1461,47 +1358,15 @@ function startLiveDuel() {
   overlay.hidden = true;
   overlayTitle.classList.remove("countdown");
   lastMoveAt = performance.now();
-  nextMoveAt = roomTransport?.authoritative
-    ? lastMoveAt + TICK_DURATION
-    : roomPlayers[0]?.id === clientId ? lastMoveAt + TICK_DURATION : 0;
+  nextMoveAt = lastMoveAt + TICK_DURATION;
   setRunState("running", "LIVE DUEL ACTIVE");
   roomState.textContent = "LIVE DUEL ACTIVE";
   focusWithoutScroll(canvas);
-  if (!roomTransport?.authoritative && roomPlayers[0]?.id === clientId) {
-    broadcastSnapshot({ crashes: { player: null, opponent: null }, over: false, winner: null });
-  }
   announcement.textContent = "Live duel active. Both players connected.";
 }
 
-function broadcastSnapshot(result) {
-  liveSequence += 1;
-  postRoomMessage({
-    type: "state",
-    sequence: liveSequence,
-    state: {
-      playerSnake,
-      opponentSnake,
-      playerDirection,
-      opponentDirection,
-      playerScore,
-      opponentScore,
-      food,
-      signalCursor,
-      round: liveRoundId,
-      playerInputAck: 0,
-      guestInputAck,
-      crashes: result.crashes,
-      over: result.over,
-      winner: result.winner,
-    },
-  });
-}
-
 function applyRemoteSnapshot(message) {
-  if (
-    message.sequence <= lastRemoteSequence
-    || (!roomTransport?.authoritative && roomPlayers[0]?.id === clientId)
-  ) return;
+  if (message.sequence <= lastRemoteSequence) return;
   const state = message.state;
   if (state?.round !== liveRoundId) return;
   if (!state?.playerSnake?.length || !state?.opponentSnake?.length) return;
@@ -1516,6 +1381,7 @@ function applyRemoteSnapshot(message) {
   playerPredictionIndex = 0;
   opponentPredictionIndex = 0;
   lastRemoteSequence = message.sequence;
+  predictedTick = message.sequence;
   previousPlayerSnake = cloneSnake(
     authoritativePlayerSnake.length ? authoritativePlayerSnake : state.playerSnake,
   );
@@ -1615,9 +1481,6 @@ function handleRoomMessage(message) {
   if (!message || message.room !== roomCode) return;
   if (message.from === clientId && message.type !== "countdown") return;
   if (message.type === "countdown-cancel") {
-    pendingCountdownRound = 0;
-    pendingCountdownExpiresAt = 0;
-    pendingCountdownAttempts = 0;
     cancelLiveRound(message);
     return;
   }
@@ -1642,34 +1505,7 @@ function handleRoomMessage(message) {
     const startsAt = Number(message.startsAt);
     const round = Number(message.round);
     if (Number.isFinite(startsAt) && Number.isSafeInteger(round)) {
-      pendingCountdownRound = 0;
-      pendingCountdownExpiresAt = 0;
-      pendingCountdownAttempts = 0;
       beginLiveCountdown(startsAt, round);
-    }
-    return;
-  }
-  if (
-    message.type === "input"
-    && !roomTransport?.authoritative
-    && roomPlayers[0]?.id === clientId
-  ) {
-    const next = message.direction;
-    const round = Number(message.round);
-    const sequence = Number(message.sequence);
-    if (
-      !next
-      || round !== liveRoundId
-      || !Number.isSafeInteger(sequence)
-      || sequence <= lastGuestInputSequence
-    ) return;
-    if (CANDIDATES.some((candidate) => candidate.x === next.x && candidate.y === next.y)) {
-      const buffered = Rules.bufferDirection(opponentInputBuffer, opponentDirection, next);
-      if (buffered.length > opponentInputBuffer.length) {
-        opponentInputBuffer = buffered;
-        opponentInputSequences.push(sequence);
-        lastGuestInputSequence = sequence;
-      }
     }
     return;
   }

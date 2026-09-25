@@ -33,6 +33,8 @@ const DEFAULT_ROOM_CAPACITY = 2;
 const DUEL_GRID = 30;
 const TICK_DURATION = 138;
 const COUNTDOWN_MS = 3_200;
+// How far ahead of the server a tick-stamped input may be scheduled.
+const MAX_INPUT_LEAD_TICKS = 4;
 // A round that has produced no snapshot for this long is treated as over, so a
 // crashed simulation can never block the next countdown for good.
 const ROUND_STALE_MS = 5_000;
@@ -367,11 +369,16 @@ function validateRealtimeMessage(value, { slot, allReady, capacity = DEFAULT_ROO
     if (!safeInteger(value.round, 1) || !safeInteger(value.sequence, 1) || !validDirection(value.direction)) {
       return null;
     }
+    if (value.tick !== undefined && !safeInteger(value.tick, 1)) return null;
     return {
       type: "input",
       round: Number(value.round),
       sequence: Number(value.sequence),
       direction: { x: Number(value.direction.x), y: Number(value.direction.y) },
+      // The tick the player's screen applied this turn on (see duel.js). The
+      // server never applies it earlier; browsers from before tick stamps
+      // omit it and are applied on the next tick, as before.
+      ...(value.tick !== undefined ? { tick: Number(value.tick) } : {}),
     };
   }
   if (value.type === "countdown" && slot === 0 && allReady) {
@@ -674,17 +681,23 @@ class RoomSimulation {
     if (message.sequence <= acknowledged) return;
     const queue = slot === 0 ? this.game.playerInputs : this.game.opponentInputs;
     if (queue.some((input) => input.sequence === message.sequence) || queue.length >= 4) return;
-    queue.push(message);
+    // A stamp far in the future cannot hold the queue hostage.
+    const latest = this.game.sequence + 1 + MAX_INPUT_LEAD_TICKS;
+    const tick = Number.isSafeInteger(message.tick) ? Math.min(message.tick, latest) : 0;
+    queue.push({ ...message, tick });
     queue.sort((first, second) => first.sequence - second.sequence);
   }
 
-  consumeInput(queue, currentDirection) {
+  consumeInput(queue, currentDirection, resolvingTick) {
     // A reversal is discarded rather than applied, but it has still been seen.
     // Reporting it as consumed keeps the acknowledgement monotonic over
     // everything the server has processed, so a delayed duplicate cannot be
     // replayed later and the client can retire its matching prediction.
     let consumedThrough = 0;
     while (queue.length) {
+      // Early turns wait for the tick the player saw them on. Late ones - the
+      // usual case over a real network - apply on the next tick.
+      if (queue[0].tick > resolvingTick) break;
       const input = queue.shift();
       consumedThrough = Math.max(consumedThrough, input.sequence);
       if (!this.reverse(input.direction, currentDirection)) {
@@ -696,8 +709,9 @@ class RoomSimulation {
 
   resolveTick() {
     const game = this.game;
-    const playerCommand = this.consumeInput(game.playerInputs, game.playerDirection);
-    const opponentCommand = this.consumeInput(game.opponentInputs, game.opponentDirection);
+    const resolvingTick = game.sequence + 1;
+    const playerCommand = this.consumeInput(game.playerInputs, game.playerDirection, resolvingTick);
+    const opponentCommand = this.consumeInput(game.opponentInputs, game.opponentDirection, resolvingTick);
     game.playerInputAck = Math.max(game.playerInputAck, playerCommand.consumedThrough);
     game.guestInputAck = Math.max(game.guestInputAck, opponentCommand.consumedThrough);
     if (playerCommand.input) {
@@ -953,6 +967,63 @@ function createRealtimeHub({
       sentAt: now(),
     });
     if (state.simulation && !roomAllReady(room)) cancelRound(room, state.simulation);
+    scheduleRoundStart(room);
+  }
+
+  // The server starts a round as soon as both seats are ready. It used to wait
+  // for Player 1's browser to ask, so a throttled or backgrounded tab (or one
+  // whose request was dropped) left the whole room stuck on "BOTH READY". The
+  // instance holding Player 1's connection runs the simulation, as before.
+  const startingRooms = new Set();
+  function scheduleRoundStart(room) {
+    if (startingRooms.has(room)) return;
+    const state = stateFor(room);
+    if (state.simulation?.game || liveRoundFor(room)) return;
+    const host = localConnections(room)
+      .find((connection) => connectionOwnsSlot(room, connection.connectionId, 0));
+    if (!host || !roomAllReady(room, host.joinEpoch)) return;
+    startingRooms.add(room);
+    Promise.resolve()
+      .then(() => startRound(host))
+      .catch((error) => {
+        logger.error("Realtime round start failed.", describeError(error, { room }));
+      })
+      .finally(() => startingRooms.delete(room));
+  }
+
+  async function startRound(host) {
+    const room = host.room;
+    const state = stateFor(room);
+    // The round id and the seed are the server's. The round only has to
+    // increase, and names the recorded match.
+    const round = Math.max(now(), state.lastRound + 1);
+    const countdown = {
+      type: "countdown",
+      round,
+      startsAt: now() + COUNTDOWN_MS,
+    };
+    state.simulation?.stop();
+    state.simulation = new RoomSimulation(
+      {
+        publish,
+        abortRound,
+        roomAllReady,
+        clientOwnsSlot,
+        cancelRound,
+        refreshLiveRound: (liveRoom, live) => recordLiveRound(liveRoom, live),
+        recordMatch: recordCompletedMatch,
+        resetReady,
+        rotateRound,
+      },
+      room,
+      host.clientId,
+    );
+    state.simulation.start({ ...countdown, seed: randomInt(1, 2 ** 32) });
+    await recordLiveRound(room, { ...countdown, from: host.clientId });
+    await publish(room, {
+      kind: "countdown",
+      payload: { ...countdown, from: host.clientId, sentAt: now() },
+    });
   }
 
   // Only the instance running the simulation knows a round has ended early, so
@@ -1436,8 +1507,20 @@ function createRealtimeHub({
       return;
     }
     if (message.type === "countdown") {
+      // Rounds start on the server (scheduleRoundStart). Browsers from before
+      // that change still ask; answer with the round that is already running,
+      // which also means a request mid-round can never restart the game.
+      const live = liveRoundFor(connection.room);
+      if (live) {
+        send(connection, live.countdown);
+        return;
+      }
+      const state = stateFor(connection.room);
+      if (
+        state.simulation?.game
+        || startingRooms.has(connection.room)
+      ) return;
       const result = await refresh(connection, "touch");
-      setRoster(connection.room, result.players || [], result.waiting || []);
       if (
         !roomAllReady(connection.room, connection.joinEpoch)
         || !connectionOwnsSlot(connection.room, connection.connectionId, 0)
@@ -1445,46 +1528,7 @@ function createRealtimeHub({
         send(connection, { type: "rejected", code: "room_not_ready" });
         return;
       }
-      const state = stateFor(connection.room);
-      if (liveRoundFor(connection.room)) {
-        // A countdown mid-round used to restart the game from the spawn points.
-        send(connection, { type: "rejected", code: "round_in_progress" });
-        return;
-      }
-      // The round id and the seed are the server's. The round only has to
-      // increase, and names the recorded match.
-      const round = Math.max(now(), state.lastRound + 1);
-      const authoritativeCountdown = {
-        type: "countdown",
-        round,
-        startsAt: now() + COUNTDOWN_MS,
-      };
-      state.simulation?.stop();
-      state.simulation = new RoomSimulation(
-        {
-          publish,
-          abortRound,
-          roomAllReady,
-          clientOwnsSlot,
-          cancelRound,
-          refreshLiveRound: (room, countdown) => recordLiveRound(room, countdown),
-          recordMatch: recordCompletedMatch,
-          resetReady,
-          rotateRound,
-        },
-        connection.room,
-        connection.clientId,
-      );
-      state.simulation.start({ ...authoritativeCountdown, seed: randomInt(1, 2 ** 32) });
-      await recordLiveRound(connection.room, { ...authoritativeCountdown, from: connection.clientId });
-      await publish(connection.room, {
-        kind: "countdown",
-        payload: {
-          ...authoritativeCountdown,
-          from: connection.clientId,
-          sentAt: timestamp,
-        },
-      });
+      if (result.active) scheduleRoundStart(connection.room);
       return;
     }
     if (message.type === "input") {
