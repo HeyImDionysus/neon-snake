@@ -105,6 +105,14 @@ function createTimerHarness() {
       currentTime += timer.delay;
       await timer.callback();
     },
+    async runDelay(delay) {
+      const next = [...timers.entries()].find(([, timer]) => timer.delay === delay);
+      assert.ok(next, `Expected a timer scheduled ${delay} ms out`);
+      const [id, timer] = next;
+      timers.delete(id);
+      currentTime += timer.delay;
+      await timer.callback();
+    },
     size() {
       return timers.size;
     },
@@ -194,6 +202,82 @@ const tests = [
       "Play moves to the replacement once it holds the seat");
     assert.equal(statuses.some((status) => status.state === "reconnecting"), false,
       "A planned handover must never look like a dropped connection");
+    transport.close();
+  }],
+  ["a link handover waits for the round to end", async () => {
+    // The round's simulation lives on one server instance, so replacing a link
+    // mid-round would end it. Rotation is due halfway through the link's life
+    // and waits while a round is active.
+    const timers = createTimerHarness();
+    const transport = await transports.createWebSocketRoomTransport({
+      code: "ABC234", clientId: "patient-client", endpoint: "https://neon.example.test/api/realtime",
+      WebSocketImpl: FakeWebSocket, onMessage() {}, onStatus() {},
+      setTimeoutImpl: timers.setTimeout, clearTimeoutImpl: timers.clearTimeout, now: timers.now,
+    });
+    const live = FakeWebSocket.instances.at(-1);
+    live.emit("open");
+    live.message({
+      type: "welcome", role: "player", slot: 0, players: [{ id: "patient-client", slot: 0 }],
+      resumeToken: "aaaaaaaa-bbbb-4ccc-8ddd-bbbbbbbbbbbb", sentAt: 0, expiresAt: 240_000, closesAt: 290_000,
+    });
+    transport.setActive(true, 77);
+    const created = FakeWebSocket.instances.length;
+    await timers.runDelay(120_000);
+    assert.equal(FakeWebSocket.instances.length, created, "No handover while the round is running");
+    transport.setActive(false);
+    assert.equal(FakeWebSocket.instances.length, created + 1, "The handover happens as soon as the round ends");
+    assert.deepEqual(live.closeCalls, [], "The live link stays open until the replacement is welcomed");
+    transport.close();
+  }],
+  ["a round that outlasts the link is handed over just before the platform cut", async () => {
+    const timers = createTimerHarness();
+    const transport = await transports.createWebSocketRoomTransport({
+      code: "ABC234", clientId: "long-round-client", endpoint: "https://neon.example.test/api/realtime",
+      WebSocketImpl: FakeWebSocket, onMessage() {}, onStatus() {},
+      setTimeoutImpl: timers.setTimeout, clearTimeoutImpl: timers.clearTimeout, now: timers.now,
+    });
+    const live = FakeWebSocket.instances.at(-1);
+    live.emit("open");
+    live.message({
+      type: "welcome", role: "player", slot: 0, players: [{ id: "long-round-client", slot: 0 }],
+      resumeToken: "aaaaaaaa-bbbb-4ccc-8ddd-cccccccccccc", sentAt: 0, expiresAt: 240_000, closesAt: 290_000,
+    });
+    transport.setActive(true, 78);
+    const created = FakeWebSocket.instances.length;
+    await timers.runDelay(120_000);
+    assert.equal(FakeWebSocket.instances.length, created);
+    await timers.runDelay(160_000);
+    assert.equal(FakeWebSocket.instances.length, created + 1,
+      "The link is replaced 10 s before the declared hard close even mid-round");
+    transport.close();
+  }],
+  ["a replaced-session close during a handover is not terminal", async () => {
+    const timers = createTimerHarness();
+    const statuses = [];
+    const transport = await transports.createWebSocketRoomTransport({
+      code: "ABC234", clientId: "handover-client", endpoint: "https://neon.example.test/api/realtime",
+      WebSocketImpl: FakeWebSocket, onMessage() {}, onStatus: (status) => statuses.push(status),
+      setTimeoutImpl: timers.setTimeout, clearTimeoutImpl: timers.clearTimeout, now: timers.now,
+    });
+    const live = FakeWebSocket.instances.at(-1);
+    live.emit("open");
+    live.message({
+      type: "welcome", role: "player", slot: 0, players: [{ id: "handover-client", slot: 0 }],
+      resumeToken: "aaaaaaaa-bbbb-4ccc-8ddd-dddddddddddd", sentAt: 0, expiresAt: 240_000,
+    });
+    await timers.runDelay(120_000);
+    const replacement = FakeWebSocket.instances.at(-1);
+    // The server retires the old link before the replacement's welcome lands.
+    live.emit("close", { code: 4001 });
+    assert.equal(statuses.some((status) => status.code === "session_replaced"), false,
+      "The client's own handover must not read as another tab taking the seat");
+    replacement.emit("open");
+    replacement.message({
+      type: "welcome", role: "player", slot: 0, players: [{ id: "handover-client", slot: 0 }],
+      resumeToken: "aaaaaaaa-bbbb-4ccc-8ddd-dddddddddddd", sentAt: 120_000, expiresAt: 360_000,
+    });
+    assert.equal(transport.send({ type: "ready", ready: true }), true);
+    assert.deepEqual(replacement.messages.at(-1), { type: "ready", ready: true });
     transport.close();
   }],
   ["a replacement link that never arrives leaves the live link untouched", async () => {

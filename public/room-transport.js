@@ -2,8 +2,11 @@
   "use strict";
 
   // How long before a connection's server-declared expiry the client opens its
-  // replacement. Wide enough to absorb a slow handshake and one retry.
+  // replacement at the latest. Wide enough to absorb a slow handshake and one retry.
   const ROTATE_LEAD_MS = 45_000;
+  // A handover that must happen during a round is left until this close to the
+  // platform's hard cut, since the round cannot survive it either way.
+  const FORCED_ROTATE_LEAD_MS = 10_000;
 
   function broadcastRoomSupported(runtime = root) {
     return typeof runtime?.BroadcastChannel === "function";
@@ -218,6 +221,9 @@
     let pendingSocket = null;
     let rotateTimer = null;
     let connectionExpiresAt = 0;
+    let connectionClosesAt = 0;
+    let connectionWelcomedAt = 0;
+    let rotationDue = false;
 
     function isCurrentSocket(candidate) {
       return candidate === socket || candidate === pendingSocket;
@@ -228,15 +234,38 @@
       rotateTimer = null;
     }
 
+    // The simulation lives on the server instance Player 1 reached, so a handover
+    // during a round ends that round. Links are therefore replaced between
+    // rounds: once they are halfway through their life while idle, or - only if
+    // a round is still running - just before the platform would cut them anyway.
+    function rotate() {
+      if (closed || pendingSocket) return;
+      rotationDue = false;
+      void connect({ rotating: true });
+    }
+
     function scheduleRotation() {
       clearRotateTimer();
+      rotationDue = false;
       if (closed || !connectionExpiresAt) return;
-      const lead = Math.max(5_000, connectionExpiresAt - ROTATE_LEAD_MS - now());
+      const idleAt = Math.min(
+        connectionWelcomedAt + (connectionExpiresAt - connectionWelcomedAt) / 2,
+        connectionExpiresAt - ROTATE_LEAD_MS,
+      );
       rotateTimer = setTimeoutImpl(() => {
         rotateTimer = null;
         if (closed || pendingSocket) return;
-        void connect({ rotating: true });
-      }, lead);
+        if (!active) {
+          rotate();
+          return;
+        }
+        rotationDue = true;
+        const forcedAt = (connectionClosesAt || connectionExpiresAt) - FORCED_ROTATE_LEAD_MS;
+        rotateTimer = setTimeoutImpl(() => {
+          rotateTimer = null;
+          if (rotationDue) rotate();
+        }, Math.max(0, forcedAt - now()));
+      }, Math.max(5_000, idleAt - now()));
     }
 
     function socketUrl() {
@@ -308,7 +337,12 @@
             retiring?.close(1000, "Realtime link rotated");
           }
           if (Number.isFinite(Number(message.expiresAt)) && Number(message.expiresAt) > 0) {
-            connectionExpiresAt = now() + Math.max(0, Number(message.expiresAt) - Number(message.sentAt || 0));
+            const sentAt = Number(message.sentAt || 0);
+            connectionWelcomedAt = now();
+            connectionExpiresAt = connectionWelcomedAt + Math.max(0, Number(message.expiresAt) - sentAt);
+            connectionClosesAt = Number(message.closesAt) > 0
+              ? connectionWelcomedAt + Math.max(0, Number(message.closesAt) - sentAt)
+              : 0;
             scheduleRotation();
           }
           if (/^[a-f0-9-]{36}$/.test(message.resumeToken || "")) {
@@ -417,12 +451,21 @@
         if (nextSocket === pendingSocket) {
           // The replacement failed to establish; the live link is untouched.
           pendingSocket = null;
+          if (!socket) {
+            // ...unless the server already retired the live link for it.
+            scheduleReconnect();
+            return;
+          }
           scheduleRotation();
           return;
         }
         if (socket !== nextSocket || closed) return;
         socket = null;
         clearSocketTimers();
+        // The server tells the outgoing link its session was replaced as soon as
+        // the replacement joins, which can beat the replacement's welcome. That
+        // is the handover succeeding, not another tab taking the seat.
+        if (event.code === 4001 && pendingSocket) return;
         if (event.code === 4001 || event.code === 4003) {
           closed = true;
           onStatus({
@@ -468,6 +511,10 @@
         if (!active) armStateWatchdog();
         else if (!wasActive || previousRound !== activeRound) armStateWatchdog();
         else if (stateTimer === null) armStateWatchdog(3_000);
+        if (!active && rotationDue) {
+          clearRotateTimer();
+          rotate();
+        }
         scheduleHeartbeat();
       },
       close() {

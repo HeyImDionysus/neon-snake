@@ -459,7 +459,7 @@ async function executeRedisRest(command, {
     body: JSON.stringify(command),
     signal: AbortSignal.timeout(5_000),
   });
-  if (!response.ok) throw new Error("Redis request failed.");
+  if (!response.ok) throw new Error(`Redis request failed (HTTP ${response.status}).`);
   const payload = await response.json();
   if (payload?.error) throw new Error("Redis command failed.");
   return payload?.result;

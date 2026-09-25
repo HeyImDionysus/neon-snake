@@ -579,7 +579,7 @@ async function flush() {
   )), "The surviving client must receive the departed slot without waiting for a fresh roster");
   assert.deepEqual(cleanupErrors, [{
     message: "Realtime disconnect cleanup failed.",
-    details: { stage: "presence", name: "TimeoutError" },
+    details: { stage: "presence", name: "TimeoutError", message: "Redis cleanup timed out." },
   }]);
   cleanupHub.close();
 
@@ -722,7 +722,7 @@ async function flush() {
   const unitSimulation = new RoomSimulation({
     publish: async () => {},
     roomAllReady: () => true,
-    connectionOwnsSlot: () => true,
+    clientOwnsSlot: () => true,
     recordMatch: async () => {},
     resetReady: async () => {},
   }, "ABC234", "authority");
@@ -764,7 +764,7 @@ async function flush() {
 
   const completionFailures = [];
   const completingSimulation = new RoomSimulation({
-    publish: async () => {}, roomAllReady: () => true, connectionOwnsSlot: () => true,
+    publish: async () => {}, roomAllReady: () => true, clientOwnsSlot: () => true,
     recordMatch: async () => {},
     rotateRound: async () => { throw new Error("Redis rotation unavailable"); },
     abortRound: (room, simulation, error) => {

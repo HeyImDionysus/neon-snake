@@ -213,6 +213,52 @@ async function main() {
     );
     await redis.command(["DEL", ...cutKeys]);
     console.log("PASS a cut link keeps its seat while a closed one frees it");
+
+    // Every link is handed over before the platform cuts it. The replacement
+    // joins with the same credential, so it must be treated as the same player
+    // moving links: Ready and the round in progress survive.
+    const handoverRoom = roomCode();
+    const handoverHost = await connectTo(handoverRoom, "qa-handover-host");
+    const handoverGuest = await connectTo(handoverRoom, "qa-handover-guest");
+    for (const client of [handoverHost, handoverGuest]) send(client, { type: "ready", ready: true });
+    await waitFor(() => handoverHost.messages.filter((message) => message.type === "roster").at(-1)
+      ?.players.every((player) => player.ready) && handoverHost.messages.filter((message) => message.type === "roster").at(-1)
+      ?.players.length === 2, "handover players ready");
+    const handoverRound = Date.now();
+    send(handoverHost, { type: "countdown", round: handoverRound, startsAt: Date.now() + 3_200 });
+    await waitFor(() => handoverGuest.messages.some((message) => message.type === "state" && message.state.round === handoverRound), "handover round starts");
+    const replacementGuest = await connectTo(handoverRoom, "qa-handover-guest", handoverGuest.welcome.resumeToken);
+    assert.equal(replacementGuest.welcome?.slot, 1, "The replacement link keeps the guest's seat");
+    assert.equal(
+      replacementGuest.welcome.players.find((player) => player.id === "qa-handover-guest")?.ready,
+      true,
+      "A handover must not revoke the guest's Ready",
+    );
+    handoverGuest.socket.close(1000, "Realtime link rotated");
+    await waitFor(() => handoverGuest.closed, "retired guest link closes");
+    const sequenceAfterHandover = replacementGuest.messages
+      .filter((message) => message.type === "state").at(-1)?.sequence || 0;
+    await waitFor(() => replacementGuest.messages.some((message) => (
+      message.type === "state" && message.state.round === handoverRound && message.sequence > sequenceAfterHandover + 3
+    )), "the round keeps ticking on the replacement link");
+    for (const client of [handoverHost, replacementGuest]) {
+      assert.equal(
+        client.messages.some((message) => message.type === "countdown-cancel"),
+        false,
+        `${client.id} must not see the round cancelled by a handover`,
+      );
+    }
+    await redis.command(["DEL", ...keys(handoverRoom)]);
+    console.log("PASS a mid-round link handover keeps Ready and the round in progress");
+
+    // A waiting participant who hands over keeps their place in line.
+    await lua("join", "ttl-queue-a", "ttl-queue-a-1", 131_000);
+    const queued = await lua("join", "ttl-queue-b", "ttl-queue-b-1", 131_001);
+    const queueBefore = queued.waiting.map((player) => player.id);
+    const handedOver = await lua("join", queueBefore[0], `${queueBefore[0]}-2`, 131_002);
+    assert.deepEqual(handedOver.waiting.map((player) => player.id), queueBefore,
+      "A handover must not send a waiting participant to the back of the line");
+    console.log("PASS a waiting participant's handover keeps their place in line");
   } finally {
     promotedTransport?.close();
     clients.forEach((client) => client.socket.close());

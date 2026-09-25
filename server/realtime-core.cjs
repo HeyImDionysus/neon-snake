@@ -22,6 +22,9 @@ const CONNECTION_TTL_MS = 30_000;
 // (300 s in vercel.json). Clients are told a shorter lifetime so they can open a
 // replacement link and hand the seat over before the platform cuts it.
 const CONNECTION_LIFETIME_MS = 240_000;
+// When the platform actually cuts the link (maxDuration 300 s less a margin).
+// Clients avoid handing over mid-round until they get this close to it.
+const CONNECTION_HARD_LIMIT_MS = 290_000;
 // How long a seat is held after a link is cut rather than closed, so a
 // reconnecting player reclaims it instead of losing it to the waiting line.
 const RECLAIM_WINDOW_MS = 8_000;
@@ -32,6 +35,16 @@ const TICK_DURATION = 138;
 const Rules = globalThis.SnakeRules;
 
 if (!Rules?.resolveDuelTick) throw new Error("Shared duel rules are unavailable.");
+
+// Logs used to carry only error.name, which made every failure read "Error".
+// Messages from this module and the Redis client never contain credentials.
+function describeError(error, context = {}) {
+  return {
+    ...context,
+    name: typeof error?.name === "string" ? error.name : "Error",
+    message: typeof error?.message === "string" ? error.message.slice(0, 200) : "",
+  };
+}
 
 const PRESENCE_SCRIPT = String.raw`
 local presenceKey = KEYS[1]
@@ -108,14 +121,19 @@ if action == "join" then
     return cjson.encode({ error = "room_full" })
   end
   local slot = current and tonumber(current["slot"]) or -1
+  -- A join carrying this record's credential is the same participant moving
+  -- to a new link, not a newcomer: it keeps its Ready state and its place in
+  -- the waiting line. Resetting them cancelled the round in progress and sent
+  -- a waiting player to the back of the queue on every link handover.
+  local resumed = current ~= nil
   current = {
     id = clientId,
     connectionId = connectionId,
     resumeHash = resumeHash,
     slot = slot,
-    ready = false,
-    readyEpoch = 0,
-    joinEpoch = generation,
+    ready = resumed and current["ready"] == true or false,
+    readyEpoch = resumed and tonumber(current["readyEpoch"]) or 0,
+    joinEpoch = resumed and tonumber(current["joinEpoch"]) or generation,
     seenAt = now,
     userId = userId,
     displayName = displayName,
@@ -543,10 +561,12 @@ function createRedisRestBus({
 }
 
 class RoomSimulation {
-  constructor(hub, room, authorityConnectionId) {
+  // Authority belongs to Player 1's seat, not to one WebSocket: a player whose
+  // link is handed over keeps the round they are playing.
+  constructor(hub, room, authorityClientId) {
     this.hub = hub;
     this.room = room;
-    this.authorityConnectionId = authorityConnectionId;
+    this.authorityClientId = authorityClientId;
     this.game = null;
     this.tickTimer = null;
     this.nextTickAt = 0;
@@ -693,13 +713,17 @@ class RoomSimulation {
 
   async tick() {
     this.tickTimer = null;
-    if (
-      !this.game
-      || this.game.over
-      || !this.hub.roomAllReady(this.room)
-      || !this.hub.connectionOwnsSlot(this.room, this.authorityConnectionId, 0)
-    ) {
+    if (!this.game || this.game.over) {
       this.stop();
+      return;
+    }
+    if (
+      !this.hub.roomAllReady(this.room)
+      || !this.hub.clientOwnsSlot(this.room, this.authorityClientId, 0)
+    ) {
+      // Stopping silently left every screen on another instance frozen until
+      // its own watchdog gave up; tell the whole room the round is over.
+      this.hub.cancelRound(this.room, this);
       return;
     }
     const result = this.resolveTick();
@@ -778,10 +802,7 @@ function createRealtimeHub({
     fetchImpl,
     redisCommand: runRedis,
     onError(error, room) {
-      logger.error("Realtime event relay failed.", {
-        room,
-        name: typeof error?.name === "string" ? error.name : "Error",
-      });
+      logger.error("Realtime event relay failed.", describeError(error, { room }));
     },
   });
   const readSession = sessionReader || createSessionReader({
@@ -851,11 +872,23 @@ function createRealtimeHub({
       })),
       sentAt: now(),
     });
-    if (state.simulation && !roomAllReady(room)) {
-      state.simulation.stop();
-      state.simulation = null;
-      broadcast(room, { type: "countdown-cancel", sentAt: now() });
+    if (state.simulation && !roomAllReady(room)) cancelRound(room, state.simulation);
+  }
+
+  // Only the instance running the simulation knows a round has ended early, so
+  // the cancel is published rather than broadcast: screens attached to other
+  // instances would otherwise keep animating a round that no longer exists.
+  function cancelRound(room, simulation) {
+    const state = stateFor(room);
+    if (!simulation || state.simulation !== simulation) {
+      simulation?.stop();
+      return;
     }
+    simulation.stop();
+    state.simulation = null;
+    publish(room, { kind: "cancel", slot: -1 }).catch((error) => {
+      logger.error("Realtime round cancel relay failed.", describeError(error, { room }));
+    });
   }
 
   function abortRound(room, simulation, error) {
@@ -869,10 +902,7 @@ function createRealtimeHub({
       reason: "relay_unavailable",
       sentAt: now(),
     });
-    logger.error("Realtime authoritative relay failed.", {
-      room,
-      name: typeof error?.name === "string" ? error.name : "Error",
-    });
+    logger.error("Realtime authoritative relay failed.", describeError(error, { room }));
     localConnections(room).forEach((connection) => {
       connection.socket.close(1012, "Realtime relay unavailable");
     });
@@ -882,6 +912,12 @@ function createRealtimeHub({
     const players = stateFor(room).players;
     return players.length === DEFAULT_ROOM_CAPACITY && players.every((player) => (
       player.ready && Number(player.readyEpoch) >= minimumReadyEpoch
+    ));
+  }
+
+  function clientOwnsSlot(room, clientId, slot) {
+    return stateFor(room).players.some((player) => (
+      Number(player.slot) === slot && player.id === clientId
     ));
   }
 
@@ -1022,9 +1058,7 @@ function createRealtimeHub({
           "35",
         ]);
       } catch (error) {
-        logger.error("Realtime profile activity refresh failed.", {
-          name: typeof error?.name === "string" ? error.name : "Error",
-        });
+        logger.error("Realtime profile activity refresh failed.", describeError(error));
       }
     }
     return payload;
@@ -1114,9 +1148,7 @@ function createRealtimeHub({
         now,
       });
     } catch (error) {
-      logger.error("Realtime match recording failed.", {
-        name: typeof error?.name === "string" ? error.name : "Error",
-      });
+      logger.error("Realtime match recording failed.", describeError(error));
     }
   }
 
@@ -1124,10 +1156,7 @@ function createRealtimeHub({
     if (!connections.has(connection.socket)) return;
     connections.delete(connection.socket);
     const reportFailure = (stage, error) => {
-      logger.error("Realtime disconnect cleanup failed.", {
-        stage,
-        name: typeof error?.name === "string" ? error.name : "Error",
-      });
+      logger.error("Realtime disconnect cleanup failed.", describeError(error, { stage }));
     };
     const ownedSlot = connectionOwnsSlot(connection.room, connection.connectionId, connection.slot);
     const retainSeat = !deliberate && ownedSlot;
@@ -1161,7 +1190,18 @@ function createRealtimeHub({
     }
     if (!localConnections(connection.room).length) {
       const state = stateFor(connection.room);
-      state.simulation?.stop();
+      if (state.simulation) {
+        // The round cannot outlive the instance that simulates it; say so to
+        // players attached elsewhere instead of leaving them frozen.
+        const simulation = state.simulation;
+        simulation.stop();
+        state.simulation = null;
+        try {
+          await publish(connection.room, { kind: "cancel", slot: -1 });
+        } catch (error) {
+          reportFailure("orphaned-round", error);
+        }
+      }
       state.unsubscribe?.();
       rooms.delete(connection.room);
     }
@@ -1263,13 +1303,14 @@ function createRealtimeHub({
           publish,
           abortRound,
           roomAllReady,
-          connectionOwnsSlot,
+          clientOwnsSlot,
+          cancelRound,
           recordMatch: recordCompletedMatch,
           resetReady,
           rotateRound,
         },
         connection.room,
-        connection.connectionId,
+        connection.clientId,
       );
       state.simulation.start(authoritativeCountdown);
       await publish(connection.room, {
@@ -1366,9 +1407,7 @@ function createRealtimeHub({
       }
       pendingMessages += 1;
       messageTask = messageTask.then(() => handleMessage(connection, raw)).catch(async (error) => {
-        logger.error("Realtime message failed.", {
-          name: typeof error?.name === "string" ? error.name : "Error",
-        });
+        logger.error("Realtime message failed.", describeError(error));
         socket.close(1012, "Realtime service interrupted");
         await closeConnection(connection);
       }).finally(() => {
@@ -1427,6 +1466,7 @@ function createRealtimeHub({
         queuePosition: Number(result.queuePosition) || 0,
         resumeToken: connection.resumeToken,
         expiresAt: connection.openedAt + CONNECTION_LIFETIME_MS,
+        closesAt: connection.openedAt + CONNECTION_HARD_LIMIT_MS,
         sentAt: now(),
       });
       if (connection.profile) {
@@ -1443,9 +1483,7 @@ function createRealtimeHub({
       await publishRoster(room, result.players || [], result.waiting || []);
       scheduleHeartbeat();
     } catch (error) {
-      logger.error("Realtime connection failed.", {
-        name: typeof error?.name === "string" ? error.name : "Error",
-      });
+      logger.error("Realtime connection failed.", describeError(error));
       connections.delete(socket);
       if (!localConnections(room).length) {
         const state = rooms.get(room);
@@ -1468,6 +1506,7 @@ function createRealtimeHub({
       rooms.clear();
       eventBus.close?.();
     },
+    clientOwnsSlot,
     connectionOwnsSlot,
     publish,
     rotateRound,
