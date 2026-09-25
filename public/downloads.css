@@ -211,6 +211,20 @@
   letter-spacing: .11em;
 }
 .download-started .download-status { color: var(--paper); }
+.download-hash {
+  margin: 6px 0 0;
+  color: var(--dim);
+  font: 700 9px/1.5 var(--mono);
+  letter-spacing: .06em;
+}
+.download-hash code {
+  display: block;
+  color: var(--muted);
+  font: 500 10px/1.5 var(--mono);
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
 .download-meta {
   display: flex;
   justify-content: space-between;

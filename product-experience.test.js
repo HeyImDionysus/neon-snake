@@ -53,7 +53,7 @@ process.stdout.write("PASS the homepage reads as a product and routes wallpaper 
 assert.match(downloads, /Download for Windows/);
 assert.match(downloads, /Download for Android/);
 assert.match(downloads, /class="wallpaper-surface"/);
-assert.match(downloads, /same autonomous snake from the game/i);
+assert.doesNotMatch(downloads, /same autonomous snake from the game/i, "Android is not the game's engine");
 assert.match(downloads, /data-wallpaper-palette="acid"/);
 assert.match(downloads, /id="wallpaperPace"/);
 assert.equal((downloads.match(/data-wallpaper-download=/g) || []).length, 2);
@@ -62,11 +62,12 @@ assert.match(downloads, /id="androidDownloadStatus"/);
 assert.match(downloadsScript, /DOWNLOAD STARTED/);
 assert.match(downloadsScript, /document\.getElementById\(link\.getAttribute\("aria-describedby"\)\)/);
 assert.match(wallpaperScript, /NeonSnakeWallpaperPreview/);
-assert.match(downloads, /href="\/downloads\/v1\.1\.2\/Neon-Snake-Lively-v1\.1\.2\.zip"/);
-assert.match(downloads, /href="\/downloads\/v1\.1\.1\/Neon-Snake-Android-v1\.1\.1\.apk"/);
+for (const href of downloads.match(/href="\/downloads\/[^"]+"/g) || []) {
+  const file = path.join(__dirname, "public", href.slice(6, -1));
+  assert.equal(fs.existsSync(file), true, `Linked download must exist: ${href}`);
+}
 assert.doesNotMatch(downloads, /github\.com\/HeyImDionysus\/neon-snake\/raw/);
-assert.equal(fs.existsSync(path.join(__dirname, "public", "downloads", "v1.1.2", "Neon-Snake-Lively-v1.1.2.zip")), true);
-assert.equal(fs.existsSync(path.join(__dirname, "public", "downloads", "v1.1.1", "Neon-Snake-Android-v1.1.1.apk")), true);
+assert.equal(fs.existsSync(path.join(__dirname, "downloads")), false, "Downloads are published only from public/downloads");
 assert.match(vercel, /Content-Disposition/);
 process.stdout.write("PASS downloads provide direct platform actions and a live truthful preview\n");
 

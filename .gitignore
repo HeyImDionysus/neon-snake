@@ -17,3 +17,8 @@ Thumbs.db
 .omo/
 .repair-evidence/
 .debug-journal.md
+
+# Signing keys and local Android SDK paths never belong in the repository.
+*.jks
+*.keystore
+local.properties
