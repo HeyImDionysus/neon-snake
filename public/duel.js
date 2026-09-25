@@ -1552,6 +1552,22 @@ function cancelLiveRound(message) {
     return;
   }
   if (!wasActive || duelType !== "live") return;
+  if (message?.reason === "forfeit" && authoritativeDeparture) {
+    const localForfeit = departedSlot === roomSlot;
+    setRunState("ready", localForfeit ? "ROUND CONCEDED" : "RIVAL FORFEITED");
+    roomState.textContent = localForfeit ? "ROUND CONCEDED" : "WIN BY FORFEIT";
+    showOverlay(
+      localForfeit ? "ROUND CONCEDED" : "RIVAL LEFT",
+      localForfeit ? "ROUND<br><em>CONCEDED</em>" : "WIN BY<br><em>FORFEIT</em>",
+      localForfeit
+        ? "Leaving or un-readying after the start concedes the round."
+        : "Your rival left after the start, so the round counts as your win.",
+    );
+    announcement.textContent = localForfeit
+      ? "You conceded the live round."
+      : "Your rival left the live round. You win by forfeit.";
+    return;
+  }
   setRunState("ready", "RIVAL DISCONNECTED");
   roomState.textContent = "ROUND CANCELLED · WAITING FOR PLAYER";
   showOverlay(
@@ -1684,7 +1700,9 @@ function handleKeyboard(event) {
   if (key === "r") {
     event.preventDefault();
     if (duelType === "ai") prepareAiDuel();
-    else if (roomConnected) {
+    // Un-readying after the start concedes a live round, which a stray R press
+    // should never do; leaving the room is the deliberate way out.
+    else if (roomConnected && runState !== "running") {
       setRoomReadyIntent(false);
       postRoomMessage({ type: "ready", ready: false });
       syncLiveRoom();

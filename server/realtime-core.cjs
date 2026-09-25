@@ -2,7 +2,7 @@
 
 require("../public/game-logic.js");
 
-const { createHash, randomUUID } = require("node:crypto");
+const { createHash, randomInt, randomUUID } = require("node:crypto");
 const {
   createSessionReader,
   recordMatchResult,
@@ -32,6 +32,14 @@ const ROOM_TTL_SECONDS = 45;
 const DEFAULT_ROOM_CAPACITY = 2;
 const DUEL_GRID = 30;
 const TICK_DURATION = 138;
+const COUNTDOWN_MS = 3_200;
+// A round that has produced no snapshot for this long is treated as over, so a
+// crashed simulation can never block the next countdown for good.
+const ROUND_STALE_MS = 5_000;
+// Liveness: clients ping every 5 s during a round and every 15 s otherwise.
+const SILENT_CONNECTION_MS = 45_000;
+// A seated player who will not Ready up yields the seat to the waiting line.
+const IDLE_SEAT_MS = 60_000;
 const Rules = globalThis.SnakeRules;
 
 if (!Rules?.resolveDuelTick) throw new Error("Shared duel rules are unavailable.");
@@ -608,7 +616,11 @@ class RoomSimulation {
 
   start(countdown) {
     this.stop();
-    const seed = this.roomSeed() ^ Number(countdown.round);
+    // The seed is drawn by the server. It used to be the room hash XOR a round
+    // number Player 1's browser chose, which let Player 1 pick food placement.
+    const seed = Number.isSafeInteger(countdown.seed)
+      ? countdown.seed
+      : this.roomSeed() ^ Number(countdown.round);
     this.game = {
       round: countdown.round,
       startsAt: countdown.startsAt,
@@ -821,6 +833,11 @@ function createRealtimeHub({
         simulation: null,
         unsubscribe: null,
         subscription: null,
+        // Every instance tracks the room's live round from the countdown, state
+        // and cancel events it relays, so any of them can reject a mid-round
+        // restart, record a forfeit, or bring a late joiner into the round.
+        liveRound: null,
+        lastRound: 0,
       };
       rooms.set(room, state);
     }
@@ -849,6 +866,54 @@ function createRealtimeHub({
 
   function broadcast(room, payload) {
     localConnections(room).forEach((connection) => send(connection, payload));
+  }
+
+  function trackRound(room, event) {
+    const state = stateFor(room);
+    if (event.kind === "countdown") {
+      const round = Number(event.payload?.round);
+      if (!Number.isSafeInteger(round)) return;
+      state.lastRound = Math.max(state.lastRound, round);
+      state.liveRound = {
+        round,
+        startsAt: Number(event.payload.startsAt),
+        lastStateAt: now(),
+        countdown: event.payload,
+      };
+    } else if (event.kind === "state") {
+      const round = Number(event.payload?.state?.round);
+      if (state.liveRound?.round !== round) return;
+      if (event.payload.state.over) state.liveRound = null;
+      else state.liveRound.lastStateAt = now();
+    } else if (event.kind === "cancel") {
+      state.liveRound = null;
+    }
+  }
+
+  function liveRoundFor(room) {
+    const live = stateFor(room).liveRound;
+    if (!live) return null;
+    const lastSign = Math.max(live.lastStateAt, live.startsAt);
+    if (now() - lastSign > ROUND_STALE_MS) {
+      stateFor(room).liveRound = null;
+      return null;
+    }
+    return live;
+  }
+
+  // Leaving, un-readying or dropping out after the round has started concedes
+  // it. Before this, all three cancelled the round with no result, so a player
+  // about to lose could always void the loss.
+  async function forfeitRound(room, loserSlot) {
+    const live = liveRoundFor(room);
+    if (!live || now() < live.startsAt || (loserSlot !== 0 && loserSlot !== 1)) return false;
+    const result = {
+      winner: loserSlot === 0 ? "opponent" : "player",
+      crashes: { player: loserSlot === 0 ? "forfeit" : null, opponent: loserSlot === 1 ? "forfeit" : null },
+    };
+    await recordCompletedMatch(room, live.round, result);
+    await publish(room, { kind: "cancel", slot: loserSlot, reason: "forfeit", round: live.round });
+    return result;
   }
 
   function setRoster(room, players, waiting = []) {
@@ -963,6 +1028,7 @@ function createRealtimeHub({
     if (!envelope || envelope.room !== room) return;
     if (envelope.origin === instanceId) return;
     const state = stateFor(room);
+    trackRound(room, envelope);
     if (envelope.kind === "roster") {
       setRoster(room, envelope.players, envelope.waiting);
       return;
@@ -984,12 +1050,17 @@ function createRealtimeHub({
     if (envelope.kind === "cancel") {
       state.simulation?.stop();
       state.simulation = null;
-      broadcast(room, {
-        type: "countdown-cancel",
-        slot: Number(envelope.slot),
-        sentAt: now(),
-      });
+      broadcast(room, cancelMessage(envelope));
     }
+  }
+
+  function cancelMessage(event) {
+    return {
+      type: "countdown-cancel",
+      slot: Number.isInteger(Number(event.slot)) ? Number(event.slot) : -1,
+      ...(event.reason ? { reason: String(event.reason) } : {}),
+      sentAt: now(),
+    };
   }
 
   async function ensureSubscription(room) {
@@ -1071,6 +1142,7 @@ function createRealtimeHub({
       origin: instanceId,
       sentAt: now(),
     };
+    trackRound(room, event);
     if (event.kind === "roster") setRoster(room, event.players, event.waiting);
     else if (event.kind === "input") {
       const simulation = stateFor(room).simulation;
@@ -1084,11 +1156,7 @@ function createRealtimeHub({
       const state = stateFor(room);
       state.simulation?.stop();
       state.simulation = null;
-      broadcast(room, {
-        type: "countdown-cancel",
-        slot: Number(event.slot),
-        sentAt: now(),
-      });
+      broadcast(room, cancelMessage(event));
     }
     await eventBus.publish(room, envelope);
   }
@@ -1172,7 +1240,8 @@ function createRealtimeHub({
       && connectionOwnsSlot(connection.room, connection.connectionId, connection.slot)
     ) {
       try {
-        await publish(connection.room, { kind: "cancel", slot: connection.slot });
+        const forfeited = await forfeitRound(connection.room, connection.slot);
+        if (!forfeited) await publish(connection.room, { kind: "cancel", slot: connection.slot });
       } catch (error) {
         reportFailure("cancel", error);
       }
@@ -1213,6 +1282,7 @@ function createRealtimeHub({
 
   async function handleMessage(connection, raw) {
     if (!connections.has(connection.socket) || !connection.initialized) return;
+    connection.lastSeenAt = now();
     const size = typeof raw === "string" ? Buffer.byteLength(raw) : raw?.byteLength;
     if (!Number.isFinite(size) || size > MAX_MESSAGE_BYTES) {
       connection.socket.close(1009, "Message too large");
@@ -1275,7 +1345,15 @@ function createRealtimeHub({
       const wasReady = stateFor(connection.room).players.some((player) => (
         player.connectionId === connection.connectionId && player.ready
       ));
+      const forfeited = !message.ready && wasReady
+        && connectionOwnsSlot(connection.room, connection.connectionId, connection.slot)
+        ? await forfeitRound(connection.room, connection.slot)
+        : false;
       const result = await refresh(connection, "ready", { ready: message.ready });
+      if (forfeited) {
+        await rotateRound(connection.room, forfeited);
+        return;
+      }
       if (!message.ready && wasReady && result.active) {
         await publish(connection.room, { kind: "cancel" });
       }
@@ -1292,10 +1370,18 @@ function createRealtimeHub({
         return;
       }
       const state = stateFor(connection.room);
-      const authoritativeStartsAt = now() + 3_200;
+      if (liveRoundFor(connection.room)) {
+        // A countdown mid-round used to restart the game from the spawn points.
+        send(connection, { type: "rejected", code: "round_in_progress" });
+        return;
+      }
+      // The round id and the seed are the server's. The round only has to
+      // increase, and names the recorded match.
+      const round = Math.max(now(), state.lastRound + 1);
       const authoritativeCountdown = {
-        ...message,
-        startsAt: authoritativeStartsAt,
+        type: "countdown",
+        round,
+        startsAt: now() + COUNTDOWN_MS,
       };
       state.simulation?.stop();
       state.simulation = new RoomSimulation(
@@ -1312,7 +1398,7 @@ function createRealtimeHub({
         connection.room,
         connection.clientId,
       );
-      state.simulation.start(authoritativeCountdown);
+      state.simulation.start({ ...authoritativeCountdown, seed: randomInt(1, 2 ** 32) });
       await publish(connection.room, {
         kind: "countdown",
         payload: {
@@ -1335,12 +1421,41 @@ function createRealtimeHub({
     send(connection, { type: "rejected", code: "server_authoritative" });
   }
 
+  async function yieldIdleSeat(connection) {
+    const state = stateFor(connection.room);
+    const seat = state.players.find((player) => player.id === connection.clientId);
+    const idle = seat && Number(seat.slot) >= 0 && !seat.ready
+      && state.waiting.length > 0 && !liveRoundFor(connection.room)
+      && connectionOwnsSlot(connection.room, connection.connectionId, Number(seat.slot));
+    if (!idle) {
+      connection.idleSeatSince = 0;
+      return;
+    }
+    if (!connection.idleSeatSince) connection.idleSeatSince = now();
+    if (now() - connection.idleSeatSince < IDLE_SEAT_MS) return;
+    connection.idleSeatSince = 0;
+    const result = await presence(connection, "rotate", { loserSlots: [Number(seat.slot)] });
+    await publishRoster(connection.room, result.players || [], result.waiting || []);
+  }
+
   function scheduleHeartbeat() {
     if (heartbeatTimer !== null || !connections.size) return;
     heartbeatTimer = setTimeout(async () => {
       heartbeatTimer = null;
       const byRoom = new Map();
-      for (const connection of connections.values()) {
+      for (const connection of [...connections.values()]) {
+        if (connection.initialized && now() - connection.lastSeenAt > SILENT_CONNECTION_MS) {
+          // The server used to refresh presence for every socket it held, so a
+          // vanished device kept its seat indefinitely. A silent link is treated
+          // as cut: the seat is held briefly for a reconnect, then released.
+          connection.socket.close(4000, "Realtime link silent");
+          continue;
+        }
+        try {
+          await yieldIdleSeat(connection);
+        } catch (error) {
+          logger.error("Realtime idle seat rotation failed.", describeError(error, { room: connection.room }));
+        }
         try {
           const result = await presence(connection, "touch");
           if (!result.active) {
@@ -1392,6 +1507,8 @@ function createRealtimeHub({
       profile: null,
       resumeToken: resumeProtocol ? resumeProtocol.slice(7) : randomUUID(),
       openedAt: now(),
+      lastSeenAt: now(),
+      idleSeatSince: 0,
       initialized: false,
       rateWindow: 0,
       rateCount: 0,
@@ -1479,6 +1596,12 @@ function createRealtimeHub({
             seenAt: now(),
           }).profile,
         });
+      }
+      const live = liveRoundFor(room);
+      if (live) {
+        // Someone arriving mid-round learns the round id here; otherwise every
+        // snapshot is dropped as belonging to an unknown round.
+        send(connection, { ...live.countdown, sentAt: now() });
       }
       await publishRoster(room, result.players || [], result.waiting || []);
       scheduleHeartbeat();

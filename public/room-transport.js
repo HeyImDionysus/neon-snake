@@ -418,6 +418,7 @@
             type: "countdown-cancel",
             room: normalizedCode,
             slot: Number.isInteger(message.slot) ? message.slot : -1,
+            ...(message.reason === "forfeit" ? { reason: "forfeit" } : {}),
             sentAt: Number(message.sentAt) || now(),
           });
           return;

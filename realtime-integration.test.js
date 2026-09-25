@@ -92,15 +92,21 @@ async function main() {
     assert.equal(peer.messages.filter((message) => message.type === "countdown-cancel").length, cancellations);
     console.log("PASS spectator departure preserves active round");
 
+    // The first round must finish before another can start; with no inputs both
+    // snakes reach a wall within a few seconds.
+    await waitFor(() => host.messages.some((message) => message.type === "state" && message.state.over), "first round ends", 15_000);
+    const firstRound = stateA.state.round;
     const copied = await connect("qa-owner");
     assert.equal(copied.closed, 4003);
     console.log("PASS copied public client id cannot steal an occupied seat");
     const resumed = await connect("qa-owner", host.welcome.resumeToken);
     assert.equal(resumed.welcome?.slot, 0);
     await ready(resumed, peer);
-    const secondRound = Date.now();
-    send(resumed, { type: "countdown", round: secondRound, startsAt: Date.now() + 3_200 });
-    await waitFor(() => resumed.messages.some((message) => message.type === "countdown" && message.round === secondRound), "resumed countdown");
+    send(resumed, { type: "countdown", round: Date.now(), startsAt: Date.now() + 3_200 });
+    const secondCountdown = await waitFor(() => resumed.messages.find((message) => (
+      message.type === "countdown" && message.round > firstRound
+    )), "resumed countdown");
+    const secondRound = secondCountdown.round;
     host.socket.close();
     await waitFor(() => host.closed, "replaced socket closes");
     await waitFor(() => resumed.messages.some((message) => message.type === "state" && message.state.round === secondRound), "replacement round after old close");
@@ -224,8 +230,8 @@ async function main() {
     await waitFor(() => handoverHost.messages.filter((message) => message.type === "roster").at(-1)
       ?.players.every((player) => player.ready) && handoverHost.messages.filter((message) => message.type === "roster").at(-1)
       ?.players.length === 2, "handover players ready");
-    const handoverRound = Date.now();
-    send(handoverHost, { type: "countdown", round: handoverRound, startsAt: Date.now() + 3_200 });
+    send(handoverHost, { type: "countdown", round: Date.now(), startsAt: Date.now() + 3_200 });
+    const handoverRound = (await waitFor(() => handoverGuest.messages.find((message) => message.type === "countdown"), "handover countdown")).round;
     await waitFor(() => handoverGuest.messages.some((message) => message.type === "state" && message.state.round === handoverRound), "handover round starts");
     const replacementGuest = await connectTo(handoverRoom, "qa-handover-guest", handoverGuest.welcome.resumeToken);
     assert.equal(replacementGuest.welcome?.slot, 1, "The replacement link keeps the guest's seat");

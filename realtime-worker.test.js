@@ -472,11 +472,16 @@ async function flush() {
   assert.equal(firstHub.roomAllReady("ABC234"), true);
   assert.equal(secondHub.roomAllReady("ABC234"), true);
 
-  const round = Date.now();
-  first.message({ type: "countdown", round, startsAt: round - 86_400_000 });
+  const requestedRound = Date.now() - 86_400_000;
+  first.message({ type: "countdown", round: requestedRound, startsAt: requestedRound });
   await flush();
-  assert.ok(first.messages.some((message) => message.type === "countdown"));
-  assert.ok(second.messages.some((message) => message.type === "countdown"));
+  const issued = first.messages.find((message) => message.type === "countdown");
+  assert.ok(issued);
+  assert.ok(second.messages.some((message) => message.type === "countdown" && message.round === issued.round));
+  // The round id and start time are the server's, whatever Player 1 asked for.
+  const round = issued.round;
+  assert.notEqual(round, requestedRound);
+  assert.ok(issued.startsAt > Date.now(), "The countdown starts from the server clock");
   const simulation = firstHub._state.rooms.get("ABC234").simulation;
   assert.ok(simulation, "Player 1's Vercel Function must own the simulation");
 
@@ -501,12 +506,14 @@ async function flush() {
   simulation.tickTimer = null;
   const oldTick = simulation.tick();
   await flush();
-  const replacementRound = round + 1;
-  first.message({
-    type: "countdown",
-    round: replacementRound,
-    startsAt: replacementRound + 5_000,
-  });
+  first.message({ type: "countdown", round: round + 1, startsAt: Date.now() });
+  await flush();
+  assert.equal(firstHub._state.rooms.get("ABC234").simulation, simulation,
+    "A countdown during a live round must not restart it");
+  assert.ok(first.messages.some((message) => message.type === "rejected" && message.code === "round_in_progress"));
+  // Model the first round ending, which is what allows the next countdown.
+  firstHub._state.rooms.get("ABC234").liveRound = null;
+  first.message({ type: "countdown", round: round + 1, startsAt: Date.now() });
   await flush();
   const replacementSimulation = firstHub._state.rooms.get("ABC234").simulation;
   assert.notEqual(replacementSimulation, simulation);
@@ -836,6 +843,106 @@ async function flush() {
     assert.ok(securityErrors.some(([message]) => message === "Realtime message failed."));
   } finally {
     securityHub.close();
+  }
+
+  // Match integrity: the server owns the round, and leaving after the start
+  // concedes it instead of voiding it.
+  {
+    let clock = 1_000_000;
+    const recorded = [];
+    const integrityErrors = [];
+    const integrityPresence = createFakeRedis();
+    const integrityBus = createFakeBus();
+    const profiles = new Map([
+      ["integrity-host", { id: "111111111111111111", username: "host", displayName: "Host" }],
+      ["integrity-guest", { id: "222222222222222222", username: "guest", displayName: "Guest" }],
+    ]);
+    const integrityHub = createRealtimeHub({
+      redisCommand: async (command) => (command[0] === "SET" ? "OK" : integrityPresence(command)),
+      bus: integrityBus,
+      sessionReader: async (incoming) => ({
+        profile: profiles.get(new URL(incoming.url, "https://x").searchParams.get("clientId")),
+      }),
+      recordMatch: async (match) => { recorded.push(match); return true; },
+      now: () => clock,
+      logger: { error: (...args) => integrityErrors.push(args) },
+    });
+    try {
+      const host = new FakeSocket();
+      const guest = new FakeSocket();
+      await integrityHub.connect(host, request("NTR234", "integrity-host"));
+      await integrityHub.connect(guest, request("NTR234", "integrity-guest"));
+      host.message({ type: "ready", ready: true });
+      guest.message({ type: "ready", ready: true });
+      await flush();
+      host.message({ type: "countdown", round: 5, startsAt: 5 });
+      await flush();
+      await flush(); await flush();
+      const countdown = guest.messages.find((message) => message.type === "countdown");
+      assert.ok(countdown.round >= clock, "The round id comes from the server clock, not the client");
+      const simulation = integrityHub._state.rooms.get("NTR234").simulation;
+      assert.notEqual(simulation.game.signalCursor >>> 0, (simulation.roomSeed() ^ 5) >>> 0,
+        "Player 1's requested round must not choose the food seed");
+
+      // Leaving once the round has started concedes it.
+      clock = countdown.startsAt + 1_000;
+      guest.emit("close", 1000);
+      await flush();
+      assert.equal(recorded.length, 1, "Leaving after the start records a result");
+      assert.equal(recorded[0].winnerUserId, "111111111111111111", "The player who stayed wins by forfeit");
+      assert.equal(recorded[0].eventId, `NTR234:${countdown.round}`);
+      assert.ok(host.messages.some((message) => (
+        message.type === "countdown-cancel" && message.reason === "forfeit" && message.slot === 1
+      )), "The remaining player is told the round was forfeited");
+
+      // A late arrival learns about a live round from its welcome.
+      const late = new FakeSocket();
+      const lateGuest = new FakeSocket();
+      await integrityHub.connect(lateGuest, request("NTR234", "integrity-guest"));
+      host.message({ type: "ready", ready: true });
+      lateGuest.message({ type: "ready", ready: true });
+      await flush();
+      host.message({ type: "countdown", round: 6, startsAt: 6 });
+      await flush();
+      const secondCountdown = lateGuest.messages.filter((message) => message.type === "countdown").at(-1);
+      assert.ok(secondCountdown.round > countdown.round);
+      await integrityHub.connect(late, request("NTR234", "integrity-watcher"));
+      assert.ok(late.messages.some((message) => (
+        message.type === "countdown" && message.round === secondCountdown.round
+      )), "A spectator joining mid-round receives the live round");
+
+      // Un-readying before the start cancels without a result.
+      lateGuest.message({ type: "ready", ready: false });
+      await flush();
+      assert.equal(recorded.length, 1, "A pre-start departure records nothing");
+    } finally {
+      integrityHub.close();
+    }
+  }
+
+  // A seated socket that stops talking loses its seat instead of holding it forever.
+  {
+    let clock = 5_000_000;
+    const silentHub = createRealtimeHub({
+      redisCommand: createFakeRedis(), bus: createFakeBus(), sessionReader: async () => null,
+      now: () => clock, logger: { error() {} },
+    });
+    const originalSetTimeout = global.setTimeout;
+    let heartbeat = null;
+    global.setTimeout = (callback, delay) => {
+      if (delay === 10_000) { heartbeat = callback; return 0; }
+      return originalSetTimeout(callback, delay);
+    };
+    try {
+      const silent = new FakeSocket();
+      await silentHub.connect(silent, request("SLN234", "silent-client"));
+      clock += 50_000;
+      await heartbeat();
+      assert.ok(silent.closeCalls.some(({ code }) => code === 4000), "A silent link is closed as cut");
+    } finally {
+      global.setTimeout = originalSetTimeout;
+      silentHub.close();
+    }
   }
 
   firstHub.close();
