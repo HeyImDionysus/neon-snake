@@ -56,8 +56,8 @@ function redisHarness() {
     if (verb === "HGETALL") return hashes.get(key) || [];
     if (verb === "EVAL" && String(key).includes("ZREVRANGE")) {
       return [
-        "123456789012345678", "7", "3", "2", "1785124800000", "1",
-        "223456789012345678", "0", "0", "0", "1785124800400", "0",
+        "123456789012345678", "7", "3", "2", "1785124800000", "1", "1043.6",
+        "223456789012345678", "0", "0", "0", "1785124800400", "0", "",
       ];
     }
     throw new Error(`Unsupported fake Redis command: ${verb}`);
@@ -193,11 +193,13 @@ function redisHarness() {
   assert.equal(entry.online, true);
   assert.equal(entry.rank, 1);
   assert.deepEqual(entry.record, { wins: 7, losses: 3, draws: 2 });
+  assert.equal(entry.rating, 1044, "The public ranking is the rating, rounded for display");
   const activeWithoutWins = JSON.parse(leaderboardResponse.body).entries[1];
   assert.equal(activeWithoutWins.username, "new_player");
   assert.equal(activeWithoutWins.rank, null);
   assert.equal(activeWithoutWins.online, true);
   assert.deepEqual(activeWithoutWins.record, { wins: 0, losses: 0, draws: 0 });
+  assert.equal(activeWithoutWins.rating, null, "An unrated live player has no rating yet");
 
   process.stdout.write("PASS public profiles, safe customization, visible usernames, activity, and records stay server-backed\n");
 })().catch((error) => {

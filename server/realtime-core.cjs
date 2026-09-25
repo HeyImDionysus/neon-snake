@@ -769,7 +769,7 @@ class RoomSimulation {
     if (game.over) {
       try {
         await publishing;
-        await this.hub.recordMatch(this.room, game.round, result);
+        await this.hub.recordMatch(this.room, game.round, { ...result, startsAt: game.startsAt });
         if (this.hub.rotateRound) await this.hub.rotateRound(this.room, result);
         else await this.hub.resetReady(this.room);
       } catch (error) {
@@ -911,7 +911,7 @@ function createRealtimeHub({
       winner: loserSlot === 0 ? "opponent" : "player",
       crashes: { player: loserSlot === 0 ? "forfeit" : null, opponent: loserSlot === 1 ? "forfeit" : null },
     };
-    await recordCompletedMatch(room, live.round, result);
+    await recordCompletedMatch(room, live.round, { ...result, startsAt: live.startsAt });
     await publish(room, { kind: "cancel", slot: loserSlot, reason: "forfeit", round: live.round });
     return result;
   }
@@ -1209,6 +1209,7 @@ function createRealtimeHub({
         secondUserId: players[1].userId,
         winnerUserId,
         endedAt: now(),
+        durationMs: Number.isFinite(Number(result.startsAt)) ? Math.max(0, now() - Number(result.startsAt)) : 0,
       }, {
         environment,
         fetchImpl,

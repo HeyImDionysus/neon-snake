@@ -110,7 +110,7 @@
     if (!leaderboard) return;
     leaderboard.replaceChildren();
     if (!entries.length) {
-      leaderboard.append(element("li", "empty-run", "No verified live wins yet."));
+      leaderboard.append(element("li", "empty-run", "No rated live matches yet."));
       return;
     }
     entries.forEach((entry) => {
@@ -148,9 +148,10 @@
       if (entry.online) player.append(element("i", "online-now", "LIVE"));
       const record = entry.record || { wins: entry.wins || 0, losses: 0, draws: 0 };
       const result = element("span", "online-record");
+      // Ranked by rating; the win/loss record is shown beneath it.
       result.append(
-        element("strong", "", `${String(record.wins || 0).padStart(2, "0")}W`),
-        element("small", "", `${record.losses || 0}L · ${record.draws || 0}D`),
+        element("strong", "", Number.isFinite(entry.rating) ? String(entry.rating) : "—"),
+        element("small", "", `${record.wins || 0}W · ${record.losses || 0}L · ${record.draws || 0}D`),
       );
       item.append(rank, player, result);
       leaderboard.append(item);
@@ -222,7 +223,7 @@
       const entries = Array.isArray(payload.entries) ? payload.entries : [];
       renderLeaderboard(entries);
       renderLivePlayers(entries);
-      if (status) status.textContent = "SERVER-VERIFIED LIVE WINS";
+      if (status) status.textContent = "RATED SERVER-RUN MATCHES";
     } catch {
       renderLeaderboard([]);
       renderLivePlayers([]);

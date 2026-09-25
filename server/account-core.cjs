@@ -20,47 +20,78 @@ const ACTIVITY_TTL_SECONDS = 35;
 const PROFILE_ACCENTS = new Set(["acid", "cyan", "violet", "magenta", "ember"]);
 const PROFILE_MODES = new Set(["classic", "portal", "rush", "canvas", "live"]);
 const PROFILE_SNAKES = new Set(["signal", "spectral", "glass", "ember"]);
+// Results update a W/L/D record and an Elo rating; the public ranking is the
+// rating. Ranking by raw win count let two accounts that one person controls
+// farm ~800 wins an hour. Under Elo, beating the same weaker account quickly
+// stops paying, and on top of that only the first few results per pair of
+// players per day, and only rounds of a real length, move the rating.
+const RATING_START = 1000;
+const RATING_KEY = "neon-snake:leaderboard:rating";
+const LEGACY_WINS_KEY = "neon-snake:leaderboard:duel";
+const RATING_K = 32;
+const RATED_RESULTS_PER_PAIR_PER_DAY = 3;
+const MIN_RATED_ROUND_MS = 10_000;
 const MATCH_SCRIPT = String.raw`
 local eventKey = KEYS[1]
-local leaderboardKey = KEYS[2]
+local ratingKey = KEYS[2]
 local winnerStatsKey = KEYS[3]
 local loserStatsKey = KEYS[4]
+local pairKey = KEYS[5]
 local draw = ARGV[1] == "1"
 local winner = ARGV[2]
 local loser = ARGV[3]
+local longEnough = ARGV[4] == "1"
 if redis.call("SET", eventKey, "1", "NX", "EX", 604800) == false then
   return 0
 end
-if winner ~= "" then redis.call("ZADD", leaderboardKey, "NX", 0, winner) end
-if loser ~= "" then redis.call("ZADD", leaderboardKey, "NX", 0, loser) end
+redis.call("ZADD", ratingKey, "NX", ${RATING_START}, winner)
+redis.call("ZADD", ratingKey, "NX", ${RATING_START}, loser)
 if draw then
-  if winner ~= "" then redis.call("HINCRBY", winnerStatsKey, "draws", 1) end
-  if loser ~= "" then redis.call("HINCRBY", loserStatsKey, "draws", 1) end
+  redis.call("HINCRBY", winnerStatsKey, "draws", 1)
+  redis.call("HINCRBY", loserStatsKey, "draws", 1)
 else
-  redis.call("ZINCRBY", leaderboardKey, 1, winner)
   redis.call("HINCRBY", winnerStatsKey, "wins", 1)
   redis.call("HINCRBY", loserStatsKey, "losses", 1)
 end
-return 1
+local pairCount = redis.call("INCR", pairKey)
+redis.call("EXPIRE", pairKey, 172800)
+if not longEnough or pairCount > ${RATED_RESULTS_PER_PAIR_PER_DAY} then
+  return 1
+end
+local winnerRating = tonumber(redis.call("ZSCORE", ratingKey, winner))
+local loserRating = tonumber(redis.call("ZSCORE", ratingKey, loser))
+local expected = 1 / (1 + 10 ^ ((loserRating - winnerRating) / 400))
+local score = draw and 0.5 or 1
+local change = ${RATING_K} * (score - expected)
+redis.call("ZADD", ratingKey, winnerRating + change, winner)
+redis.call("ZADD", ratingKey, loserRating - change, loser)
+return 2
 `;
 const LEADERBOARD_SCRIPT = String.raw`
+if redis.call("EXISTS", KEYS[1]) == 0 then
+  -- Players ranked under the old win count keep a place on the rating board.
+  for _, userId in ipairs(redis.call("ZRANGE", KEYS[3], 0, -1)) do
+    redis.call("ZADD", KEYS[1], "NX", ${RATING_START}, userId)
+  end
+end
 local rows = redis.call("ZREVRANGE", KEYS[1], 0, 49, "WITHSCORES")
 local active = redis.call("ZREVRANGEBYSCORE", KEYS[2], ARGV[1], ARGV[2], "LIMIT", 0, 50)
 local result = {}
 local seen = {}
 local rank = 0
 
-local function append(userId, wins, playerRank)
+local function append(userId, rating, playerRank)
   if seen[userId] then return end
   seen[userId] = true
   local statsKey = "neon-snake:stats:" .. userId
   local activityKey = "neon-snake:activity:" .. userId
   table.insert(result, userId)
-  table.insert(result, wins)
+  table.insert(result, redis.call("HGET", statsKey, "wins") or "0")
   table.insert(result, redis.call("HGET", statsKey, "losses") or "0")
   table.insert(result, redis.call("HGET", statsKey, "draws") or "0")
   table.insert(result, redis.call("GET", activityKey) or "")
   table.insert(result, tostring(playerRank))
+  table.insert(result, rating or "")
 end
 
 for index = 1, #rows, 2 do
@@ -70,7 +101,7 @@ for index = 1, #rows, 2 do
 end
 
 for _, userId in ipairs(active) do
-  append(userId, redis.call("ZSCORE", KEYS[1], userId) or "0", 0)
+  append(userId, redis.call("ZSCORE", KEYS[1], userId) or "", 0)
 end
 return result
 `;
@@ -424,6 +455,7 @@ async function recordMatchResult({
   secondUserId,
   winnerUserId,
   endedAt,
+  durationMs = 0,
 }, options = {}) {
   const now = options.now || (() => Date.now());
   const first = String(firstUserId || "");
@@ -443,20 +475,24 @@ async function recordMatchResult({
     throw new TypeError("Match result is invalid.");
   }
   const loser = winner ? (winner === first ? second : first) : second;
+  const pair = [first, second].sort().join(":");
+  const day = new Date(timestamp).toISOString().slice(0, 10);
   const runRedis = createRedisRunner(options);
   const updated = await runRedis([
     "EVAL",
     MATCH_SCRIPT,
-    "4",
+    "5",
     `neon-snake:match:${digest(eventId)}`,
-    "neon-snake:leaderboard:duel",
+    RATING_KEY,
     `neon-snake:stats:${winner || first}`,
     `neon-snake:stats:${loser}`,
+    `neon-snake:pair:${pair}:${day}`,
     winner ? "0" : "1",
     winner || first,
     loser,
+    Number(durationMs) >= MIN_RATED_ROUND_MS ? "1" : "0",
   ]);
-  return Number(updated) === 1;
+  return Number(updated) >= 1;
 }
 
 function createAccountHandler({
@@ -630,7 +666,7 @@ function createAccountHandler({
             if (!userId) {
               const leaderboardIds = await runRedis([
                 "ZREVRANGE",
-                "neon-snake:leaderboard:duel",
+                RATING_KEY,
                 "0",
                 "49",
               ]);
@@ -709,14 +745,15 @@ function createAccountHandler({
         const rows = await runRedis([
           "EVAL",
           LEADERBOARD_SCRIPT,
-          "2",
-          "neon-snake:leaderboard:duel",
+          "3",
+          RATING_KEY,
           "neon-snake:players:active",
+          LEGACY_WINS_KEY,
           String(now()),
           String(now() - ACTIVITY_TTL_SECONDS * 1_000),
         ]);
         const pairs = Array.isArray(rows) ? rows : [];
-        const stride = 6;
+        const stride = 7;
         const userIds = pairs.filter((_, index) => index % stride === 0);
         const profiles = userIds.length
           ? await runRedis(["MGET", ...userIds.map((id) => `neon-snake:profile:${id}`)])
@@ -734,6 +771,10 @@ function createAccountHandler({
           const draws = Number(pairs[index * stride + 3]) || 0;
           const activeAt = Number(pairs[index * stride + 4]) || 0;
           const rank = Number(pairs[index * stride + 5]) || null;
+          const ratingValue = Number(pairs[index * stride + 6]);
+          const rating = pairs[index * stride + 6] !== "" && Number.isFinite(ratingValue)
+            ? Math.round(ratingValue)
+            : null;
           return {
             rank,
             displayName: profile?.displayName || "Discord Player",
@@ -744,11 +785,12 @@ function createAccountHandler({
             favoriteMode: customization.favoriteMode,
             snakeStyle: customization.snakeStyle,
             wins,
+            rating,
             record: { wins, losses, draws },
             online: activeAt > 0 && now() - activeAt <= ACTIVITY_TTL_SECONDS * 1_000,
           };
         });
-        return sendJson(response, 200, { entries, verified: true, metric: "server-authoritative-wins" });
+        return sendJson(response, 200, { entries, verified: true, metric: "server-authoritative-rating" });
       }
 
       return sendJson(response, 404, { error: "not_found" });

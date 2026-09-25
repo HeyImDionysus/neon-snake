@@ -82,8 +82,17 @@ const server = http.createServer((request, response) => {
   fs.createReadStream(filePath).pipe(response);
 });
 
+// Port 0 lets the OS pick a free port. Fixed ports hashed into 41000-41999 sat
+// inside Linux's ephemeral range and collided on CI. The chosen port is
+// printed, and written to FIXTURE_PORT_FILE for synchronous callers.
+server.on("error", (error) => {
+  process.stderr.write(`Browser fixture failed: ${error.message}\n`);
+  process.exit(1);
+});
 server.listen(port, "127.0.0.1", () => {
-  process.stdout.write(`READY ${port}\n`);
+  const actualPort = server.address().port;
+  if (process.env.FIXTURE_PORT_FILE) fs.writeFileSync(process.env.FIXTURE_PORT_FILE, String(actualPort));
+  process.stdout.write(`READY ${actualPort}\n`);
 });
 
 for (const signal of ["SIGINT", "SIGTERM"]) {

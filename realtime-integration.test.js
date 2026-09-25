@@ -5,6 +5,7 @@ const { randomBytes, createHash } = require("node:crypto");
 const { WebSocket } = require("ws");
 const { PRESENCE_SCRIPT } = require("./server/realtime-core.cjs");
 const { createFixtureServer, redisConnection } = require("./realtime-fixture-server.cjs");
+const { LEADERBOARD_SCRIPT, MATCH_SCRIPT } = require("./server/account-core.cjs");
 const transports = require("./public/room-transport.js");
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -265,6 +266,39 @@ async function main() {
     assert.deepEqual(handedOver.waiting.map((player) => player.id), queueBefore,
       "A handover must not send a waiting participant to the back of the line");
     console.log("PASS a waiting participant's handover keeps their place in line");
+
+    // Ratings, not win counts, rank players, so farming a second account
+    // stops paying: Elo shrinks the gain, and only three results per pair per
+    // day - and only rounds of real length - move the rating at all.
+    const ns = `neon-snake:qa:${handoverRoom}`;
+    const ratingKey = `${ns}:rating`;
+    const main = "300000000000000001";
+    const alt = "300000000000000002";
+    const match = async (index, { longEnough = true, winner = main } = {}) => redis.command([
+      "EVAL", MATCH_SCRIPT, 5, `${ns}:match:${index}`, ratingKey,
+      `${ns}:stats:${winner}`, `${ns}:stats:${winner === main ? alt : main}`, `${ns}:pair`,
+      "0", winner, winner === main ? alt : main, longEnough ? "1" : "0",
+    ]);
+    assert.equal(await match(1, { longEnough: false }), 1, "A short round counts toward the record only");
+    assert.equal(Number(await redis.command(["ZSCORE", ratingKey, main])), 1000);
+    assert.equal(await match(1), 0, "A duplicate result is ignored");
+    assert.equal(await match(2), 2);
+    const afterFirst = Number(await redis.command(["ZSCORE", ratingKey, main]));
+    assert.equal(afterFirst, 1016, "An even match moves the rating by K/2");
+    assert.equal(await match(3), 2);
+    const gain = Number(await redis.command(["ZSCORE", ratingKey, main])) - afterFirst;
+    assert.ok(gain > 0 && gain < 16, "Beating the same weaker account pays less each time");
+    assert.equal(await match(4), 1, "Past three results per pair per day, the rating stops moving");
+    assert.equal(await match(5), 1);
+    const wins = Number(await redis.command(["HGET", `${ns}:stats:${main}`, "wins"]));
+    assert.equal(wins, 5, "Every result still counts toward the public record");
+    await redis.command(["ZADD", `${ns}:legacy`, "7", "300000000000000003"]);
+    const rows = await redis.command(["EVAL", LEADERBOARD_SCRIPT, 3, `${ns}:fresh-rating`, `${ns}:active`, `${ns}:legacy`, "0", "0"]);
+    assert.equal(rows[0], "300000000000000003", "A player ranked under the old win count keeps a place");
+    assert.equal(Number(rows[6]), 1000);
+    await redis.command(["DEL", ratingKey, `${ns}:pair`, `${ns}:stats:${main}`, `${ns}:stats:${alt}`, `${ns}:legacy`, `${ns}:fresh-rating`,
+      ...[1, 2, 3, 4, 5].map((index) => `${ns}:match:${index}`)]);
+    console.log("PASS real Lua ratings resist farming while every result stays on the record");
   } finally {
     promotedTransport?.close();
     clients.forEach((client) => client.socket.close());
