@@ -21,9 +21,9 @@ got `NaN`, and kept animating through every pause. Replace any earlier build.
 
 ## Android (live wallpaper)
 
-1. If an earlier build is installed, uninstall it first. Every build so far was
-   signed with a different key, and Android refuses to update an app whose
-   signing key changed. Builds from the release workflow will share one key.
+1. If an earlier build is installed, uninstall it first. Each build is signed
+   with a different key, and Android refuses to update an app whose signing
+   key changed.
 2. Download the APK and allow installation from your browser when asked.
 3. Open **Neon Snake Wallpaper** and tap **Set wallpaper**.
 

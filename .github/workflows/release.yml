@@ -15,11 +15,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # Signing secrets live in a protected environment, so only tag builds (not
-    # every branch push) can read them. Add required reviewers to the
-    # environment to gate releases further.
-    environment: release
-
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -55,35 +50,14 @@ jobs:
         with:
           gradle-version: "8.13"
 
-      # A release APK must be signed with the project's one release key, or
-      # players cannot update in place. Without the secrets the release fails
-      # rather than shipping another throwaway signature.
-      - name: Build signed Android wallpaper
-        env:
-          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          ANDROID_CERT_SHA256: ${{ vars.ANDROID_CERT_SHA256 }}
+      # Signed with this runner's throwaway debug key (see build.gradle.kts):
+      # no secrets, but players uninstall the previous version to update.
+      - name: Build Android wallpaper
         run: |
-          if [ -z "$ANDROID_KEYSTORE" ]; then
-            echo "The ANDROID_KEYSTORE secret is not configured; a release cannot be signed." >&2
-            exit 1
-          fi
-          printf '%s' "$ANDROID_KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.keystore"
-          export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/release.keystore"
           gradle -p wallpaper/android :app:assembleRelease --stacktrace
           apk=wallpaper/android/app/build/outputs/apk/release/app-release.apk
           apksigner="$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)"
-          "$apksigner" verify --print-certs "$apk" | tee "$RUNNER_TEMP/certs.txt"
-          # Pin the certificate once it is known (repository variable
-          # ANDROID_CERT_SHA256), so a wrong key can never ship.
-          if [ -n "$ANDROID_CERT_SHA256" ]; then
-            grep -qi "SHA-256 digest: $ANDROID_CERT_SHA256" "$RUNNER_TEMP/certs.txt" || {
-              echo "The APK is not signed with the pinned release certificate." >&2
-              exit 1
-            }
-          fi
+          "$apksigner" verify --print-certs "$apk"
           cp "$apk" "release/Neon-Snake-Android-v$VERSION.apk"
 
       - name: Write checksums

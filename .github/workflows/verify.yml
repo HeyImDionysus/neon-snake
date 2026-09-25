@@ -108,9 +108,8 @@ jobs:
         with:
           gradle-version: "8.13"
 
-      # Every push proves the Android project compiles. Signed release builds
-      # happen only in release.yml, inside the protected "release"
-      # environment, so branch pushes never see the signing secrets.
+      # Every push proves the Android project compiles; release.yml builds the
+      # published APK when a version tag is pushed.
       - name: Build Android wallpaper
         run: gradle -p wallpaper/android :app:assembleDebug --stacktrace
 
