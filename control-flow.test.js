@@ -144,6 +144,27 @@ const tests = [
     context.handleKeyboard(event("Escape", { target: field }));
     assert.deepEqual(calls, [], "text entry keeps the keyboard");
   }],
+  ["bests are kept per mode and Canvas never sets one", () => {
+    const context = { Number, Math };
+    vm.runInNewContext(`const SCORED_MODES = ["classic", "portal", "rush"];\n${functionBody("bestsFrom")}\n${functionBody("bestFor")}\nthis.bestsFrom = bestsFrom; this.bestFor = bestFor;`, context);
+    const bests = context.bestsFrom(undefined, [
+      { score: 900, mode: "portal" }, { score: 400, mode: "classic" }, { score: 99999, mode: "canvas" }, { score: 700, mode: "portal" },
+    ]);
+    assert.equal(bests.portal, 900, "Profiles saved before per-mode bests are seeded from their run history");
+    assert.equal(bests.classic, 400);
+    assert.equal(bests.rush, 0);
+    assert.equal("canvas" in bests, false, "Endless Canvas runs have no best to inflate");
+    context.profile = { bests };
+    assert.equal(context.bestFor("canvas"), null);
+    assert.equal(context.bestFor("portal"), 900);
+  }],
+  ["Decision DNA leaves the tick unless the Lens is already showing the planner", () => {
+    const body = functionBody("recordDecision");
+    assert.match(body, /if \(lensVisible\(\)\)/);
+    assert.match(body, /decisionAnalyst\.record\(/);
+    assert.ok(body.indexOf("evaluatePlannerState") < body.indexOf("decisionAnalyst.record("),
+      "The planner runs on the main thread only in the Lens branch");
+  }],
   ["Activity challenge URLs preserve Discord launch identity", () => {
     const initial = "https://1531235601070686228.discordsays.com/?frame_id=frame-1&instance_id=instance-1&guild_id=guild-1&signal=OLD234&mode=portal&pace=steady";
     const context = {

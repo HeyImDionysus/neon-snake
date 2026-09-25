@@ -57,7 +57,7 @@
   border: 1px solid rgba(173,255,102,.25);
   color: var(--acid);
   background: rgba(4, 9, 5, .7);
-  font: 700 8px var(--mono);
+  font: 700 10px var(--mono);
   letter-spacing: .15em;
 }
 
@@ -74,7 +74,7 @@
 .preview-controls legend,
 .preview-range strong {
   color: var(--acid);
-  font: 700 8px var(--mono);
+  font: 700 10px var(--mono);
   letter-spacing: .14em;
 }
 
@@ -100,7 +100,7 @@
   border: 1px solid var(--line);
   color: var(--dim);
   background: #0a110d;
-  font: 700 8px var(--mono);
+  font: 700 10px var(--mono);
   letter-spacing: .08em;
   cursor: pointer;
 }
@@ -114,14 +114,14 @@
 .preview-range { display: grid; gap: 10px; }
 .preview-range > span { display: flex; justify-content: space-between; gap: 12px; }
 .preview-range strong { color: var(--dim); }
-.preview-range output { color: var(--paper); font: 700 8px var(--mono); letter-spacing: .08em; }
+.preview-range output { color: var(--paper); font: 700 10px var(--mono); letter-spacing: .08em; }
 .preview-range input { width: 100%; accent-color: var(--acid); }
 .preview-control-status {
   margin: 0;
   padding-top: 14px;
   border-top: 1px solid var(--line);
   color: var(--acid);
-  font: 700 8px var(--mono);
+  font: 700 10px var(--mono);
   letter-spacing: .1em;
 }
 
@@ -160,7 +160,7 @@
 
 .download-platform header p,
 .download-platform header h2 { margin: 0; }
-.download-platform header p { color: var(--acid); font: 700 9px var(--mono); letter-spacing: .16em; }
+.download-platform header p { color: var(--acid); font: 700 11px var(--mono); letter-spacing: .16em; }
 .download-platform header h2 { margin-top: 5px; font-size: clamp(1.7rem, 3vw, 2.8rem); letter-spacing: -.04em; }
 .download-platform > p { margin: 28px 0 0; color: var(--muted); line-height: 1.65; }
 .download-platform ol { margin: 28px 0; padding: 0; list-style: none; counter-reset: step; }
@@ -177,7 +177,7 @@
   position: absolute;
   left: 0;
   color: var(--dim);
-  font: 700 9px var(--mono);
+  font: 700 11px var(--mono);
 }
 
 .download-button {
@@ -193,7 +193,7 @@
   transition: filter .16s ease, transform .16s ease;
 }
 
-.download-button span:last-child { font: 700 8px var(--mono); letter-spacing: .1em; }
+.download-button span:last-child { font: 700 10px var(--mono); letter-spacing: .1em; }
 .download-button:hover { filter: brightness(1.1); transform: translateY(-2px); }
 .download-button:focus-visible { outline: 3px solid var(--paper); outline-offset: 4px; }
 .download-platform.download-started .download-button {
@@ -207,14 +207,14 @@
   min-height: 18px;
   margin: 10px 0 0;
   color: var(--dim);
-  font: 700 7px/1.5 var(--mono);
+  font: 700 10px/1.5 var(--mono);
   letter-spacing: .11em;
 }
 .download-started .download-status { color: var(--paper); }
 .download-hash {
   margin: 6px 0 0;
   color: var(--dim);
-  font: 700 9px/1.5 var(--mono);
+  font: 700 11px/1.5 var(--mono);
   letter-spacing: .06em;
 }
 .download-hash code {
@@ -231,7 +231,7 @@
   gap: 12px;
   margin: 0 0 10px;
   color: var(--dim);
-  font: 700 7px var(--mono);
+  font: 700 10px var(--mono);
   letter-spacing: .11em;
 }
 .download-meta span:last-child { color: var(--paper); text-align: right; }
@@ -250,7 +250,7 @@
   border: 1px solid var(--line);
   border-top: 0;
   color: var(--dim);
-  font: 700 8px var(--mono);
+  font: 700 10px var(--mono);
   letter-spacing: .12em;
 }
 .download-proof a { margin-left: auto; color: var(--paper); text-decoration: none; }

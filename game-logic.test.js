@@ -695,10 +695,12 @@ const tests = [
       style: "UNREAD",
       summary: "Complete a run to reveal your decision pattern.",
     });
-    assert.equal(rules.decisionProfile({ decisions: 10, matches: 8, spaceRatioTotal: 9, riskTurns: 1 }).style, "TACTICIAN");
-    assert.equal(rules.decisionProfile({ decisions: 10, matches: 2, spaceRatioTotal: 7, riskTurns: 4 }).style, "DAREDEVIL");
-    assert.equal(rules.decisionProfile({ decisions: 10, matches: 2, spaceRatioTotal: 9, riskTurns: 1 }).style, "EXPLORER");
-    assert.equal(rules.decisionProfile({ decisions: 10, matches: 4, spaceRatioTotal: 7, riskTurns: 1 }).style, "HYBRID");
+    assert.equal(rules.decisionProfile({ decisions: 40, matches: 32, spaceRatioTotal: 36, riskTurns: 4 }).style, "TACTICIAN");
+    assert.equal(rules.decisionProfile({ decisions: 40, matches: 8, spaceRatioTotal: 28, riskTurns: 16 }).style, "DAREDEVIL");
+    assert.equal(rules.decisionProfile({ decisions: 40, matches: 8, spaceRatioTotal: 36, riskTurns: 4 }).style, "EXPLORER");
+    assert.equal(rules.decisionProfile({ decisions: 40, matches: 16, spaceRatioTotal: 28, riskTurns: 4 }).style, "HYBRID");
+    assert.equal(rules.decisionProfile({ decisions: 12, matches: 12, spaceRatioTotal: 12, riskTurns: 0 }).style, "TOO SHORT",
+      "A few seconds of play is not labelled with a style");
   }],
 ];
 

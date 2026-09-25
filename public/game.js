@@ -1,6 +1,8 @@
 "use strict";
 
 const Rules = window.SnakeRules;
+// The ?v= stamp this script was loaded with, reused for the Decision DNA worker.
+const SCRIPT_SEARCH = document.currentScript ? new URL(document.currentScript.src).search : "";
 const activityQuery = new URLSearchParams(location.search);
 const activityEmbedded = activityQuery.has("frame_id");
 const ACTIVITY_PIXEL_RATIO_CAP = 1.25;
@@ -182,7 +184,11 @@ let lensEnabled = getStored("neon-snake-lens", "false") === "true";
 let profile = loadProfile();
 let runSignal = "";
 let signalRandomState = 0;
-let decisionStats = { decisions: 0, matches: 0, spaceRatioTotal: 0, riskTurns: 0 };
+const decisionAnalyst = createDecisionAnalyst();
+// The first run of a visit counts down from three; retries count one beat.
+// Snake runs end often, and a two-second wait before every retry was the
+// slowest part of trying again.
+let runsThisVisit = 0;
 let lastDecisionProfile = Rules.decisionProfile();
 
 function getStored(key, fallback) {
@@ -203,15 +209,17 @@ function setStored(key, value) {
 
 function loadProfile() {
   const legacyBest = Number(getStored("neon-snake-best", "0")) || 0;
-  const fallback = { best: legacyBest, runs: 0, longest: 3, topRuns: [], replays: {} };
+  const fallback = { best: legacyBest, bests: {}, runs: 0, longest: 3, topRuns: [], replays: {} };
   try {
     const saved = JSON.parse(localStorage.getItem("neon-snake-profile") || "null");
     if (!saved) return fallback;
+    const topRuns = Rules.sortedTopRuns(Array.isArray(saved?.topRuns) ? saved.topRuns : []);
     return {
       best: Math.max(legacyBest, Number(saved.best) || 0),
+      bests: bestsFrom(saved.bests, topRuns),
       runs: Number(saved?.runs) || 0,
       longest: Math.max(3, Number(saved?.longest) || 3),
-      topRuns: Rules.sortedTopRuns(Array.isArray(saved?.topRuns) ? saved.topRuns : []),
+      topRuns,
       replays: {
         classic: Rules.normalizeReplay(saved?.replays?.classic, GRID),
         portal: Rules.normalizeReplay(saved?.replays?.portal, GRID),
@@ -221,6 +229,31 @@ function loadProfile() {
   } catch {
     return fallback;
   }
+}
+
+// Bests are kept per mode: one number shared by Classic, Portal and Rush
+// compared runs with different rules, and endless Canvas runs, where nothing
+// can end the run, inflated it. Profiles saved before this seed each mode's
+// best from the top-run history, which records the mode of every run.
+const SCORED_MODES = ["classic", "portal", "rush"];
+
+function bestsFrom(saved, topRuns) {
+  const bests = {};
+  SCORED_MODES.forEach((mode) => {
+    const fromHistory = topRuns.filter((run) => run.mode === mode).reduce((best, run) => Math.max(best, Number(run.score) || 0), 0);
+    bests[mode] = Math.max(Number(saved?.[mode]) || 0, fromHistory);
+  });
+  return bests;
+}
+
+function bestFor(mode) {
+  return SCORED_MODES.includes(mode) ? Number(profile.bests?.[mode]) || 0 : null;
+}
+
+function renderBest() {
+  const best = bestFor(activeMode);
+  bestEl.textContent = best === null ? "—" : formatScore(best);
+  bestEl.previousElementSibling.textContent = best === null ? "BEST" : `BEST · ${activeMode.toUpperCase()}`;
 }
 
 function saveProfile() {
@@ -361,7 +394,7 @@ function resetRun() {
   autopilotPlan = [];
   autopilotPlanMode = "";
   autopilotPlanTarget = "";
-  decisionStats = { decisions: 0, matches: 0, spaceRatioTotal: 0, riskTurns: 0 };
+  decisionAnalyst.reset();
   lastDecisionProfile = Rules.decisionProfile();
   decisionReport.hidden = true;
   canvasMarks = [];
@@ -1176,14 +1209,102 @@ function tick(now = performance.now()) {
   ) planAiMove();
 }
 
+// Decision DNA compares every player step with the Autopilot planner. The
+// planner used to run here on every tick whether or not anyone looked, which
+// made fast late-game runs skip cells on phones. Steps now go to a worker;
+// only when the Decision Lens is showing (and has evaluated the planner for
+// display anyway) is a step scored on the main thread.
+function renderDecisionReport() {
+  decisionStyle.textContent = lastDecisionProfile.style;
+  decisionMatch.textContent = `${lastDecisionProfile.alignment}%`;
+  decisionSpace.textContent = `${lastDecisionProfile.spaceKept}%`;
+  decisionRisk.textContent = String(lastDecisionProfile.riskTurns).padStart(2, "0");
+  decisionSummary.textContent = lastDecisionProfile.summary;
+  decisionReport.hidden = false;
+}
+
 function recordDecision(effectiveMode) {
-  evaluatePlannerState(effectiveMode);
-  const comparison = Rules.compareDecision(aiEvaluations, queuedDirection);
-  if (!comparison) return;
-  decisionStats.decisions += 1;
-  decisionStats.matches += comparison.matched ? 1 : 0;
-  decisionStats.spaceRatioTotal += comparison.spaceRatio;
-  decisionStats.riskTurns += comparison.risk ? 1 : 0;
+  if (lensVisible()) {
+    evaluatePlannerState(effectiveMode);
+    decisionAnalyst.score(aiEvaluations, queuedDirection);
+    return;
+  }
+  decisionAnalyst.record({ snake, direction, food, mode: effectiveMode, choice: queuedDirection });
+}
+
+function createDecisionAnalyst() {
+  const empty = () => ({ decisions: 0, matches: 0, spaceRatioTotal: 0, riskTurns: 0 });
+  let run = 0;
+  let local = empty();
+  let worker = null;
+  const waiting = new Map();
+  try {
+    worker = new Worker(`decision-worker.js${SCRIPT_SEARCH}`);
+    worker.addEventListener("message", ({ data }) => {
+      if (data?.type !== "report") return;
+      waiting.get(data.run)?.(data.stats);
+      waiting.delete(data.run);
+    });
+    // If the worker cannot start, steps are scored inline from then on and any
+    // report still waiting settles with what the main thread counted.
+    worker.addEventListener("error", () => {
+      worker = null;
+      waiting.forEach((resolve) => resolve(empty()));
+      waiting.clear();
+    });
+  } catch {
+    worker = null;
+  }
+
+  function score(evaluations, choice) {
+    const comparison = Rules.compareDecision(evaluations, choice);
+    if (!comparison) return;
+    local.decisions += 1;
+    local.matches += comparison.matched ? 1 : 0;
+    local.spaceRatioTotal += comparison.spaceRatio;
+    local.riskTurns += comparison.risk ? 1 : 0;
+  }
+
+  return {
+    reset() {
+      run += 1;
+      local = empty();
+      worker?.postMessage({ type: "reset", run, candidates: DIRECTION_OPTIONS, gridSize: GRID });
+    },
+    score,
+    record(step) {
+      if (worker) {
+        worker.postMessage({ type: "step", run, ...step });
+        return;
+      }
+      score(Rules.evaluateMoves({
+        snake: step.snake,
+        direction: step.direction,
+        food: step.food,
+        mode: step.mode,
+        gridSize: GRID,
+        candidates: DIRECTION_OPTIONS,
+        recentHeads: [],
+      }), step.choice);
+    },
+    // Resolves with this run's totals once the worker has scored every step,
+    // or null if a newer run has started by then.
+    report() {
+      const reportedRun = run;
+      const counted = { ...local };
+      const combine = (remote) => (reportedRun === run ? {
+        decisions: counted.decisions + remote.decisions,
+        matches: counted.matches + remote.matches,
+        spaceRatioTotal: counted.spaceRatioTotal + remote.spaceRatioTotal,
+        riskTurns: counted.riskTurns + remote.riskTurns,
+      } : null);
+      if (!worker) return Promise.resolve(combine(empty()));
+      return new Promise((resolve) => {
+        waiting.set(reportedRun, (stats) => resolve(combine(stats)));
+        worker.postMessage({ type: "report", run: reportedRun });
+      });
+    },
+  };
 }
 
 function collectFood(now) {
@@ -1214,9 +1335,9 @@ function collectFood(now) {
   haptic(kind === "core" ? [18, 20, 30] : 14);
   if (kind === "core") activateMutation(now);
 
-  if (!demoMode && score > profile.best) {
-    profile.best = score;
-    bestEl.textContent = formatScore(profile.best);
+  if (!demoMode && bestFor(activeMode) !== null && score > bestFor(activeMode)) {
+    profile.bests = { ...profile.bests, [activeMode]: score };
+    renderBest();
     saveProfile();
   }
   if (!demoMode && activeMode !== "canvas" && snake.length > profile.longest) {
@@ -1304,7 +1425,7 @@ function updateHud() {
   scoreEl.textContent = formatScore(score);
   levelEl.textContent = String(level).padStart(2, "0");
   comboEl.textContent = `×${combo}`;
-  bestEl.textContent = formatScore(profile.best);
+  renderBest();
   totalRunsEl.textContent = String(profile.runs).padStart(3, "0");
   longestEl.textContent = String(profile.longest).padStart(3, "0");
   modeChip.textContent = demoMode ? `${activeMode.toUpperCase()} · AUTO` : activeMode.toUpperCase();
@@ -1482,13 +1603,14 @@ function updateAiTelemetry() {
   const insight = aiPlanInsight || Rules.decisionInsight(aiEvaluations, aiChoice);
   aiPlan.textContent = `${demoMode ? "TURN" : "SAFEST"} ${aiChoice.name.toUpperCase()}`;
   aiReason.textContent = `${insight.confidence} · ${insight.reason}`;
-  const commitment = autopilotPlan.length ? ` · LOCK ${autopilotPlan.length}` : "";
-  if (demoMode && commitment && aiEvaluations.length === 1) {
-    aiEvidence.textContent = `PROVEN ROUTE · ${aiChoice.horizon} TURN FORECAST${commitment} · PLANNED ${aiPlanDuration.toFixed(1)}MS`;
+  // Plain language for players. The raw score margin and planning time this
+  // line used to show ("Δ380354 · 0.1MS") meant nothing to anyone watching.
+  const lookahead = `LOOKS ${aiChoice.horizon} MOVES AHEAD`;
+  if (demoMode && autopilotPlan.length && aiEvaluations.length === 1) {
+    aiEvidence.textContent = `FOLLOWING A PROVEN SAFE ROUTE · ${lookahead}`;
   } else {
-    const margin = Number.isFinite(insight.margin) ? `Δ${Math.round(insight.margin)}` : "NO ALTERNATE";
-    const runnerUp = insight.runnerUp ? `VS ${insight.runnerUp.toUpperCase()}` : "FORCED LINE";
-    aiEvidence.textContent = `${runnerUp} · ${margin} · ${aiChoice.horizon} TURN FORECAST${commitment} · ${aiPlanDuration.toFixed(1)}MS`;
+    const choice = insight.runnerUp ? `PREFERRED OVER ${insight.runnerUp.toUpperCase()}` : "ONLY SAFE MOVE";
+    aiEvidence.textContent = `${choice} · ${lookahead}`;
   }
 }
 
@@ -1592,7 +1714,7 @@ function prepareRun(initialDirection = DIRECTIONS.right) {
   setSetupDisabled(true);
   pauseButton.disabled = true;
   updateActionLabels();
-  beginCountdown(3);
+  beginCountdown(runsThisVisit > 0 ? 1 : 3);
   focusWithoutScroll(canvas);
   revealConsole();
 }
@@ -1630,6 +1752,7 @@ function suspendCountdown() {
 
 function startRun() {
   countdownTimer = null;
+  runsThisVisit += 1;
   countdownStep = 0;
   countdownSuspended = false;
   runState = "running";
@@ -1662,12 +1785,28 @@ function endGame(reason) {
   clearTimeout(countdownTimer);
   runState = "over";
   pauseButton.disabled = true;
-  profile.best = Math.max(profile.best, score);
+  if (bestFor(activeMode) !== null) {
+    profile.bests = { ...profile.bests, [activeMode]: Math.max(bestFor(activeMode), score) };
+  }
   profile.longest = Math.max(profile.longest, snake.length);
   profile.replays = profile.replays || {};
   profile.replays[activeMode] = Rules.normalizeReplay(runPath, GRID);
   const rank = Rules.rankForScore(score, activeMode);
-  lastDecisionProfile = Rules.decisionProfile(decisionStats);
+  lastDecisionProfile = {
+    alignment: 0,
+    spaceKept: 0,
+    riskTurns: 0,
+    style: "READING…",
+    summary: "Comparing your moves with the planner.",
+  };
+  void decisionAnalyst.report().then((stats) => {
+    if (!stats || runState !== "over") return;
+    lastDecisionProfile = Rules.decisionProfile(stats);
+    renderDecisionReport();
+    if (stats.decisions) {
+      announcement.textContent = `Decision DNA: ${lastDecisionProfile.style}, ${lastDecisionProfile.alignment} percent engine match.`;
+    }
+  });
   profile.topRuns = Rules.sortedTopRuns([
     ...(profile.topRuns || []),
     { score, mode: activeMode, rank, at: new Date().toISOString() },
@@ -1691,14 +1830,9 @@ function endGame(reason) {
   demoButtonLabel.textContent = "Watch Autopilot";
   rankValue.textContent = rank;
   runRank.hidden = false;
-  decisionStyle.textContent = lastDecisionProfile.style;
-  decisionMatch.textContent = `${lastDecisionProfile.alignment}%`;
-  decisionSpace.textContent = `${lastDecisionProfile.spaceKept}%`;
-  decisionRisk.textContent = String(lastDecisionProfile.riskTurns).padStart(2, "0");
-  decisionSummary.textContent = lastDecisionProfile.summary;
-  decisionReport.hidden = false;
+  renderDecisionReport();
   updateActionLabels();
-  announcement.textContent = `${title} Final score ${score}. Decision DNA: ${lastDecisionProfile.style}, ${lastDecisionProfile.alignment} percent engine match.`;
+  announcement.textContent = `${title} Final score ${score}.`;
   focusWithoutScroll(startButton);
   playCrashSound();
 }
@@ -1941,7 +2075,8 @@ function toggleLens() {
 
 async function shareGame() {
   const url = publicChallengeUrl();
-  const dna = runState === "over"
+  const dnaRead = !["UNREAD", "TOO SHORT", "READING…"].includes(lastDecisionProfile.style);
+  const dna = runState === "over" && dnaRead
     ? ` Decision DNA: ${lastDecisionProfile.style} (${lastDecisionProfile.alignment}% engine match).`
     : "";
   const text = score > 0

@@ -1768,6 +1768,10 @@
     };
   }
 
+  // A few seconds of play says nothing about a style, and labelling a
+  // three-second run "Explorer" read as noise, so short runs stay unread.
+  const MIN_DNA_DECISIONS = 40;
+
   function decisionProfile(stats = {}) {
     const decisions = Math.max(0, Number(stats.decisions) || 0);
     if (!decisions) {
@@ -1777,6 +1781,15 @@
         riskTurns: 0,
         style: "UNREAD",
         summary: "Complete a run to reveal your decision pattern.",
+      };
+    }
+    if (decisions < MIN_DNA_DECISIONS) {
+      return {
+        alignment: 0,
+        spaceKept: 0,
+        riskTurns: 0,
+        style: "TOO SHORT",
+        summary: "Play a longer run to reveal your decision pattern.",
       };
     }
 
