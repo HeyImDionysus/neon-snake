@@ -22,3 +22,4 @@ Thumbs.db
 *.jks
 *.keystore
 local.properties
+test-results.xml

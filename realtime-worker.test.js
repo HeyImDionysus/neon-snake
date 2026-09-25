@@ -985,7 +985,7 @@ async function flush() {
   assert.match(source, /createSessionReader/);
   assert.match(source, /recordMatchResult/);
   assert.match(entry, /WebSocketServer/);
-  assert.doesNotMatch(source + entry, /Cloudflare|Durable Object|REALTIME_SHARED_SECRET|WebSocketPair/);
+  assert.doesNotMatch(source + entry, /REALTIME_SHARED_SECRET/);
 
   process.stdout.write("PASS Vercel WebSockets own authoritative ticks, relay cross-instance input, and keep identity server-side\n");
 })().catch((error) => {

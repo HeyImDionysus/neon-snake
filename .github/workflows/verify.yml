@@ -2,6 +2,8 @@ name: Verify
 
 on:
   push:
+  # Pushes already cover branches in this repository; pull requests only add
+  # coverage for forks (the job below skips same-repository PR runs).
   pull_request:
 
 permissions:
@@ -13,6 +15,7 @@ concurrency:
 
 jobs:
   deterministic-browser-rules:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -35,74 +38,47 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
 
-      - name: Install server runtime
+      - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Install browser for Activity protocol verification
-        run: npx playwright install --with-deps chromium
+      - name: Cache Chromium
+        id: chromium-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
-      - name: Verify syntax
-        run: |
-          npm run build:activity
-          git diff --exit-code -- public/activity-sdk.js
-          npm run check:stamp
-          node --check public/activity-redirect.js
-          node --check public/activity-sdk.js
-          node --check public/game.js
-          node --check public/game-logic.js
-          node --check public/room-transport.js
-          node --check public/signal-field.js
-          node --check public/duel.js
-          node --check public/account.js
-          node --check public/profile-config.js
-          node --check public/profile.js
-          node --check public/touch-controls.js
-          node --check public/wallpaper-engine.js
-          node --check public/wallpaper.js
-          node --check public/downloads.js
-          node --check public/sw.js
-          node --check server/redis-rest.cjs
-          node --check server/account-core.cjs
-          node --check server/realtime-core.cjs
-          for file in api/*.mjs api/activity/*.mjs api/auth/discord/*.mjs; do node --check "$file"; done
+      - name: Install Chromium
+        if: steps.chromium-cache.outputs.cache-hit != 'true'
+        run: npx playwright install chromium
 
-      - name: Verify deterministic behavior
-        run: |
-          node asset-stamp.test.js
-          node game-logic.test.js
-          node ai-quality.test.js
-          node canvas-performance.test.js
-          CANVAS_BROWSER_REQUIRED=1 node canvas-browser-performance.test.js
-          node control-flow.test.js
-          node duel-control-flow.test.js
-          node duel-quality.test.js
-          node duel-authority-consistency.test.js
-          node room-transport.test.js
-          node redis-client.test.js
-          node identity-system.test.js
-          node accessibility.test.js
-          node service-worker.test.js
-          node deployment-contract.test.js
-          node realtime-worker.test.js
-          node platform-security.test.js
-          node account-persistence.test.js
-          node activity-system.test.js
-          node activity-lifecycle.test.js
-          ACTIVITY_BROWSER_REQUIRED=1 node activity-navigation-browser.test.js
-          ACTIVITY_BROWSER_REQUIRED=1 node activity-layout-browser.test.js
-          node terminal-room-ui.test.js
-          REALTIME_REDIS_REQUIRED=1 node realtime-integration.test.js
-          node profile-system.test.js
-          node profile-interaction.test.js
-          PROFILE_BROWSER_REQUIRED=1 node profile-browser.test.js
-          PRODUCT_BROWSER_REQUIRED=1 node product-browser.test.js
-          node product-experience.test.js
-          node touch-controls.test.js
-          node wallpaper-system.test.js
+      - name: Install Chromium system libraries
+        run: npx playwright install-deps chromium
+
+      # Syntax of every JavaScript file, the asset stamp, and the committed
+      # Discord SDK bundle. Files are discovered, never listed by hand.
+      - name: Static checks
+        run: npm run check
+
+      # Every *.test.js file, found by the runner rather than listed here.
+      - name: Tests
+        run: npm test
+        env:
+          TEST_JUNIT_PATH: test-results.xml
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results.xml
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Build Windows wallpaper
-        run: node scripts/build-wallpapers.mjs
+        run: npm run build:wallpapers
 
       - name: Upload Windows wallpaper
         uses: actions/upload-artifact@v4
@@ -113,6 +89,7 @@ jobs:
           retention-days: 30
 
   android-wallpaper:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 12
 

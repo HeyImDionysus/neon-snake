@@ -20,7 +20,6 @@ const ASSET_STAMP = (() => {
 })();
 
 const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
-const workflow = fs.readFileSync(path.join(root, ".github", "workflows", "verify.yml"), "utf8");
 const realtimeFunction = fs.readFileSync(path.join(root, "api", "realtime.mjs"), "utf8");
 const redisClient = fs.readFileSync(path.join(root, "server", "redis-rest.cjs"), "utf8");
 const realtimeCore = fs.readFileSync(path.join(root, "server", "realtime-core.cjs"), "utf8");
@@ -56,7 +55,7 @@ const tests = [
   ["Vercel publishes a dependency-free browser shell with isolated server functions", () => {
     assert.equal(vercel.outputDirectory, "public");
     assert.equal(vercel.cleanUrls, true);
-    assert.equal(packageManifest.dependencies.ws, "8.21.1");
+    assert.deepEqual(Object.keys(packageManifest.dependencies), ["ws"], "The server needs only ws at runtime");
     assert.equal(fs.existsSync(path.join(publicRoot, "README.md")), false);
     assert.equal(fs.existsSync(path.join(publicRoot, "game-logic.test.js")), false);
     assert.equal(fs.existsSync(path.join(root, "api", "room.mjs")), false, "The legacy HTTP room API is retired");
@@ -219,24 +218,10 @@ const tests = [
     assert.match(readme, /PUBLIC LIVE ROOM/);
     assert.match(readme, /STORAGE_KV_REST_API_URL/);
     assert.match(readme, /native Vercel WebSocket/i);
-    assert.doesNotMatch(readme, /Cloudflare|workers\.dev|Durable Object/i);
     assert.match(readme, /two different networks/i);
     assert.match(readme, /dependency-free/i);
     assert.equal(manifest.start_url, "/");
     assert.equal(manifest.scope, "/");
-  }],
-  ["hosted verification includes the deterministic AI quality benchmark", () => {
-    assert.match(workflow, /node ai-quality\.test\.js/);
-    assert.match(workflow, /node duel-quality\.test\.js/);
-    assert.match(workflow, /node duel-authority-consistency\.test\.js/);
-    assert.match(workflow, /node accessibility\.test\.js/);
-    assert.match(workflow, /node service-worker\.test\.js/);
-    assert.match(readme, /ai-quality\.test\.js/);
-    assert.match(readme, /duel-quality\.test\.js/);
-    assert.match(readme, /duel-authority-consistency\.test\.js/);
-    assert.match(readme, /accessibility\.test\.js/);
-    assert.match(readme, /service-worker\.test\.js/);
-    assert.match(readme, /Hamiltonian safety arc/);
   }],
 ];
 

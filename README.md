@@ -8,41 +8,22 @@ Its Autopilot and multiplayer opponent are deterministic decision systems writte
 
 Open `public/index.html` in a modern browser. The browser shell remains dependency-free: solo play, Autopilot runs, Autopilot duels, Canvas export, and the live wallpaper preview need no package manager or account. Offline installation needs the site served over HTTPS or from `localhost`, because service workers do not run from `file://`. Public Live Rooms use a native same-origin Vercel WebSocket with the project’s existing Redis resource for cross-instance relay. Discord profiles and the verified leaderboard stay inside isolated Vercel Functions plus Redis.
 
-To run the deterministic rules and control-flow suites:
+### Develop and test
 
-```powershell
-node asset-stamp.test.js
-node game-logic.test.js
-node ai-quality.test.js
-node canvas-performance.test.js
-node canvas-browser-performance.test.js
-node control-flow.test.js
-node duel-control-flow.test.js
-node duel-quality.test.js
-node duel-authority-consistency.test.js
-node room-transport.test.js
-node redis-client.test.js
-node identity-system.test.js
-node accessibility.test.js
-node service-worker.test.js
-node deployment-contract.test.js
-node realtime-worker.test.js
-node platform-security.test.js
-node account-persistence.test.js
-node activity-system.test.js
-node activity-lifecycle.test.js
-node activity-navigation-browser.test.js
-node activity-layout-browser.test.js
-node terminal-room-ui.test.js
-node realtime-integration.test.js
-node profile-system.test.js
-node profile-interaction.test.js
-node profile-browser.test.js
-node product-browser.test.js
-node product-experience.test.js
-node touch-controls.test.js
-node wallpaper-system.test.js
+Node 22 or newer runs the tooling and the tests; the game itself needs none of it.
+
+```sh
+npm ci                       # esbuild, the Discord SDK, Playwright and ws
+npx playwright install chromium
+docker run -d -p 16379:6379 redis:7   # the realtime integration suite's isolated Redis
+
+npm run check      # parse every JavaScript file, verify the asset stamp and the Discord SDK bundle
+npm run test:unit  # every test that needs neither Chromium nor Redis (about a minute)
+npm test           # everything; test files run in parallel, performance gates last and alone
+node scripts/verify.cjs ai-   # only the files whose names contain a filter
 ```
+
+Every `*.test.js` file in the repository root is discovered automatically, so a new test file runs locally and in CI without editing any list. After changing a file under `public/`, run `npm run stamp` so browsers pick up the new content; after changing `activity/entry.js`, run `npm run build:activity` and commit the bundle. `node realtime-fixture-server.cjs` serves two Vercel-shaped realtime hubs against that Redis for manual multiplayer testing.
 
 ## The methodology
 
@@ -147,7 +128,10 @@ Discord sign-in is optional for play and required only for a verified profile or
 - `scripts/stamp-assets.mjs` — derives the cache-busting asset stamp from the content it protects and writes it into the pages and offline shell.
 - `asset-stamp.test.js` — executable proof that the committed stamp matches current asset content, that the stamp moves when content or names move, and that every stamped reference agrees with the offline shell.
 - `game-logic.test.js` — executable rule regressions using Node's built-in assertions.
-- `ai-quality.test.js` — three-seed full-board completion plus eight-seed, all-pace timing, routing-efficiency, safety-cycle, adversarial multiplayer, route-diversity, and loop-recovery checks.
+- `ai-quality.test.js` — eight-seed, all-pace timing, routing-efficiency, safety-cycle, adversarial multiplayer, route-diversity, and loop-recovery checks.
+- `ai-completion.test.js` — Classic full-board completion on three seeds and Portal completion on the seed that once looped forever, each in its own worker thread.
+- `test-support/ai-simulation.cjs` — the headless Autopilot and duel harness the AI suites share.
+- `scripts/verify.cjs`, `scripts/check.mjs` — the test runner behind `npm test` and the static checks behind `npm run check`.
 - `canvas-performance.test.js` — executable late-run gate for accumulated raster strokes, 2× compositing, effect retirement, and worst-shaped Autopilot planning.
 - `canvas-browser-performance.test.js` — real Chromium late-run gate that combines 1,400 rasterized glow strokes, 2× compositing, peak overlapping effects, and a worst-shaped planner decision inside the 44 ms Overdrive movement budget.
 - `control-flow.test.js` — executable ownership and explicit-start regressions.
@@ -159,15 +143,19 @@ Discord sign-in is optional for play and required only for a verified profile or
 - `identity-system.test.js` — executable identity, deterministic field, protocol-glyph, cache, and motion-budget regressions.
 - `accessibility.test.js` — executable semantics, focus, touch-target, canvas-fallback, and reduced-motion regressions.
 - `service-worker.test.js` — executable install, upgrade, runtime-cache, and route-aware offline regressions.
-- `deployment-contract.test.js` — executable public-boundary, manifest, cache-shell, and hosted-verification regressions.
+- `deployment-contract.test.js` — executable public-boundary, manifest, and cache-shell regressions.
 - `realtime-worker.test.js` — executable Vercel connection, Redis relay, input authority, and verified-result regressions.
 - `platform-security.test.js` — executable Discord data-minimization, state, cookie, session, and leaderboard-write regressions.
 - `account-persistence.test.js` — executable proof that an unreadable profile record is never overwritten by a failed sign-in.
 - `realtime-integration.test.js`, `realtime-fixture-server.cjs` — two real Vercel-shaped hubs, real WebSockets and a real Redis 7 exercising seat ownership, spectator departure, queue promotion and stale-seat expiry.
 - `activity-lifecycle.test.js` — executable Activity handshake lifecycle: orientation hangs, token timeouts, duplicate retries, and a retry that must never close the Activity.
 - `activity-navigation-browser.test.js` — real Chromium proof that the Embedded App SDK still reaches its cross-origin parent after Solo → Multiplayer → Solo navigation.
+- `activity-layout-browser.test.js` — real Chromium viewport matrix proving the board and its controls fit every Discord Activity size, including picture-in-picture and grid tiles.
 - `terminal-room-ui.test.js` — executable proof that a replaced or conflicting room session stops reconnecting and explains the recovery.
 - `profile-system.test.js` — executable profile customization, public identity, live activity, and origin-bound write regressions.
+- `profile-interaction.test.js`, `profile-browser.test.js` — profile drafts, previews, resets and publishing, in Node and in real Chromium.
+- `product-browser.test.js` — real Chromium proof that mobile site and embedded Activity controls, policy links and download feedback work.
+- `touch-controls.test.js` — swipe thresholds, chained turns in one drag, and direction pads that never double-fire.
 - `activity-system.test.js` — executable Discord iframe, SDK, instance-room, origin, token, and partitioned-cookie regressions.
 - `product-experience.test.js` — executable navigation, download routing, copy, responsive-header, profile, and leaderboard regressions.
 - `wallpaper-system.test.js` — executable eat/grow behavior plus Windows/Android packaging, pause, frame-budget, visual, and permission regressions.
