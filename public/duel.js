@@ -87,6 +87,9 @@ let playerInputBuffer = [];
 let playerInputSequences = [];
 let opponentInputBuffer = [];
 let opponentInputSequences = [];
+// The server tick each buffered live turn was stamped for (see requestDirection).
+let playerInputTicks = [];
+let opponentInputTicks = [];
 let autopilotRecentHeads = [];
 let localInputSequence = Date.now();
 let playerScore = 0;
@@ -223,6 +226,8 @@ function resetDuel() {
   playerInputSequences = [];
   opponentInputBuffer = [];
   opponentInputSequences = [];
+  playerInputTicks = [];
+  opponentInputTicks = [];
   autopilotRecentHeads = [];
   playerScore = 0;
   opponentScore = 0;
@@ -555,11 +560,16 @@ function tickPredictedLive(now) {
 
   let predictedPlayerDirection = playerDirection;
   let predictedOpponentDirection = opponentDirection;
+  // A buffered turn is drawn on the tick it was stamped for, which is the
+  // tick the server applies it on, so the screen does not have to snap back.
+  const turnIsDue = (ticks, index) => !(ticks[index] > predictedTick);
   if (localIndex === 0) {
-    const next = previewDirection(playerDirection, playerInputBuffer, playerPredictionIndex);
-    if (next !== playerDirection) playerPredictionIndex += 1;
-    predictedPlayerDirection = { ...next };
-  } else {
+    if (turnIsDue(playerInputTicks, playerPredictionIndex)) {
+      const next = previewDirection(playerDirection, playerInputBuffer, playerPredictionIndex);
+      if (next !== playerDirection) playerPredictionIndex += 1;
+      predictedPlayerDirection = { ...next };
+    }
+  } else if (turnIsDue(opponentInputTicks, opponentPredictionIndex)) {
     const next = previewDirection(opponentDirection, opponentInputBuffer, opponentPredictionIndex);
     if (next !== opponentDirection) opponentPredictionIndex += 1;
     predictedOpponentDirection = { ...next };
@@ -725,6 +735,29 @@ function startAiDuel() {
   focusWithoutScroll(canvas);
 }
 
+// Says who crashed and into what, from this screen's point of view. It used
+// to print the cause alone ("First crash: opponent."), which read as if the
+// rival had crashed when the player had run into the rival.
+function describeCrash(winnerIndex, localIndex, crashes = {}) {
+  if (winnerIndex < 0) {
+    return crashes.player === "head-on" || crashes.player === "head-swap"
+      ? "Head-on: both snakes hit each other on the same tick."
+      : "Both signals broke on the same tick.";
+  }
+  const loserIndex = 1 - winnerIndex;
+  const cause = crashes[loserIndex === 0 ? "player" : "opponent"];
+  const you = loserIndex === localIndex;
+  const who = you ? "You"
+    : duelType === "ai" ? "Autopilot"
+      : localIndex >= 0 ? "Your rival" : `Player ${loserIndex + 1}`;
+  const other = you ? (duelType === "ai" ? "Autopilot" : "your rival")
+    : localIndex >= 0 ? "you" : `Player ${winnerIndex + 1}`;
+  if (cause === "wall") return `${who} hit the wall.`;
+  if (cause === "self") return `${who} ran into ${you ? "your" : "their"} own tail.`;
+  if (cause === "opponent") return `${who} ran into ${other}.`;
+  return `${who} crashed first.`;
+}
+
 function endDuel(winner, crashes = {}) {
   nextMoveAt = 0;
   if (duelType === "live") {
@@ -742,11 +775,10 @@ function endDuel(winner, crashes = {}) {
     : opponentWon ? "RIVAL<br><em>SURVIVED</em>"
       : spectatorWinner ? `PLAYER ${winnerIndex + 1}<br><em>VICTORIOUS</em>`
         : "DUAL<br><em>COLLISION</em>";
-  const reason = crashes.player || crashes.opponent || "collision";
   showOverlay(
     duelType === "ai" ? "AUTOPILOT DUEL COMPLETE" : "LIVE DUEL COMPLETE",
     title,
-    winner ? `First crash: ${reason.replace("-", " ")}.` : "Both signals broke on the same tick.",
+    describeCrash(winnerIndex, localIndex, crashes),
     duelType === "ai" ? "Run it back" : "",
   );
   announcement.textContent = playerWon
@@ -784,6 +816,24 @@ function updateHud() {
   reportPresence();
 }
 
+// Predicted ticks land at the same moment the server runs them (snapshots are
+// aligned by their one-way delay), so a turn pressed less than a one-way trip
+// before the next tick cannot reach the server in time. Stamping it for the
+// first tick it can reach, and drawing it there, keeps the screen in step with
+// the server instead of showing the turn a cell early and snapping back.
+const INPUT_TRANSIT_MARGIN_MS = 12;
+// Used until the first ping returns.
+const ASSUMED_ROUND_TRIP_MS = 100;
+
+function liveInputTick(stampedTicks) {
+  const untilNextTick = nextMoveAt ? nextMoveAt - performance.now() : TICK_DURATION;
+  const transit = (liveLatencyMs || ASSUMED_ROUND_TRIP_MS) / 2 + INPUT_TRANSIT_MARGIN_MS;
+  const ticksLate = untilNextTick < transit ? Math.ceil((transit - untilNextTick) / TICK_DURATION) : 0;
+  const reachable = predictedTick + 1 + ticksLate;
+  const afterQueued = stampedTicks.length ? stampedTicks[stampedTicks.length - 1] + 1 : 0;
+  return Math.max(reachable, afterQueued);
+}
+
 function requestDirection(next) {
   if (runState !== "running") return;
   if (duelType === "live") {
@@ -794,24 +844,23 @@ function requestDirection(next) {
     const buffered = Rules.bufferDirection(currentBuffer, currentDirection, next);
     if (buffered.length > currentBuffer.length) {
       localInputSequence = Math.max(localInputSequence + 1, Date.now());
-      const predictedTurns = localIndex === 0 ? playerPredictionIndex : opponentPredictionIndex;
+      const tick = liveInputTick(localIndex === 0 ? playerInputTicks : opponentInputTicks);
       const sent = postRoomMessage({
         type: "input",
         round: liveRoundId,
         sequence: localInputSequence,
         direction: next,
-        // The tick this turn appears on here: the next predicted tick, after
-        // any turns still waiting in the buffer. The server never applies it
-        // sooner, so a turn cannot land a cell earlier than the player saw.
-        tick: predictedTick + 1 + Math.max(0, currentBuffer.length - predictedTurns),
+        tick,
       });
       if (!sent) return;
       if (localIndex === 0) {
         playerInputBuffer = buffered;
         playerInputSequences.push(localInputSequence);
+        playerInputTicks.push(tick);
       } else {
         opponentInputBuffer = buffered;
         opponentInputSequences.push(localInputSequence);
+        opponentInputTicks.push(tick);
       }
     }
     return;
@@ -1372,11 +1421,13 @@ function applyRemoteSnapshot(message) {
   if (!state?.playerSnake?.length || !state?.opponentSnake?.length) return;
   const localIndex = roomPlayers.findIndex((player) => player.id === clientId);
   const localSequences = localIndex === 0 ? playerInputSequences : opponentInputSequences;
+  const localTicks = localIndex === 0 ? playerInputTicks : opponentInputTicks;
   const localBuffer = localIndex === 0 ? playerInputBuffer : opponentInputBuffer;
   const acknowledged = Number(localIndex === 0 ? state.playerInputAck : state.guestInputAck) || 0;
   while (localSequences.length && localSequences[0] <= acknowledged) {
     localSequences.shift();
     localBuffer.shift();
+    localTicks.shift();
   }
   playerPredictionIndex = 0;
   opponentPredictionIndex = 0;

@@ -178,6 +178,10 @@
 
     function scheduleHeartbeat(delay = active ? 5_000 : 15_000) {
       if (closed) return;
+      // Turn timing needs the round-trip time before the first round (duel.js
+      // liveInputTick). Every run-state change reschedules the heartbeat, which
+      // used to push the first ping back to 15 s.
+      if (!clockSamples.length) delay = Math.min(delay, 750);
       if (heartbeatTimer !== null) clearTimeoutImpl(heartbeatTimer);
       heartbeatTimer = setTimeoutImpl(() => {
         heartbeatTimer = null;
