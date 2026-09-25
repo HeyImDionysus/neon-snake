@@ -1496,12 +1496,17 @@ function createRealtimeHub({
         && connectionOwnsSlot(connection.room, connection.connectionId, connection.slot)
         ? await forfeitRound(connection.room, connection.slot)
         : false;
+      const localSimulation = stateFor(connection.room).simulation;
       const result = await refresh(connection, "ready", { ready: message.ready });
       if (forfeited) {
         await rotateRound(connection.room, forfeited);
         return;
       }
-      if (!message.ready && wasReady && result.active) {
+      // When this instance runs the round, the roster update has already
+      // cancelled it (setRoster -> cancelRound); a second cancel is one more
+      // billed relay publish.
+      const cancelledHere = Boolean(localSimulation) && stateFor(connection.room).simulation !== localSimulation;
+      if (!message.ready && wasReady && result.active && !cancelledHere) {
         await publish(connection.room, { kind: "cancel" });
       }
       return;

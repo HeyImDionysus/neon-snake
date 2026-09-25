@@ -152,8 +152,10 @@ const tests = [
       overdrive: { base: 98, floor: 44, step: 2 },
     });
     assert.deepEqual(rules.soloTiming(), {
+      comboWindow: 3600,
       coreDuration: 6500,
       mutationDuration: 8000,
+      overdriveDuration: 5200,
       rushDuration: 60_000,
     });
     const pace = profiles.arcade;
@@ -701,6 +703,44 @@ const tests = [
     assert.equal(rules.decisionProfile({ decisions: 40, matches: 16, spaceRatioTotal: 28, riskTurns: 4 }).style, "HYBRID");
     assert.equal(rules.decisionProfile({ decisions: 12, matches: 12, spaceRatioTotal: 12, riskTurns: 0 }).style, "TOO SHORT",
       "A few seconds of play is not labelled with a style");
+  }],
+  ["the Daily Signal is one fixed code per UTC day", () => {
+    assert.equal(rules.dailySignal("2026-09-25"), rules.dailySignal("2026-09-25"));
+    assert.notEqual(rules.dailySignal("2026-09-25"), rules.dailySignal("2026-09-26"));
+    assert.equal(rules.normalizeSignalCode(rules.dailySignal("2026-09-25")), rules.dailySignal("2026-09-25"));
+    assert.equal(rules.dailySignal("not a date"), "");
+    assert.equal(rules.utcDay(Date.UTC(2026, 8, 25, 23, 59)), "2026-09-25");
+  }],
+  ["run turns survive encoding and malformed text is refused", () => {
+    const turns = [
+      { step: 4, direction: { x: 0, y: -1 } },
+      { step: 16, direction: { x: -1, y: 0 } },
+      { step: 400, direction: { x: 0, y: 1 } },
+    ];
+    const text = rules.encodeTurns(turns);
+    assert.equal(text, "4Uc" + "L" + (384).toString(36) + "D");
+    assert.deepEqual(rules.decodeTurns(text), turns);
+    assert.deepEqual(rules.decodeTurns(""), []);
+    for (const bad of ["4X", "0U", "U", "4U-2L", "4U 5L"]) assert.equal(rules.decodeTurns(bad), null, bad);
+  }],
+  ["a Daily run replays to the same result and impossible runs are refused", () => {
+    // Up at step 3, left at step 5, then down into the snake's own path area.
+    const turns = rules.decodeTurns("3U2L");
+    const first = rules.replaySoloRun({ signal: "ABC234", turns });
+    const again = rules.replaySoloRun({ signal: "ABC234", turns });
+    assert.deepEqual(first, again, "Replays are deterministic");
+    assert.equal(first.valid, true);
+    assert.equal(first.outcome, "wall");
+    // Driving straight right hits the wall after ten steps from x = 10.
+    assert.deepEqual(
+      rules.replaySoloRun({ signal: "ABC234", turns: [] }),
+      { valid: true, outcome: "wall", score: 0, steps: 10, length: 3, foods: 0 },
+    );
+    assert.equal(rules.replaySoloRun({ signal: "ABC234", turns: rules.decodeTurns("1L") }).reason, "impossible_turn",
+      "Reversing into the neck is not a legal turn");
+    assert.equal(rules.replaySoloRun({ signal: "ABC234", turns: rules.decodeTurns("20U") }).reason, "turns_after_end",
+      "Turns after the run ended mean the run did not happen this way");
+    assert.equal(rules.replaySoloRun({ signal: "ABC234", mode: "rush" }).reason, "unsupported_run");
   }],
 ];
 

@@ -479,16 +479,21 @@ async function flush() {
   assert.equal(firstHub.roomAllReady("ABC234"), true);
   assert.equal(secondHub.roomAllReady("ABC234"), true);
 
+  // Both seats are ready, so the server starts the round itself: nobody asks.
+  const issued = first.messages.find((message) => message.type === "countdown");
+  assert.ok(issued, "The server starts the countdown once both players are ready");
+  assert.ok(second.messages.some((message) => message.type === "countdown" && message.round === issued.round));
+  const round = issued.round;
+  assert.ok(issued.startsAt > Date.now(), "The countdown starts from the server clock");
+  // A browser from before server-started rounds still asks, with its own
+  // round id; it gets the round that is already running.
   const requestedRound = Date.now() - 86_400_000;
+  const countdownsBefore = first.messages.filter((message) => message.type === "countdown").length;
   first.message({ type: "countdown", round: requestedRound, startsAt: requestedRound });
   await flush();
-  const issued = first.messages.find((message) => message.type === "countdown");
-  assert.ok(issued);
-  assert.ok(second.messages.some((message) => message.type === "countdown" && message.round === issued.round));
-  // The round id and start time are the server's, whatever Player 1 asked for.
-  const round = issued.round;
-  assert.notEqual(round, requestedRound);
-  assert.ok(issued.startsAt > Date.now(), "The countdown starts from the server clock");
+  const answered = first.messages.filter((message) => message.type === "countdown");
+  assert.equal(answered.length, countdownsBefore + 1);
+  assert.equal(answered.at(-1).round, round, "A requested round id is never used");
   const simulation = firstHub._state.rooms.get("ABC234").simulation;
   assert.ok(simulation, "Player 1's Vercel Function must own the simulation");
 
@@ -517,9 +522,11 @@ async function flush() {
   await flush();
   assert.equal(firstHub._state.rooms.get("ABC234").simulation, simulation,
     "A countdown during a live round must not restart it");
-  assert.ok(first.messages.some((message) => message.type === "rejected" && message.code === "round_in_progress"));
-  // Model the first round ending, which is what allows the next countdown.
+  assert.equal(first.messages.filter((message) => message.type === "countdown").at(-1).round, round,
+    "A mid-round request is answered with the running round");
+  // Model the first round ending, which is what allows the next one to start.
   firstHub._state.rooms.get("ABC234").liveRound = null;
+  simulation.stop();
   first.message({ type: "countdown", round: round + 1, startsAt: Date.now() });
   await flush();
   const replacementSimulation = firstHub._state.rooms.get("ABC234").simulation;
