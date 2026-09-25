@@ -33,6 +33,7 @@ node account-persistence.test.js
 node activity-system.test.js
 node activity-lifecycle.test.js
 node activity-navigation-browser.test.js
+node activity-layout-browser.test.js
 node terminal-room-ui.test.js
 node realtime-integration.test.js
 node profile-system.test.js

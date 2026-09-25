@@ -653,7 +653,14 @@ function advanceGame(now) {
 }
 
 function setRunState(state, label) {
+  const enteringCountdown = state === "countdown" && runState !== "countdown";
   runState = state;
+  // Bring the arena on screen when a round is about to start; the page intro
+  // pushes it below the fold on laptop displays.
+  if (enteringCountdown && !document.body.classList.contains("activity-mode")) {
+    const smooth = !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    board.closest(".duel-console")?.scrollIntoView?.({ block: "nearest", behavior: smooth ? "smooth" : "auto" });
+  }
   document.body.dataset.duelState = state;
   statusText.textContent = label;
   const pausable = duelType === "ai" && (state === "running" || state === "paused");

@@ -218,7 +218,7 @@ const activityBrowserTest = String.raw`
 (async () => {
   await new Promise((resolve) => setTimeout(resolve, 30));
   document.querySelector("#activityContext").hidden = false;
-  const legal = document.querySelector(".activity-legal");
+  const legal = document.querySelector(".activity-context-actions");
   const terms = legal.querySelector('a[href*="terms.html"]');
   const privacy = legal.querySelector('a[href*="privacy.html"]');
   const solo = document.querySelector("#activitySoloLink");

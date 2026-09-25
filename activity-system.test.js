@@ -189,7 +189,7 @@ function request(url, {
   assert.match(duelHtml, /id="activitySoloLink"/);
   assert.match(duelHtml, /id="activityContextRetry"/);
   assert.match(duelHtml, /src="activity-redirect\.js\?v=[0-9a-z]+"/);
-  assert.match(duelHtml, /class="activity-legal" aria-label="Activity policies"/);
+  assert.match(duelHtml, /class="activity-context-legal" href="\/terms\.html"/);
   assert.match(duelHtml, /href="\/terms\.html" target="_blank"/);
   assert.match(duelHtml, /href="\/privacy\.html" target="_blank"/);
   assert.match(duelHtml, /src="activity-sdk\.js\?v=[0-9a-z]+"/);
@@ -214,7 +214,7 @@ function request(url, {
   assert.doesNotMatch(duel, /location\.assign\(/);
   assert.match(duel, /neon-activity-external-error/);
   assert.match(duelCss, /--discord-safe-area-inset-top/);
-  assert.match(duelCss, /body\.activity-mode \.activity-legal\s*\{[^}]*display:\s*flex/);
+  assert.match(duelCss, /body\.activity-mode \.duel-header \{ display: none; \}/);
 
   const globalHeaders = Object.fromEntries(
     vercel.headers

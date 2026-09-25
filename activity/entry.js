@@ -1,6 +1,7 @@
 import {
   Common,
   DiscordSDK,
+  Events,
 } from "@discord/embedded-app-sdk";
 
 const CLIENT_ID = "1531235601070686228";
@@ -42,6 +43,34 @@ let sdkReady = false;
 let initializing = false;
 
 
+const LAYOUT_NAMES = new Map([
+  [Common.LayoutModeTypeObject.FOCUSED, "focused"],
+  [Common.LayoutModeTypeObject.PIP, "pip"],
+  [Common.LayoutModeTypeObject.GRID, "grid"],
+]);
+
+// Picture-in-picture and grid tiles get a board-only layout (see styles.css).
+// The layout event needs only the handshake, not the player's authorization,
+// so it is subscribed as soon as Discord answers.
+function applyLayoutMode(mode) {
+  const layout = LAYOUT_NAMES.get(mode) || "focused";
+  document.documentElement.dataset.activityLayout = layout;
+  dispatch("neon-activity-layout", { layout });
+}
+
+async function subscribeLayoutMode(instance) {
+  try {
+    await withTimeout(
+      instance.subscribe(Events.ACTIVITY_LAYOUT_MODE_UPDATE, ({ layout_mode: mode }) => applyLayoutMode(mode)),
+      COMMAND_TIMEOUT,
+      "Discord layout updates did not answer in time.",
+    );
+  } catch {
+    // Older clients never send layout changes; a viewport-height query in the
+    // stylesheet covers them.
+  }
+}
+
 function dispatch(name, detail) {
   globalThis.dispatchEvent(new CustomEvent(name, { detail }));
 }
@@ -82,6 +111,7 @@ async function initialize() {
     "Discord did not finish the Activity handshake.",
   );
   sdkReady = true;
+  void subscribeLayoutMode(sdk);
   stage(
     "authorizing",
     "SOLO READY · IDENTIFYING PLAYER",

@@ -125,79 +125,12 @@ body.activity-mode .duel-header .site-menu-toggle { display: none; }
 body.activity-mode .duel-header .brand { pointer-events: auto; }
 body.activity-mode .duel-shell { padding-top: 24px; }
 
-/* Discord gives the Activity a fixed viewport, so the arena is bounded by
-   height as well as width or it runs off the bottom of the iframe. Above the
-   single-column breakpoint the page stops scrolling and the side panel scrolls
-   in its own column instead. */
-body.activity-mode {
-  --activity-chrome: 300px;
-}
-
 /* The Activity dock and context strip already say what this surface is, so the
    page-title block above the arena is duplicated chrome. Removing it hands its
    height back to the board. */
 body.activity-mode .duel-intro { display: none; }
 
-body.activity-mode .duel-board {
-  width: auto;
-  max-width: 100%;
-  max-height: calc(100dvh - var(--activity-chrome));
-  margin-inline: auto;
-}
 
-@media (max-width: 960px) {
-  body.activity-mode {
-    --activity-chrome: 340px;
-  }
-}
-
-@media (min-width: 961px) {
-  body.activity-mode {
-    height: 100dvh;
-    overflow: hidden;
-  }
-
-  body.activity-mode .duel-shell {
-    height: calc(100dvh - 58px);
-    align-items: start;
-    overflow: hidden;
-    padding-bottom: 16px;
-  }
-
-  body.activity-mode .duel-panel {
-    max-height: 100%;
-    overflow-y: auto;
-    scrollbar-width: thin;
-  }
-}
-
-.activity-legal {
-  display: none;
-}
-
-body.activity-mode .activity-legal {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-  color: var(--dim);
-  font: 700 8px var(--mono);
-  letter-spacing: .12em;
-}
-
-body.activity-mode .activity-legal a {
-  min-height: 44px;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 4px;
-  color: var(--paper);
-  text-decoration: none;
-}
-
-body.activity-mode .activity-legal a:hover,
-body.activity-mode .activity-legal a:focus-visible {
-  color: var(--acid);
-}
 
 .duel-stage {
   min-width: 0;
@@ -849,12 +782,6 @@ body[data-duel-type="live"] .duel-console {
     flex-wrap: wrap;
   }
 
-  body.activity-mode .activity-legal {
-    order: 3;
-    width: 100%;
-    justify-content: center;
-    border-top: 1px solid #ffffff0d;
-  }
 
   .duel-shell {
     width: min(100%, 560px);
@@ -968,4 +895,153 @@ body[data-duel-type="live"] .duel-console {
   .duel-overlay {
     scroll-behavior: auto;
   }
+}
+
+/* ------------------------------------------------------------------------
+   Arena fitting. The arena is a size container so the overlay's headline and
+   message scale with it; "WAITING FOR PLAYER 2" used to overflow and clip on
+   any arena smaller than the window assumed. */
+.duel-board { container: board / inline-size; }
+.duel-overlay { padding: clamp(10px, 3.5cqi, 30px); overflow-y: auto; }
+.duel-overlay h2 { font-size: clamp(1.6rem, 12cqi, 6.3rem); }
+.duel-overlay h2.countdown { font-size: clamp(3rem, 24cqi, 13rem); }
+.duel-overlay p:not(.overlay-kicker) { margin-block: clamp(8px, 3cqi, 24px); }
+@container board (max-width: 340px) {
+  .duel-overlay #duelMessage { display: none; }
+}
+
+/* On the website the console fits below the sticky header; at 1366x768 two
+   thirds of the arena used to start below the fold. */
+.duel-console { scroll-margin: 90px 0 12px; }
+@media (min-width: 681px) and (min-height: 560px) {
+  body:not(.activity-mode) .duel-console {
+    width: min(100%, calc(100dvh - 250px));
+    margin-inline: auto;
+  }
+}
+
+/* ------------------------------------------------------------------------
+   Discord Activity layout: a full-height grid where the arena column is a
+   size container and the console is the largest that fits it. */
+body.activity-mode {
+  height: 100dvh;
+  overflow: hidden;
+  padding: 0;
+}
+body.activity-mode .duel-header { display: none; }
+body.activity-mode .duel-shell {
+  box-sizing: border-box;
+  width: min(calc(100% - 16px), 1320px);
+  height: 100dvh;
+  grid-template-columns: minmax(0, 1.4fr) minmax(250px, .75fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  align-items: stretch;
+  gap: 10px clamp(14px, 2.4vw, 32px);
+  padding:
+    max(8px, var(--activity-safe-top))
+    var(--activity-safe-right)
+    max(8px, var(--activity-safe-bottom))
+    var(--activity-safe-left);
+  overflow: hidden;
+}
+body.activity-mode .activity-context {
+  margin-bottom: 0;
+  padding: 6px 10px;
+}
+body.activity-mode .activity-context-actions { flex-wrap: wrap; justify-content: flex-end; }
+body.activity-mode .activity-context-legal { border-color: transparent; background: none; color: var(--dim); }
+@media (max-height: 820px) {
+  body.activity-mode .activity-context small { display: none; }
+}
+body.activity-mode .duel-stage {
+  container: activity-column / size;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 0;
+}
+body.activity-mode .duel-console {
+  --hud-h: 52px;
+  --foot-h: 36px;
+  flex: none;
+  width: min(100cqw, calc(100cqh - var(--hud-h) - var(--foot-h) - 2px));
+}
+body.activity-mode .duel-hud { min-height: 0; height: var(--hud-h); padding-block: 4px; }
+body.activity-mode .duel-hud strong { font-size: 22px; }
+body.activity-mode .duel-console-footer { min-height: 0; height: var(--foot-h); padding-block: 0; align-items: center; }
+body.activity-mode .duel-board { width: 100%; max-height: none; }
+body.activity-mode .duel-deck {
+  position: static;
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+body.activity-mode .duel-panel { max-height: none; overflow: visible; }
+
+@media (min-width: 621px) and (max-width: 980px) {
+  body.activity-mode .duel-shell { grid-template-columns: minmax(0, 1fr) minmax(220px, .75fr); }
+}
+@media (min-width: 621px) {
+  body.activity-mode .duel-mobile-controls { display: none; }
+}
+
+/* Portrait phones scroll to reach the room controls; the arena and the
+   direction pad come first. */
+@media (max-width: 620px) {
+  body.activity-mode { height: auto; overflow: visible; }
+  body.activity-mode .duel-shell {
+    height: auto;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    overflow: visible;
+  }
+  body.activity-mode .duel-stage { container-type: normal; display: block; }
+  body.activity-mode .duel-console { width: 100%; }
+  body.activity-mode .duel-deck { max-height: none; overflow: visible; }
+  body.activity-mode .activity-context-mark { display: none; }
+}
+
+/* Picture-in-picture and grid tiles show only the arena and the score. */
+:root:is([data-activity-layout="pip"], [data-activity-layout="grid"]) body.activity-mode .activity-context,
+:root:is([data-activity-layout="pip"], [data-activity-layout="grid"]) body.activity-mode .duel-deck,
+:root:is([data-activity-layout="pip"], [data-activity-layout="grid"]) body.activity-mode .duel-console-footer,
+:root:is([data-activity-layout="pip"], [data-activity-layout="grid"]) body.activity-mode .duel-mobile-controls,
+:root:is([data-activity-layout="pip"], [data-activity-layout="grid"]) body.activity-mode .duel-hud span { display: none; }
+:root:is([data-activity-layout="pip"], [data-activity-layout="grid"]) body.activity-mode .duel-shell {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  padding: 4px;
+  gap: 0;
+}
+:root:is([data-activity-layout="pip"], [data-activity-layout="grid"]) body.activity-mode .duel-console { --hud-h: 26px; --foot-h: 0px; }
+:root:is([data-activity-layout="pip"], [data-activity-layout="grid"]) body.activity-mode .duel-hud strong { font-size: 15px; }
+
+@media (max-height: 300px) {
+  body.activity-mode { height: 100dvh; overflow: hidden; }
+  body.activity-mode .duel-shell {
+    height: 100dvh;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    padding: 4px;
+    gap: 0;
+    overflow: hidden;
+  }
+  body.activity-mode .duel-stage {
+    container: activity-column / size;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  body.activity-mode .activity-context,
+  body.activity-mode .duel-deck,
+  body.activity-mode .duel-console-footer,
+  body.activity-mode .duel-mobile-controls,
+  body.activity-mode .duel-hud span { display: none; }
+  body.activity-mode .duel-console {
+    --hud-h: 26px;
+    --foot-h: 0px;
+    width: min(100cqw, calc(100cqh - var(--hud-h) - 2px));
+  }
+  body.activity-mode .duel-hud strong { font-size: 15px; }
 }

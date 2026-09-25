@@ -231,6 +231,14 @@ function formatScore(value) {
   return String(value).padStart(5, "0");
 }
 
+// Bring the whole console on screen when play starts. "nearest" leaves the
+// page alone when it already is, and the Activity layout never scrolls.
+function revealConsole() {
+  if (document.body.classList.contains("activity-mode")) return;
+  const smooth = !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  gameConsole.scrollIntoView?.({ block: "nearest", behavior: smooth ? "smooth" : "auto" });
+}
+
 function focusWithoutScroll(element) {
   if (!element || element.hidden || element.disabled) return;
   try {
@@ -1498,6 +1506,7 @@ function prepareDemo() {
   overlay.hidden = true;
   pauseButton.disabled = false;
   setSetupDisabled(true);
+  revealConsole();
   setState("running", `${activeMode.toUpperCase()} AUTOPILOT`);
   updateHud();
   updateActionLabels();
@@ -1585,6 +1594,7 @@ function prepareRun(initialDirection = DIRECTIONS.right) {
   updateActionLabels();
   beginCountdown(3);
   focusWithoutScroll(canvas);
+  revealConsole();
 }
 
 function beginCountdown(number) {

@@ -28,14 +28,21 @@ function activityHarness({ hangOrientation = false, hangToken = false, failFirst
     ready() {
       return failFirstHandshake && this === instances[0] ? new Promise(() => {}) : handshake;
     }
+    async subscribe(event, listener) {
+      this.subscriptions = { ...this.subscriptions, [event]: listener };
+    }
     close(code, message) { this.closed = { code, message }; }
   }
   const context = {
     DiscordSDK,
-    Common: { OrientationLockStateTypeObject: { UNLOCKED: 0, LANDSCAPE: 1 } },
+    Common: {
+      OrientationLockStateTypeObject: { UNLOCKED: 0, LANDSCAPE: 1 },
+      LayoutModeTypeObject: { UNHANDLED: -1, FOCUSED: 0, PIP: 1, GRID: 2 },
+    },
+    Events: { ACTIVITY_LAYOUT_MODE_UPDATE: "ACTIVITY_LAYOUT_MODE_UPDATE" },
     location: new URL("https://1531235601070686228.discordsays.com/duel?frame_id=frame&instance_id=shared-channel-instance&platform=desktop"),
     document: {
-      documentElement: { classList: { add() {} } },
+      documentElement: { classList: { add() {} }, dataset: {} },
       body: { classList: { add() {} } },
     },
     history: { replaceState() {} },
@@ -57,7 +64,7 @@ function activityHarness({ hangOrientation = false, hangToken = false, failFirst
     dispatchEvent: (event) => events.push(event),
   };
   vm.runInNewContext(source, context, { filename: "activity/entry.js" });
-  return { activity: context.NeonSnakeActivity, events, instances, tokenSignals, releaseReady };
+  return { activity: context.NeonSnakeActivity, context, events, instances, tokenSignals, releaseReady };
 }
 
 (async () => {
@@ -68,6 +75,17 @@ function activityHarness({ hangOrientation = false, hangToken = false, failFirst
     new Promise((resolve) => setTimeout(() => resolve(null), 100)),
   ]);
   assert.ok(result?.roomCode, "An unsupported orientation command must not block authenticated room readiness forever");
+
+  // Picture-in-picture and grid tiles switch to the board-only layout.
+  const layout = activityHarness();
+  layout.releaseReady();
+  await layout.activity.ready;
+  const layoutListener = layout.instances[0].subscriptions?.ACTIVITY_LAYOUT_MODE_UPDATE;
+  assert.ok(layoutListener, "The Activity must follow Discord's layout mode");
+  layoutListener({ layout_mode: 1 });
+  assert.equal(layout.context.document.documentElement.dataset.activityLayout, "pip");
+  layoutListener({ layout_mode: 0 });
+  assert.equal(layout.context.document.documentElement.dataset.activityLayout, "focused");
 
   const retry = activityHarness();
   const first = retry.activity.ready;

@@ -91,6 +91,7 @@ jobs:
           node activity-system.test.js
           node activity-lifecycle.test.js
           ACTIVITY_BROWSER_REQUIRED=1 node activity-navigation-browser.test.js
+          ACTIVITY_BROWSER_REQUIRED=1 node activity-layout-browser.test.js
           node terminal-room-ui.test.js
           REALTIME_REDIS_REQUIRED=1 node realtime-integration.test.js
           node profile-system.test.js

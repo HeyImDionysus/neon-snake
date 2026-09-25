@@ -1963,49 +1963,6 @@ body.activity-mode .arcade-shell {
 
 body.activity-mode .game-console { box-shadow: 0 22px 62px #0009; }
 
-/* Discord gives the Activity a fixed viewport, so the board has to be bounded by
-   height as well as width or the play surface runs off the bottom. Above the
-   single-column breakpoint the page itself stops scrolling and the control deck
-   scrolls in its own column instead, which keeps the board on screen. The
-   reserve covers the header, the HUD strip and the dock. */
-body.activity-mode {
-  --activity-chrome: 330px;
-}
-
-body.activity-mode .board-wrap {
-  width: auto;
-  max-width: 100%;
-  height: auto;
-  max-height: calc(100dvh - var(--activity-chrome));
-  margin-inline: auto;
-}
-
-/* Below the two-column breakpoint the dock stacks onto a second row, so more
-   height is spoken for before the board starts. */
-@media (max-width: 960px) {
-  body.activity-mode {
-    --activity-chrome: 360px;
-  }
-}
-
-@media (min-width: 961px) {
-  body.activity-mode {
-    height: 100dvh;
-    overflow: hidden;
-  }
-
-  body.activity-mode .arcade-shell {
-    height: calc(100dvh - 58px);
-    align-items: start;
-    overflow: hidden;
-  }
-
-  body.activity-mode .control-deck {
-    max-height: 100%;
-    overflow-y: auto;
-    scrollbar-width: thin;
-  }
-}
 body.activity-mode .control-deck { padding-top: 0; }
 body.activity-mode .wallpaper-launch,
 body.activity-mode .career-card,
@@ -2067,4 +2024,237 @@ body.activity-mode .control-deck .instructions { display: none; }
     animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
   }
+}
+
+/* ------------------------------------------------------------------------
+   Board fitting.
+   The board is a size container, so everything drawn over it (the start and
+   run-report overlay) scales with the board itself instead of the window. On
+   small boards the fixed-size headline and buttons used to overflow and clip,
+   which hid the Play button inside Discord. The overlay also scrolls as a last
+   resort, so its actions can never be unreachable. */
+.board-wrap { container: board / inline-size; }
+.overlay { padding: clamp(10px, 3.5cqi, 28px); overflow-y: auto; }
+.overlay h1 { font-size: clamp(1.7rem, 13cqi, 6.7rem); }
+.overlay h1.countdown-number { font-size: clamp(3rem, 22cqi, 11rem); }
+.overlay p:not(.overlay-kicker):not(.overlay-hint) {
+  margin-block: clamp(8px, 3.4cqi, 28px) clamp(8px, 3cqi, 24px);
+}
+.overlay .snake-mark { margin-bottom: clamp(8px, 2.8cqi, 23px); }
+
+@container board (max-width: 480px) {
+  .overlay .snake-mark,
+  .overlay .overlay-hint { display: none; }
+  .overlay p:not(.overlay-kicker):not(.overlay-hint) { font-size: 12px; line-height: 1.4; }
+  .overlay .start-actions { grid-template-columns: 1fr; gap: 6px; width: min(100%, 260px); margin-inline: auto; }
+  .overlay .start-actions .primary-button,
+  .overlay .start-actions .demo-button { min-height: 44px; }
+  .overlay .decision-report { padding: 8px 10px; }
+  .overlay .decision-report #decisionSummary { display: none; }
+}
+
+@container board (max-width: 340px) {
+  .overlay #overlayMessage,
+  .overlay .decision-report,
+  .overlay .run-rank { display: none; }
+  .overlay .overlay-kicker { margin-bottom: 6px; }
+}
+
+/* On the website the console is the largest size that fits below the sticky
+   header, so a run is never partly off-screen: at 1366x768 a third of the
+   board used to start below the fold, with nothing scrolling it into view. */
+.game-console { scroll-margin: 90px 0 12px; }
+@media (min-width: 681px) and (min-height: 560px) {
+  body:not(.activity-mode) .game-console {
+    width: min(100%, calc(100dvh - 300px));
+    margin-inline: auto;
+  }
+}
+
+/* ------------------------------------------------------------------------
+   Discord Activity layout.
+   Discord hands the Activity a fixed viewport. The page is a full-height grid:
+   the dock takes what it needs and the game column gets exactly the rest. The
+   column is a size container, so the console - HUD, board and footer - is the
+   largest square-board console that fits, whatever the panel size, instead
+   of reserving a guessed number of pixels for chrome. */
+body.activity-mode {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+body.activity-mode .product-header { display: none; }
+
+body.activity-mode .arcade-shell {
+  box-sizing: border-box;
+  height: 100dvh;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-items: stretch;
+  gap: 10px clamp(14px, 2.4vw, 32px);
+  padding-block:
+    max(8px, var(--discord-safe-area-inset-top, 0px))
+    max(8px, var(--discord-safe-area-inset-bottom, 0px));
+  overflow: hidden;
+}
+
+body.activity-mode .game-column {
+  container: activity-column / size;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 0;
+}
+
+body.activity-mode .game-console {
+  --hud-h: 52px;
+  --foot-h: 40px;
+  flex: none;
+  width: min(100cqw, calc(100cqh - var(--hud-h) - var(--foot-h) - var(--pad-h, 0px) - 2px));
+}
+
+body.activity-mode .console-hud { min-height: 0; height: var(--hud-h); padding-block: 4px; overflow: hidden; }
+body.activity-mode .hud-primary strong { font-size: 22px; }
+body.activity-mode .console-footer { min-height: 0; height: var(--foot-h); padding-block: 6px; }
+body.activity-mode .board-wrap { width: 100%; max-height: none; }
+body.activity-mode .control-deck { min-height: 0; max-height: 100%; overflow-y: auto; scrollbar-width: thin; }
+
+/* A one- or two-line dock instead of a banner. The explanatory line only shows
+   when there is height to spare. */
+body.activity-mode .activity-dock {
+  min-height: 0;
+  gap: 8px 14px;
+  padding: 7px 10px 7px 14px;
+}
+body.activity-mode .activity-dock::after { display: none; }
+body.activity-mode .activity-dock-copy strong {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+body.activity-mode .activity-dock-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px 12px;
+}
+body.activity-mode .activity-dock-explore,
+body.activity-mode .activity-dock-legal { gap: 10px; }
+@media (max-height: 820px) {
+  body.activity-mode .activity-dock-copy small { display: none; }
+}
+
+/* Portrait phones: one column. The page scrolls to reach the mode list, while
+   the dock is compact enough that the board and controls start near the top. */
+@media (max-width: 620px) {
+  body.activity-mode {
+    height: auto;
+    overflow: visible;
+  }
+  body.activity-mode .arcade-shell {
+    height: auto;
+    grid-template-rows: auto auto auto;
+    overflow: visible;
+  }
+  body.activity-mode .game-column {
+    container-type: normal;
+    display: block;
+  }
+  body.activity-mode .game-console { width: 100%; }
+  body.activity-mode .activity-dock {
+    grid-template-columns: 1fr;
+    gap: 6px;
+    padding: 8px 10px;
+  }
+  body.activity-mode .activity-dock-copy .activity-dock-mark { display: none; }
+  body.activity-mode .activity-dock-nav,
+  body.activity-mode .activity-dock-actions { grid-column: 1; grid-row: auto; justify-self: stretch; }
+  body.activity-mode .activity-dock-actions { justify-content: space-between; }
+  body.activity-mode .activity-dock-tab,
+  body.activity-mode .activity-dock-actions button { min-height: 40px; }
+}
+
+/* Picture-in-picture and grid tiles: only the board, so people who pop the
+   Activity out can still follow the game. Discord's layout-mode event sets
+   data-activity-layout; the height query covers clients that never send it. */
+:root[data-activity-layout="pip"] body.activity-mode .activity-dock,
+:root[data-activity-layout="pip"] body.activity-mode .control-deck,
+:root[data-activity-layout="pip"] body.activity-mode .console-footer,
+:root[data-activity-layout="pip"] body.activity-mode .mobile-controls,
+:root[data-activity-layout="grid"] body.activity-mode .activity-dock,
+:root[data-activity-layout="grid"] body.activity-mode .control-deck,
+:root[data-activity-layout="grid"] body.activity-mode .console-footer,
+:root[data-activity-layout="grid"] body.activity-mode .mobile-controls { display: none; }
+:root:is([data-activity-layout="pip"], [data-activity-layout="grid"]) body.activity-mode .arcade-shell {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  padding: 4px;
+  gap: 0;
+}
+:root:is([data-activity-layout="pip"], [data-activity-layout="grid"]) body.activity-mode .game-console {
+  --hud-h: 26px;
+  --foot-h: 0px;
+}
+:root:is([data-activity-layout="pip"], [data-activity-layout="grid"]) body.activity-mode .console-hud .hud-label,
+:root:is([data-activity-layout="pip"], [data-activity-layout="grid"]) body.activity-mode .hud-stat,
+:root:is([data-activity-layout="pip"], [data-activity-layout="grid"]) body.activity-mode .mode-chip { display: none; }
+:root:is([data-activity-layout="pip"], [data-activity-layout="grid"]) body.activity-mode .hud-primary strong { font-size: 16px; }
+
+@media (max-height: 300px) {
+  /* A short panel is PiP or a grid tile even when it is also narrow, so the
+     portrait-phone rules above must not apply. */
+  body.activity-mode { height: 100dvh; overflow: hidden; }
+  body.activity-mode .arcade-shell { height: 100dvh; overflow: hidden; }
+  body.activity-mode .game-column {
+    container: activity-column / size;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  body.activity-mode .game-console {
+    width: min(100cqw, calc(100cqh - var(--hud-h) - var(--foot-h) - 2px));
+  }
+  body.activity-mode .activity-dock,
+  body.activity-mode .control-deck,
+  body.activity-mode .console-footer,
+  body.activity-mode .mobile-controls,
+  body.activity-mode .console-hud .hud-label,
+  body.activity-mode .hud-stat,
+  body.activity-mode .mode-chip { display: none; }
+  body.activity-mode .arcade-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    padding: 4px;
+    gap: 0;
+  }
+  body.activity-mode .game-console { --hud-h: 26px; --foot-h: 0px; }
+  body.activity-mode .hud-primary strong { font-size: 16px; }
+}
+
+/* Landscape panels narrower than the desktop breakpoint keep two columns: the
+   board is bounded by height there, so stacking the controls under it would
+   only push them out of the fixed viewport. Swipes on the board steer, so the
+   direction pad is reserved for portrait phones. */
+@media (min-width: 621px) and (max-width: 960px) {
+  body.activity-mode .arcade-shell {
+    grid-template-columns: minmax(0, 1fr) minmax(220px, .75fr);
+    justify-content: stretch;
+  }
+}
+@media (min-width: 621px) {
+  body.activity-mode .mobile-controls { display: none; }
+}
+
+/* A thumbnail-sized board keeps only the title and the two actions. */
+@container board (max-width: 240px) {
+  .overlay h1 { font-size: 1.35rem; }
+  .overlay .overlay-kicker { display: none; }
+  .overlay .start-actions { gap: 4px; }
+  .overlay .start-actions .primary-button,
+  .overlay .start-actions .demo-button {
+    min-height: 30px;
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+  .overlay .start-actions .demo-button span:first-child { font-size: 9px; }
 }
