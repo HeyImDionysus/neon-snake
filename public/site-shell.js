@@ -77,11 +77,27 @@
   });
   mobileQuery.addEventListener?.("change", syncViewport);
   root.addEventListener("scroll", scheduleScrollSync, { passive: true });
-  root.addEventListener("pagehide", () => {
-    mobileQuery.removeEventListener?.("change", syncViewport);
-    root.removeEventListener("scroll", scheduleScrollSync);
-    if (scrollFrame) root.cancelAnimationFrame(scrollFrame);
-  }, { once: true });
+  // No pagehide teardown: a page restored from the back/forward cache keeps
+  // these listeners, and removing them left the header unresponsive after
+  // going back and then rotating across the mobile breakpoint.
+
+  // The service worker says when a new version took over this tab. The page
+  // is still running the scripts it loaded, now against newer files and
+  // servers, so offer a reload rather than let it drift.
+  root.navigator.serviceWorker?.addEventListener?.("message", (event) => {
+    if (event.data?.type !== "neon-snake-updated" || root.document.querySelector(".update-notice")) return;
+    const notice = root.document.createElement("div");
+    notice.className = "update-notice";
+    notice.setAttribute("role", "status");
+    const text = root.document.createElement("span");
+    text.textContent = "Neon Snake has been updated.";
+    const reload = root.document.createElement("button");
+    reload.type = "button";
+    reload.textContent = "Reload";
+    reload.addEventListener("click", () => root.location.reload());
+    notice.append(text, reload);
+    root.document.body.append(notice);
+  });
 
   root.document.documentElement.classList.add("site-shell-ready");
   syncViewport();

@@ -29,9 +29,16 @@ const HASHED_EXTENSIONS = new Set([".js", ".css", ".webmanifest"]);
 const STAMP_REFERENCE = /\?v=[0-9a-z]+/g;
 const CACHE_NAME_REFERENCE = /neon-snake-shell-[0-9a-z]+/g;
 
+// Every page that can load stale scripts carries the stamp. The Lively
+// wallpaper page is packaged for local files and never goes through Discord's
+// proxy, so it keeps plain references.
 const REWRITTEN_FILES = [
   "public/index.html",
   "public/duel.html",
+  "public/downloads.html",
+  "public/profile.html",
+  "public/privacy.html",
+  "public/terms.html",
   "public/sw.js",
 ];
 

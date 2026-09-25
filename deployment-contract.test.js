@@ -6,7 +6,8 @@ const path = require("node:path");
 
 const root = __dirname;
 const publicRoot = path.join(root, "public");
-const discordAssetRoot = path.join(publicRoot, "assets", "discord");
+// Portal artwork is uploaded to the Discord developer portal, not served.
+const discordAssetRoot = path.join(root, "brand", "discord");
 const vercel = JSON.parse(fs.readFileSync(path.join(root, "vercel.json"), "utf8"));
 const manifest = JSON.parse(fs.readFileSync(path.join(publicRoot, "manifest.webmanifest"), "utf8"));
 const serviceWorker = fs.readFileSync(path.join(publicRoot, "sw.js"), "utf8");
@@ -80,7 +81,7 @@ const tests = [
     assert.ok(shell, "Expected an APP_SHELL declaration");
     const urls = [...shell[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
     assert.equal(urls.length, new Set(urls).size);
-    assert.ok(urls.includes("/room-transport.js"));
+    assert.ok(urls.some((url) => url.startsWith("/room-transport.js?v=")));
     assert.ok(urls.includes("/duel.html"));
     assert.ok(urls.includes("/assets/icon-180.png"));
     assert.ok(urls.includes("/assets/icon-192.png"));
@@ -91,13 +92,14 @@ const tests = [
     ["index.html", "duel.html", "downloads.html", "profile.html", "privacy.html", "terms.html"].forEach((name) => {
       const htmlFile = path.join(publicRoot, name);
       localReferences(htmlFile).forEach((reference) => {
-        const urlPath = new URL(reference, `https://neon-snake.invalid/${name}`).pathname;
+        const target = new URL(reference, `https://neon-snake.invalid/${name}`);
+        const urlPath = target.pathname;
         if (urlPath.startsWith("/downloads/")) {
           assert.equal(fs.existsSync(publicPath(urlPath)), true, `Missing direct download: ${reference}`);
           assert.equal(urls.includes(urlPath), false, `Large download must not enter the offline shell: ${reference}`);
           return;
         }
-        assert.ok(urls.includes(urlPath), `Offline shell omits ${reference} from ${name}`);
+        assert.ok(urls.includes(`${urlPath}${target.search}`), `Offline shell omits ${reference} from ${name}`);
       });
     });
   }],
@@ -155,13 +157,7 @@ const tests = [
   ["service-worker upgrades replace stale caches and preserve all offline routes", () => {
     assert.match(serviceWorker, /self\.skipWaiting\(\)/);
     assert.match(serviceWorker, /self\.clients\.claim\(\)/);
-    assert.match(serviceWorker, /keys\.filter\(\(key\) => key !== CACHE_NAME\)/);
-    assert.match(serviceWorker, /await cache\.put\(event\.request, response\.clone\(\)\)/);
-    assert.match(serviceWorker, /quota or unsupported-response failure/i);
-    assert.match(serviceWorker, /requestUrl\.pathname\.startsWith\("\/duel"\)/);
-    assert.match(serviceWorker, /requestUrl\.pathname\.startsWith\("\/wallpaper"\)/);
-    assert.match(serviceWorker, /requestUrl\.pathname\.startsWith\("\/privacy"\)/);
-    assert.match(serviceWorker, /requestUrl\.pathname\.startsWith\("\/terms"\)/);
+    // Caching and offline behaviour are exercised in service-worker.test.js.
     assert.match(serviceWorker, /requestUrl\.pathname\.startsWith\("\/api\/"\)/);
   }],
   ["every local HTML asset and navigation target stays inside public", () => {

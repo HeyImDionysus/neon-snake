@@ -7,13 +7,22 @@
     <meta name="color-scheme" content="dark" />
     <meta name="description" content="Play Neon Snake against the Autopilot or challenge another player in a secure live room." />
     <meta name="robots" content="index,follow" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Neon Snake" />
+    <meta property="og:title" content="Neon Snake — Multiplayer" />
+    <meta property="og:description" content="Play Neon Snake against the Autopilot or challenge another player in a secure live room." />
+    <meta property="og:url" content="https://neon-snake-green-tau.vercel.app/duel" />
+    <meta property="og:image" content="https://neon-snake-green-tau.vercel.app/assets/neon-snake-social.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="628" />
+    <meta name="twitter:card" content="summary_large_image" />
     <title>Neon Snake — Multiplayer</title>
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/assets/icon-180.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="stylesheet" href="activity-boot.css?v=f8e0de6b61" />
-    <link rel="stylesheet" href="styles.css?v=f8e0de6b61" />
-    <link rel="stylesheet" href="duel.css?v=f8e0de6b61" />
+    <link rel="stylesheet" href="activity-boot.css?v=b906e20322" />
+    <link rel="stylesheet" href="styles.css?v=b906e20322" />
+    <link rel="stylesheet" href="duel.css?v=b906e20322" />
   </head>
   <body class="duel-page" data-duel-state="ready" data-duel-type="ai">
     <div class="activity-boot-status" id="activityBootStatus" role="status" aria-live="polite">
@@ -22,8 +31,8 @@
         <span>Preparing multiplayer…</span>
       </div>
     </div>
-    <script src="activity-boot.js?v=f8e0de6b61"></script>
-    <script src="activity-redirect.js?v=f8e0de6b61" data-activity-critical></script>
+    <script src="activity-boot.js?v=b906e20322"></script>
+    <script src="activity-redirect.js?v=b906e20322" data-activity-critical></script>
     <canvas class="signal-field" id="signalField" aria-hidden="true"></canvas>
     <div class="ambient ambient-one" aria-hidden="true"></div>
     <div class="ambient ambient-two" aria-hidden="true"></div>
@@ -243,14 +252,14 @@
     </main>
 
     <p class="sr-only" id="duelAnnouncement" aria-live="assertive"></p>
-    <script src="signal-field.js?v=f8e0de6b61"></script>
-    <script src="site-shell.js?v=f8e0de6b61"></script>
-    <script src="runtime-config.js?v=f8e0de6b61"></script>
-    <script src="activity-sdk.js?v=f8e0de6b61"></script>
-    <script src="account.js?v=f8e0de6b61"></script>
-    <script src="game-logic.js?v=f8e0de6b61" data-activity-critical></script>
-    <script src="room-transport.js?v=f8e0de6b61" data-activity-critical></script>
-    <script src="touch-controls.js?v=f8e0de6b61" data-activity-critical></script>
-    <script src="duel.js?v=f8e0de6b61" data-activity-critical></script>
+    <script src="signal-field.js?v=b906e20322"></script>
+    <script src="site-shell.js?v=b906e20322"></script>
+    <script src="runtime-config.js?v=b906e20322"></script>
+    <script src="activity-loader.js?v=b906e20322"></script>
+    <script src="account.js?v=b906e20322"></script>
+    <script src="game-logic.js?v=b906e20322" data-activity-critical></script>
+    <script src="room-transport.js?v=b906e20322" data-activity-critical></script>
+    <script src="touch-controls.js?v=b906e20322" data-activity-critical></script>
+    <script src="duel.js?v=b906e20322" data-activity-critical></script>
   </body>
 </html>

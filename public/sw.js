@@ -1,54 +1,47 @@
 "use strict";
 
-const CACHE_NAME = "neon-snake-shell-f8e0de6b61";
+const CACHE_NAME = "neon-snake-shell-b906e20322";
+// Pages plus the stamped assets they load. Stamped URLs change whenever their
+// content does, so each is immutable. The wallpaper page is packaged for local
+// files and loads plain references. The Discord SDK is not here: it only loads
+// inside the Activity, where no service worker runs.
 const APP_SHELL = [
   "/",
   "/index.html",
-  "/styles.css",
-  "/activity-boot.css",
-  "/activity-boot.js",
   "/duel.html",
-  "/activity-redirect.js",
-  "/activity-sdk.js",
   "/downloads.html",
   "/profile.html",
   "/privacy.html",
   "/terms.html",
   "/wallpaper.html",
-  "/duel.css",
-  "/site-shell.js",
-  "/downloads.css",
-  "/downloads.js",
-  "/profile.css",
-  "/legal.css",
-  "/duel.js",
-  "/account.js",
-  "/profile-config.js",
-  "/profile.js",
-  "/runtime-config.js",
+  "/activity-boot.css?v=b906e20322",
+  "/styles.css?v=b906e20322",
+  "/duel.css?v=b906e20322",
+  "/downloads.css?v=b906e20322",
+  "/profile.css?v=b906e20322",
+  "/legal.css?v=b906e20322",
+  "/wallpaper.css?v=b906e20322",
+  "/activity-boot.js?v=b906e20322",
+  "/activity-redirect.js?v=b906e20322",
+  "/activity-loader.js?v=b906e20322",
+  "/signal-field.js?v=b906e20322",
+  "/site-shell.js?v=b906e20322",
+  "/runtime-config.js?v=b906e20322",
+  "/account.js?v=b906e20322",
+  "/profile-config.js?v=b906e20322",
+  "/profile.js?v=b906e20322",
+  "/downloads.js?v=b906e20322",
+  "/game-logic.js?v=b906e20322",
+  "/wallpaper-engine.js?v=b906e20322",
+  "/wallpaper.js?v=b906e20322",
+  "/room-transport.js?v=b906e20322",
+  "/touch-controls.js?v=b906e20322",
+  "/game.js?v=b906e20322",
+  "/duel.js?v=b906e20322",
   "/wallpaper.css",
+  "/game-logic.js",
   "/wallpaper-engine.js",
   "/wallpaper.js",
-  "/room-transport.js",
-  "/touch-controls.js",
-  "/signal-field.js",
-  "/game-logic.js",
-  "/game.js",
-  "/activity-boot.css?v=f8e0de6b61",
-  "/styles.css?v=f8e0de6b61",
-  "/duel.css?v=f8e0de6b61",
-  "/activity-boot.js?v=f8e0de6b61",
-  "/activity-redirect.js?v=f8e0de6b61",
-  "/signal-field.js?v=f8e0de6b61",
-  "/site-shell.js?v=f8e0de6b61",
-  "/runtime-config.js?v=f8e0de6b61",
-  "/activity-sdk.js?v=f8e0de6b61",
-  "/account.js?v=f8e0de6b61",
-  "/game-logic.js?v=f8e0de6b61",
-  "/room-transport.js?v=f8e0de6b61",
-  "/touch-controls.js?v=f8e0de6b61",
-  "/game.js?v=f8e0de6b61",
-  "/duel.js?v=f8e0de6b61",
   "/manifest.webmanifest",
   "/assets/signal-mark.svg",
   "/assets/icon.svg",
@@ -56,56 +49,111 @@ const APP_SHELL = [
   "/assets/icon-192.png",
   "/assets/icon-512.png"
 ];
+const SHELL = new Set(APP_SHELL);
+// A flaky connection falls back to the offline copy instead of hanging.
+const NAVIGATION_TIMEOUT_MS = 4_000;
+const PAGE_FALLBACKS = [
+  ["/duel", "/duel.html"],
+  ["/downloads", "/downloads.html"],
+  ["/profile", "/profile.html"],
+  ["/privacy", "/privacy.html"],
+  ["/terms", "/terms.html"],
+  ["/wallpaper", "/wallpaper.html"],
+];
+
+// Vercel's clean URLs answer /duel.html with a redirect to /duel. A redirected
+// response cannot answer a navigation, so offline pages failed to open even
+// when cached. Pages are stored as plain, redirect-free copies.
+async function storable(response) {
+  if (!response.redirected) return response;
+  return new Response(await response.blob(), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    await Promise.all(APP_SHELL.map(async (url) => {
+      const response = await fetch(url, { cache: "reload" });
+      if (!response.ok) throw new Error(`Precache failed for ${url}`);
+      await cache.put(url, await storable(response));
+    }));
+  })());
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
-      .then(() => self.clients.claim())
-  );
+  event.waitUntil((async () => {
+    const stale = (await caches.keys()).filter((key) => key !== CACHE_NAME);
+    await Promise.all(stale.map((key) => caches.delete(key)));
+    await self.clients.claim();
+    // An open tab keeps running the scripts it loaded, now against newer files
+    // and servers; tell it a new version took over so it can offer a reload.
+    if (stale.length) {
+      const windows = await self.clients.matchAll({ type: "window" });
+      windows.forEach((client) => client.postMessage({ type: "neon-snake-updated" }));
+    }
+  })());
 });
 
+function pageFallback(pathname) {
+  return PAGE_FALLBACKS.find(([prefix]) => pathname.startsWith(prefix))?.[1] || "/index.html";
+}
+
+function withTimeout(promise, milliseconds) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Network timed out")), milliseconds);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
 self.addEventListener("fetch", (event) => {
-  const requestUrl = new URL(event.request.url);
+  const { request } = event;
+  const requestUrl = new URL(request.url);
   if (
-    event.request.method !== "GET"
+    request.method !== "GET"
     || requestUrl.origin !== self.location.origin
     || requestUrl.pathname.startsWith("/api/")
   ) return;
 
-  event.respondWith(
-    (async () => {
+  if (request.mode === "navigate") {
+    event.respondWith((async () => {
       try {
-        const response = await fetch(event.request);
+        const response = await withTimeout(fetch(request), NAVIGATION_TIMEOUT_MS);
         if (response.ok) {
-          try {
-            const cache = await caches.open(CACHE_NAME);
-            await cache.put(event.request, response.clone());
-          } catch {
-            // A quota or unsupported-response failure must not replace a valid network response.
-          }
+          const key = SHELL.has(requestUrl.pathname) ? requestUrl.pathname : pageFallback(requestUrl.pathname);
+          const copy = response.clone();
+          // Stored in the background: the page is never held back by the cache.
+          event.waitUntil(storable(copy)
+            .then((page) => caches.open(CACHE_NAME).then((cache) => cache.put(key, page)))
+            .catch(() => {}));
         }
         return response;
       } catch {
-        const cached = await caches.match(event.request);
-        if (cached) return cached;
-        if (event.request.mode === "navigate") {
-          let fallback = "/index.html";
-          if (requestUrl.pathname.startsWith("/duel")) fallback = "/duel.html";
-          else if (requestUrl.pathname.startsWith("/downloads")) fallback = "/downloads.html";
-          else if (requestUrl.pathname.startsWith("/profile")) fallback = "/profile.html";
-          else if (requestUrl.pathname.startsWith("/privacy")) fallback = "/privacy.html";
-          else if (requestUrl.pathname.startsWith("/terms")) fallback = "/terms.html";
-          else if (requestUrl.pathname.startsWith("/wallpaper")) fallback = "/wallpaper.html";
-          return caches.match(fallback);
-        }
-        return Response.error();
+        return (await caches.match(requestUrl.pathname)) || (await caches.match(pageFallback(requestUrl.pathname))) || Response.error();
       }
-    })()
-  );
+    })());
+    return;
+  }
+
+  // Only the app shell is served from the cache. Downloads, portal artwork and
+  // every other file go straight to the network and are never stored.
+  const key = `${requestUrl.pathname}${requestUrl.search}`;
+  if (!SHELL.has(key)) return;
+  event.respondWith((async () => {
+    const cached = await caches.match(key);
+    if (cached) return cached;
+    const response = await fetch(request);
+    if (response.ok) {
+      const copy = response.clone();
+      event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.put(key, copy)).catch(() => {}));
+    }
+    return response;
+  })());
 });

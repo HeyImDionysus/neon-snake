@@ -136,7 +136,7 @@ function request(url, {
       "Activity boot guard must install before the shell script",
     );
     assert.ok(
-      html.indexOf(`src="activity-redirect.js?v=${ASSET_STAMP}"`) < html.indexOf(`src="activity-sdk.js?v=${ASSET_STAMP}"`),
+      html.indexOf(`src="activity-redirect.js?v=${ASSET_STAMP}"`) < html.indexOf(`src="activity-loader.js?v=${ASSET_STAMP}"`),
       "Activity shell listeners must install before SDK startup",
     );
     assert.match(
@@ -172,7 +172,9 @@ function request(url, {
   assert.match(indexHtml, /id="activityWebsiteLink"/);
   assert.match(indexHtml, /id="activityWallpapersLink"/);
   assert.match(indexHtml, /https:\/\/neon-snake-green-tau\.vercel\.app\/downloads\.html/);
-  assert.match(indexHtml, /src="activity-sdk\.js\?v=[0-9a-z]+"/);
+  // The SDK is written in by the loader, only inside Discord.
+  assert.match(indexHtml, /src="activity-loader\.js\?v=[0-9a-z]+"/);
+  assert.doesNotMatch(indexHtml, /src="activity-sdk\.js/);
   ["classic", "portal", "rush", "canvas"].forEach((mode) => {
     assert.match(indexHtml, new RegExp(`name="mode" value="${mode}"`));
   });
@@ -192,7 +194,7 @@ function request(url, {
   assert.match(duelHtml, /class="activity-context-legal" href="\/terms\.html"/);
   assert.match(duelHtml, /href="\/terms\.html" target="_blank"/);
   assert.match(duelHtml, /href="\/privacy\.html" target="_blank"/);
-  assert.match(duelHtml, /src="activity-sdk\.js\?v=[0-9a-z]+"/);
+  assert.match(duelHtml, /src="activity-loader\.js\?v=[0-9a-z]+"/);
   assert.match(duel, /NeonSnakeActivity/);
   // The shared room is derived from the instance id already present in the URL,
   // so two people in one channel reach the same board even when Discord's RPC

@@ -2258,3 +2258,30 @@ body.activity-mode .activity-dock-legal { gap: 10px; }
   }
   .overlay .start-actions .demo-button span:first-child { font-size: 9px; }
 }
+
+/* Shown when a new version of the site takes over an open tab. */
+.update-notice {
+  position: fixed;
+  z-index: 50;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px 10px 16px;
+  border: 1px solid var(--line-bright);
+  background: var(--ink-raised);
+  color: var(--paper);
+  font: 600 13px var(--sans, system-ui);
+  box-shadow: 0 18px 50px #000a;
+}
+.update-notice button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--acid);
+  background: transparent;
+  color: var(--acid);
+  font: 700 12px var(--mono);
+  letter-spacing: .08em;
+  cursor: pointer;
+}
