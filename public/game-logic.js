@@ -425,10 +425,20 @@
     overdrive: Object.freeze({ base: 98, floor: 44, step: 2 }),
   });
   const SOLO_TIMING = Object.freeze({
+    comboWindow: 3600,
     coreDuration: 6500,
     mutationDuration: 8000,
+    overdriveDuration: 5200,
     rushDuration: 60_000,
   });
+  const SOLO_GRID = 20;
+  const SOLO_START = Object.freeze([
+    Object.freeze({ x: 10, y: 10 }),
+    Object.freeze({ x: 9, y: 10 }),
+    Object.freeze({ x: 8, y: 10 }),
+  ]);
+  const MUTATION_TYPES = Object.freeze(["flow", "amplify"]);
+  const TURN_CODES = Object.freeze({ U: { x: 0, y: -1 }, R: { x: 1, y: 0 }, D: { x: 0, y: 1 }, L: { x: -1, y: 0 } });
 
   function paceProfiles() {
     return Object.fromEntries(
@@ -442,6 +452,158 @@
 
   function tickDelay(pace, foodCount) {
     return Math.max(pace.floor, pace.base - foodCount * pace.step);
+  }
+
+  // The Daily Signal: one board per UTC day, the same for every player.
+  function dailySignal(date) {
+    const day = String(date || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return "";
+    let state = 2166136261;
+    for (const character of `neon-snake-daily:${day}`) {
+      state ^= character.charCodeAt(0);
+      state = Math.imul(state, 16777619);
+    }
+    let code = "";
+    for (let index = 0; index < 6; index += 1) {
+      const next = nextSignalRandom(state >>> 0);
+      state = next.state;
+      code += SIGNAL_ALPHABET[Math.floor(next.value * SIGNAL_ALPHABET.length)];
+    }
+    return code;
+  }
+
+  function utcDay(time = Date.now()) {
+    return new Date(time).toISOString().slice(0, 10);
+  }
+
+  // A run's turns as text: each turn is the number of steps since the previous
+  // turn (base 36) followed by U, R, D or L. "4U12L" turns up on step 4 and
+  // left on step 16. Compact enough for a full board inside one small request.
+  function encodeTurns(turns) {
+    let previous = 0;
+    return turns.map(({ step, direction }) => {
+      const code = Object.keys(TURN_CODES).find((key) => sameDirection(TURN_CODES[key], direction));
+      const text = `${(step - previous).toString(36)}${code}`;
+      previous = step;
+      return text;
+    }).join("");
+  }
+
+  function decodeTurns(text, limit = 10_000) {
+    const turns = [];
+    const pattern = /([0-9a-z]+)([URDL])/g;
+    let consumed = 0;
+    let step = 0;
+    for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
+      if (match.index !== consumed || turns.length >= limit) return null;
+      consumed = pattern.lastIndex;
+      const gap = parseInt(match[1], 36);
+      if (!Number.isSafeInteger(gap) || gap < 1) return null;
+      step += gap;
+      turns.push({ step, direction: { ...TURN_CODES[match[2]] } });
+    }
+    return consumed === String(text).length ? turns : null;
+  }
+
+  // Plays a solo run from its turns alone, with the same rules and the same
+  // step clock as the browser (game.js: advanceMovement, tick, collectFood).
+  // The browser's clock is the scheduled step time, not the wall clock, so a
+  // run's timers (combos, Cores, mutations, Overdrive) are a function of its
+  // steps. The server uses this to score Daily Signal runs itself.
+  function replaySoloRun({ signal, mode = "classic", pace = "arcade", turns = [], maxSteps = 50_000 } = {}) {
+    const code = normalizeSignalCode(signal);
+    const profile = PACE_PROFILES[pace];
+    if (!code || !profile || (mode !== "classic" && mode !== "portal")) {
+      return { valid: false, reason: "unsupported_run" };
+    }
+    let snake = SOLO_START.map((segment) => ({ ...segment }));
+    let direction = { x: 1, y: 0 };
+    let random = signalState(code);
+    let food = null;
+    let foodCount = 0;
+    let score = 0;
+    let combo = 1;
+    let lastEatAt = 0;
+    let overdriveUntil = 0;
+    let mutation = { type: null, expiresAt: 0 };
+
+    function placeFood(now) {
+      const open = [];
+      for (let y = 0; y < SOLO_GRID; y += 1) {
+        for (let x = 0; x < SOLO_GRID; x += 1) {
+          if (!snake.some((segment) => segment.x === x && segment.y === y)) open.push({ x, y });
+        }
+      }
+      if (!open.length) {
+        food = null;
+        return;
+      }
+      const choice = signalIndex(random, open.length);
+      random = choice.state;
+      const isCore = foodCount > 0 && foodCount % 5 === 0;
+      food = {
+        ...open[choice.index],
+        kind: isCore ? "core" : "signal",
+        expiresAt: isCore ? now + SOLO_TIMING.coreDuration : 0,
+      };
+    }
+
+    function collect(now) {
+      const kind = food.kind;
+      combo = now < overdriveUntil
+        ? 5
+        : lastEatAt && now - lastEatAt <= SOLO_TIMING.comboWindow ? Math.min(combo + 1, 5) : 1;
+      lastEatAt = now;
+      score += pickupScore(kind, combo) * mutationScoreMultiplier(mutation.type);
+      foodCount += 1;
+      if (combo === 5) overdriveUntil = now + SOLO_TIMING.overdriveDuration;
+      if (kind === "core") {
+        const choice = signalIndex(random, MUTATION_TYPES.length);
+        random = choice.state;
+        mutation = { type: MUTATION_TYPES[choice.index], expiresAt: now + SOLO_TIMING.mutationDuration };
+      }
+      placeFood(now);
+    }
+
+    const stepDelay = (now) => mutationDelay(tickDelay(profile, foodCount), mutationTypeAt(mutation, now));
+    placeFood(0);
+    let now = stepDelay(0);
+    let steps = 0;
+    let turnIndex = 0;
+    let outcome = "alive";
+    while (steps < maxSteps) {
+      if (mutation.type && !mutationTypeAt(mutation, now)) mutation = { type: null, expiresAt: 0 };
+      if (food?.kind === "core" && now >= food.expiresAt) {
+        foodCount += 1;
+        placeFood(now);
+      }
+      steps += 1;
+      if (turnIndex < turns.length && turns[turnIndex].step === steps) {
+        const turn = turns[turnIndex];
+        if (!isCardinalDirection(turn.direction) || isReverseDirection(turn.direction, direction)) {
+          return { valid: false, reason: "impossible_turn", step: steps };
+        }
+        direction = { ...turn.direction };
+        turnIndex += 1;
+      }
+      const head = nextHead(snake[0], direction, mode, SOLO_GRID);
+      const growing = Boolean(food) && head.x === food.x && head.y === food.y;
+      const collision = collisionType(head, snake, growing, mode, SOLO_GRID);
+      if (collision) {
+        outcome = collision;
+        break;
+      }
+      snake.unshift(head);
+      if (growing) collect(now);
+      else snake.pop();
+      if (!food) {
+        outcome = "clear";
+        break;
+      }
+      now += stepDelay(now);
+    }
+    if (turnIndex < turns.length) return { valid: false, reason: "turns_after_end", step: steps };
+    return { valid: true, outcome, score, steps, length: snake.length, foods: foodCount };
   }
 
   function rankForScore(score, mode) {
@@ -1848,6 +2010,12 @@
     signalIndex,
     signalState,
     soloTiming,
+    dailySignal,
+    decodeTurns,
+    encodeTurns,
+    replaySoloRun,
+    utcDay,
+    sameDirection,
     sortedTopRuns,
     splitFluidPath,
     survivalForecast,

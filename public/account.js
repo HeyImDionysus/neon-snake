@@ -231,11 +231,56 @@
     }
   }
 
+  // Today's Daily Signal board: scores the server got by replaying each run.
+  const dailyBoard = document.querySelector("#dailyLeaderboard");
+  const dailyBoardCode = document.querySelector("#dailyBoardCode");
+  const dailyBoardStatus = document.querySelector("#dailyBoardStatus");
+
+  function renderDaily(payload) {
+    if (!dailyBoard) return;
+    if (dailyBoardCode) dailyBoardCode.textContent = payload?.signal || "";
+    const entries = Array.isArray(payload?.entries) ? payload.entries : [];
+    dailyBoard.replaceChildren();
+    if (!entries.length) {
+      dailyBoard.append(element("li", "empty-run", "No verified runs today yet. Press DAILY by the Signal Code to play it."));
+    }
+    const yourName = root.NeonSnakeAccount?.profile?.username;
+    entries.forEach((entry) => {
+      const item = element("li", `daily-entry${yourName && entry.username === yourName ? " is-you" : ""}`);
+      const link = element("a", "", entry.callsign || entry.displayName || "Discord Player");
+      link.href = `/profile.html?user=${encodeURIComponent(entry.username || "")}`;
+      link.append(element("small", "", `@${entry.username || "player"}`));
+      item.append(
+        element("span", "run-position", String(entry.rank).padStart(2, "0")),
+        link,
+        element("strong", "", String(entry.score)),
+      );
+      dailyBoard.append(item);
+    });
+    if (dailyBoardStatus) {
+      dailyBoardStatus.textContent = payload?.you
+        ? `YOU · #${payload.you.rank} · ${payload.you.score}`
+        : "SERVER-REPLAYED RUNS";
+    }
+  }
+
+  async function loadDaily() {
+    if (!dailyBoard) return;
+    try {
+      const response = await fetch("/api/daily", { credentials: "same-origin" });
+      if (!response.ok) throw new Error("Daily board unavailable");
+      renderDaily(await response.json());
+    } catch {
+      if (dailyBoardStatus) dailyBoardStatus.textContent = "DAILY BOARD OFFLINE";
+    }
+  }
+  root.addEventListener("neon-daily-updated", () => void loadDaily());
+
   root.NeonSnakeAccount = {
     profile: null,
     refresh: () => embeddedActivity
       ? loadAccount()
-      : Promise.all([loadAccount(), loadLeaderboard()]),
+      : Promise.all([loadAccount(), loadLeaderboard()]).then(loadDaily),
   };
   root.addEventListener("neon-activity-ready", () => {
     void root.NeonSnakeAccount.refresh();

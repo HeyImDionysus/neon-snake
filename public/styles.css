@@ -1071,6 +1071,42 @@ body[data-game-state="over"] .overlay:has(.decision-report:not([hidden])) #overl
 .signal-copy small { display: block; }
 .signal-copy span { color: var(--dim); font: 700 11px var(--mono); letter-spacing: .16em; }
 .signal-copy small { margin-top: 4px; color: var(--muted); font-size: 10px; }
+.daily-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  margin-top: 5px;
+  padding: 0 8px;
+  border: 1px solid #ffd16655;
+  color: var(--gold);
+  background: #ffd1660d;
+  font: 700 10px var(--mono);
+  letter-spacing: .12em;
+  cursor: pointer;
+}
+.daily-button strong { color: var(--paper); letter-spacing: .16em; }
+.daily-button:hover:not(:disabled) { border-color: var(--gold); }
+.daily-button:disabled { opacity: .55; cursor: not-allowed; }
+.daily-button:focus-visible { outline: 2px solid var(--coral); outline-offset: 2px; }
+.daily-board { border-color: #ffd16638; background: #ffd16608; }
+.daily-board > header { border-bottom-color: #ffd16624; }
+.daily-board h3 strong { color: var(--gold); font-family: var(--mono); letter-spacing: .16em; }
+.daily-board-note { margin: 0; padding: 10px 16px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.daily-board ol { margin: 0; padding: 0 16px 6px; list-style: none; }
+.daily-entry {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  border-top: 1px solid #ffffff0a;
+}
+.daily-entry .run-position { color: var(--dim); font: 700 11px var(--mono); }
+.daily-entry a { color: var(--paper); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.daily-entry a small { margin-left: 8px; color: var(--muted); font-size: 11px; }
+.daily-entry > strong { color: var(--gold); font: 700 14px var(--mono); }
+.daily-entry.is-you { background: #ffd16610; }
 .signal-button {
   display: grid;
   grid-template-columns: 1fr auto;

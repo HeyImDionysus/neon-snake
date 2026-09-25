@@ -45,6 +45,8 @@ const mobilePause = $("#mobilePause");
 const soundButton = $("#soundButton");
 const difficultySelect = $("#difficulty");
 const signalButton = $("#signalButton");
+const dailyButton = $("#dailyButton");
+const dailyCode = $("#dailyCode");
 const signalCode = $("#signalCode");
 const lensButton = $("#lensButton");
 const lensState = $("#lensState");
@@ -88,9 +90,9 @@ const topRunsEl = $("#topRuns");
 
 const GRID = 20;
 let TILE = canvas.width / GRID;
-const COMBO_WINDOW = 3600;
-const OVERDRIVE_DURATION = 5200;
 const {
+  comboWindow: COMBO_WINDOW,
+  overdriveDuration: OVERDRIVE_DURATION,
   coreDuration: CORE_DURATION,
   mutationDuration: MUTATION_DURATION,
   rushDuration: RUSH_DURATION,
@@ -183,6 +185,11 @@ let soundEnabled = getStored("neon-snake-sound", "true") !== "false";
 let lensEnabled = getStored("neon-snake-lens", "false") === "true";
 let profile = loadProfile();
 let runSignal = "";
+// Every step's turn, so a Daily Signal run can be replayed by the server.
+let runSteps = 0;
+let runTurns = [];
+const DAILY_MODE = "classic";
+const DAILY_PACE = "arcade";
 let presenceStartedAt = 0;
 const MODE_NAMES = { classic: "Classic", portal: "Portal", rush: "Rush", canvas: "Canvas" };
 let signalRandomState = 0;
@@ -397,6 +404,8 @@ function resetRun() {
   particles = [];
   ripples = [];
   runPath = [{ ...snake[0] }];
+  runSteps = 0;
+  runTurns = [];
   ghostStep = 0;
   echoBeaten = false;
   aiEvaluations = [];
@@ -1179,6 +1188,12 @@ function tick(now = performance.now()) {
   }
   const effectiveMode = Rules.effectiveMode(activeMode, mutation.type);
   if (!demoMode) recordDecision(effectiveMode);
+  if (!demoMode) {
+    runSteps += 1;
+    if (!Rules.sameDirection(queuedDirection, direction)) {
+      runTurns.push({ step: runSteps, direction: { ...queuedDirection } });
+    }
+  }
   direction = { ...queuedDirection };
   const head = Rules.nextHead(snake[0], direction, effectiveMode, GRID);
 
@@ -1445,7 +1460,9 @@ function updateHud() {
   renderBest();
   totalRunsEl.textContent = String(profile.runs).padStart(3, "0");
   longestEl.textContent = String(profile.longest).padStart(3, "0");
-  modeChip.textContent = demoMode ? `${activeMode.toUpperCase()} · AUTO` : activeMode.toUpperCase();
+  modeChip.textContent = demoMode
+    ? `${activeMode.toUpperCase()} · AUTO`
+    : isDailyRun() ? `${activeMode.toUpperCase()} · DAILY` : activeMode.toUpperCase();
   timerStat.hidden = activeMode !== "rush";
   mutationStat.hidden = !mutation.type;
   if (mutation.type) mutationName.textContent = mutation.type.toUpperCase();
@@ -1853,6 +1870,78 @@ function endGame(reason) {
   announcement.textContent = `${title} Final score ${score}.`;
   focusWithoutScroll(startButton);
   playCrashSound();
+  if (reason !== "time" && isDailyRun()) void submitDailyRun();
+}
+
+// Daily Signal: the same Classic board for everyone today. A finished run's
+// turns go to the server, which replays them and ranks the score they earn.
+function dailyDate() {
+  return Rules.utcDay();
+}
+
+function isDailyRun() {
+  return !demoMode
+    && activeMode === DAILY_MODE
+    && difficultySelect.value === DAILY_PACE
+    && runSignal === Rules.dailySignal(dailyDate());
+}
+
+function renderDailyButton() {
+  dailyCode.textContent = Rules.dailySignal(dailyDate());
+}
+
+function selectDailySignal() {
+  if (runState !== "ready" && runState !== "over") return;
+  const input = modeInputs.find((option) => option.value === DAILY_MODE);
+  if (input) input.checked = true;
+  difficultySelect.value = DAILY_PACE;
+  runSignal = Rules.dailySignal(dailyDate());
+  signalCode.textContent = runSignal;
+  activeMode = selectedMode();
+  document.body.dataset.mode = activeMode;
+  runState = "ready";
+  resetRun();
+  ghostPath = Rules.normalizeReplay(profile.replays?.[activeMode], GRID);
+  timerStat.hidden = true;
+  pauseButton.disabled = true;
+  setState("ready", "DAILY SIGNAL READY");
+  updateHud();
+  updateActionLabels();
+  updateReadyOverlay();
+  syncChallengeUrl();
+  renderDailyButton();
+  showPickup("DAILY SIGNAL", runSignal);
+  announcement.textContent = `Daily Signal ${runSignal} loaded: Classic at Arcade pace, the same board for every player today.`;
+}
+
+async function submitDailyRun() {
+  const date = dailyDate();
+  if (!globalThis.NeonSnakeAccount?.profile) {
+    showPickup("DAILY SIGNAL", "SIGN IN TO RANK");
+    return;
+  }
+  try {
+    const response = await fetch("/api/daily", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date, steps: runSteps, turns: Rules.encodeTurns(runTurns) }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    const rank = result.rank ? `#${result.rank}` : "RANKED";
+    showPickup(`DAILY ${rank}`, `${result.score} VERIFIED`);
+    if (runState === "over") {
+      overlayMessage.textContent = `${overlayMessage.textContent} · Daily ${rank}, verified by the server`;
+    }
+    announcement.textContent = result.score === result.best
+      ? `Daily Signal run verified: ${result.score} points, rank ${result.rank}.`
+      : `Daily Signal run verified at ${result.score} points. Your best today is ${result.best}, rank ${result.rank}.`;
+    globalThis.dispatchEvent(new CustomEvent("neon-daily-updated"));
+  } catch (error) {
+    showPickup("DAILY SIGNAL", "NOT RECORDED");
+    announcement.textContent = `The Daily Signal run was not recorded (${error.message}).`;
+  }
 }
 
 function togglePause() {
@@ -1949,6 +2038,7 @@ function setSetupDisabled(disabled) {
   modeInputs.forEach((input) => { input.disabled = disabled; });
   difficultySelect.disabled = disabled;
   signalButton.disabled = disabled;
+  dailyButton.disabled = disabled;
 }
 
 function updateActionLabels() {
@@ -2408,6 +2498,8 @@ exportButton.addEventListener("click", exportCanvasArtwork);
 soundButton.addEventListener("click", toggleSound);
 lensButton.addEventListener("click", toggleLens);
 signalButton.addEventListener("click", generateNewSignal);
+dailyButton.addEventListener("click", selectDailySignal);
+renderDailyButton();
 difficultySelect.addEventListener("change", () => {
   syncChallengeUrl();
   scheduleMove();
